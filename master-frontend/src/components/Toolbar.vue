@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { inject, provide, ref, watch, type Ref } from 'vue'
+import { inject, ref, watch, type Ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { dialogKey } from '../composables/useDialog'
 import type { showAlert as ShowAlert } from '../composables/useDialog'
@@ -174,8 +174,6 @@ function submitButtonLabel(): string {
   return editingConnId.value !== null ? t('common.save') : t('newConn.create')
 }
 
-// Exposed to ConnectionTree (via provide/inject) so right-click "编辑连接"
-// can open this same dialog with the chosen connection's current settings.
 async function openEditConnection(connId: string) {
   try {
     const conns = await invoke<Array<ConnectionInfo>>('list_connections')
@@ -216,7 +214,10 @@ async function openEditConnection(connId: string) {
     await showAlert(String(e))
   }
 }
-provide('openEditConnection', openEditConnection)
+// Toolbar 与 ConnectionTree 是 App.vue 的兄弟组件,Vue 的 provide 只能向后代
+// 注入,兄弟之间无效。改由 App.vue 持有 Toolbar ref + provide 转发 closure,
+// 此处仅 defineExpose 即可。
+defineExpose({ openEditConnection })
 
 async function createConnection() {
   const cas = parseCAList(newConnForm.value.common_addresses_text)

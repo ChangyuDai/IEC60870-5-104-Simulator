@@ -115,6 +115,14 @@ function openParseFrame(prefill?: string) {
 }
 provide('openParseFrame', openParseFrame)
 
+// Toolbar 暴露 openEditConnection(id) 给右键菜单使用。Toolbar 与 ConnectionTree
+// 是兄弟,Vue provide 不能跨兄弟传递,所以由 App 持有 Toolbar 的模板 ref 并 provide
+// 一层转发 closure,这样 ConnectionTree 的 inject('openEditConnection') 才能拿到值。
+const toolbarRef = ref<InstanceType<typeof Toolbar> | null>(null)
+provide('openEditConnection', (id: string) => {
+  toolbarRef.value?.openEditConnection(id)
+})
+
 // Listen for backend connection state events
 let unlistenConnState: (() => void) | null = null
 
@@ -192,7 +200,7 @@ function snoozeUpdate() {
 <template>
   <div :class="['app-layout', { 'log-expanded': logExpanded }]" :style="{ gridTemplateRows: gridRows }">
     <header class="toolbar-area">
-      <Toolbar />
+      <Toolbar ref="toolbarRef" />
     </header>
 
     <aside class="tree-area">
