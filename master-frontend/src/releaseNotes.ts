@@ -4,8 +4,7 @@ export const RELEASES_URL = 'https://github.com/Carl-Dai/IEC60870-5-104-Simulato
 
 // Keep in sync with CHANGELOG.md — see `release` skill.
 export const RELEASE_NOTES: string[] = [
-  'GitHub Release 现在覆盖 Windows ARM64: Surface Pro X / Snapdragon X / Win11-ARM 用户可下载 arm64-setup.exe (NSIS) / arm64_en-US.msi / arm64-portable.exe, Tauri updater 自动更新通道同步覆盖 windows-aarch64',
-  '修复 "右键 → 编辑连接" 点无响应: Toolbar 与 ConnectionTree 是 App.vue 的兄弟, Vue provide 只能向后代注入, 之前 inject 拿到 undefined。改由 App 持有 Toolbar ref + provide 转发 closure, 现在右键菜单真能弹对话框',
-  '修复 v1.3.1 Windows 便携版没传上去 / Release 卡占位符: 上传 step 源路径写错 (productName 不是 cargo 产物名)。v1.3.2 起便携 EXE 齐齐到位',
+  '主站连接 TLS 子站时无条件关闭 hostname 校验: 真实现场的服务端证书 CN 通常是设备序列号、SAN 也常缺失, 严格 hostname 匹配几乎从不成立。现在默认关掉 hostname 检查, CA 链信任仍按 accept_invalid_certs 控制, 自签 CA 场景可以保持严格链验证又不必把每个设备序列号加进 SAN',
+  '上一版 v1.3.2 亮点: GitHub Release 覆盖 Windows ARM64 (Surface Pro X / Snapdragon X / Win11-ARM), 修复 v1.3.1 Windows 便携 EXE 没传 + Release body 占位符问题, 修复主站右键编辑连接因兄弟 provide 失效而无响应',
   '上一版 v1.3.1 亮点: TLS 私钥自动兼容 PKCS#1 (BEGIN RSA PRIVATE KEY), 主子站 native-tls 加载链路新增 PKCS#1 → PKCS#8 自动转换',
 ]

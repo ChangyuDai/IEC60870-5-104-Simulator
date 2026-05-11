@@ -770,10 +770,12 @@ impl MasterConnection {
             builder.identity(identity);
         }
 
-        // Accept invalid certs (for self-signed testing)
+        // 现场签发的服务端证书 CN 通常是设备序列号而非 IP/DNS,SAN 也常缺失,
+        // schannel/Secure Transport 会报 CERT_E_CN_NO_MATCH 拒绝握手。这里无条件
+        // 关闭 hostname 校验,但保留 CA 链信任评估(由 accept_invalid_certs 控制)。
+        builder.danger_accept_invalid_hostnames(true);
         if self.config.tls.accept_invalid_certs {
             builder.danger_accept_invalid_certs(true);
-            builder.danger_accept_invalid_hostnames(true);
         }
 
         let connector = builder.build()

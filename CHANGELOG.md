@@ -2,6 +2,20 @@
 
 本项目的所有重要变更记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.3.3] - 2026-05-11
+
+### Highlights / 亮点
+
+- 🔓 **主站连接 TLS 子站时无条件关闭 hostname 校验** / Master always disables TLS hostname verification when connecting — 真实工程现场的服务端证书 CN 普遍是设备序列号 (例如 `om_1825849177586352128`), SAN 也常缺失或不含主站填的 IP/DNS。此前主站必须勾 `accept_invalid_certs` 才能连上 (因为它同时关掉 hostname 校验), 但这把整条 CA 链信任都一起关了。本次拆分: hostname 校验默认就关 (CN/SAN 几乎从不匹配现场连接信息), 证书签名链信任仍按 `accept_invalid_certs` 控制 — 用自签 CA 时可以让 hostname 不严格但 CA 链严格 / Server certs issued in the field commonly use a device serial as CN (e.g. `om_1825849177586352128`) and either omit SAN or list values that don't match the IP/DNS the master is dialing. Previously the only way to connect was to tick `accept_invalid_certs`, but that also disabled CA-chain trust. v1.3.3 splits the two: hostname checking is now always off, while CA-chain trust is still gated by `accept_invalid_certs` — so a self-signed CA setup can keep strict chain validation without manually adding every device serial to SAN.
+
+### Changed 改进
+
+- **主站 TLS 装载**: `MasterConnection::ensure_writer_setup_async` 把 `builder.danger_accept_invalid_hostnames(true)` 从 `if self.config.tls.accept_invalid_certs` 分支里抽到外面、无条件设置;`accept_invalid_certs` 现在只控制 `danger_accept_invalid_certs` 一项 (CA 链 / 过期 / validity period) / `MasterConnection::ensure_writer_setup_async` hoists `danger_accept_invalid_hostnames(true)` out of the `accept_invalid_certs` branch so it always applies; `accept_invalid_certs` now only toggles `danger_accept_invalid_certs` (CA chain / expiry / Apple validity-period policy).
+
+### Internal 内部
+
+- **CI / Release**: workflow 的 portable-exe 上传 step 改用 `if: always() && matrix.platform == 'windows-latest'`, tauri-action 偶发 GitHub API race (`Not Found - delete-a-release-asset`) 不再让便携 EXE 被跳过;同时加防呆: cargo 产物若不存在 → 输出 `::warning::` 并 exit 0, 避免遮蔽真正 build 失败 / Release workflow's portable-exe step now uses `if: always() && matrix.platform == 'windows-latest'`, so the occasional `tauri-action` race (`Not Found - delete-a-release-asset`) no longer takes the portable EXE down with it. Defensive: if the cargo binary is missing → emit `::warning::` and exit 0 so genuine compile failures still surface.
+
 ## [1.3.2] - 2026-05-11
 
 ### Highlights / 亮点
