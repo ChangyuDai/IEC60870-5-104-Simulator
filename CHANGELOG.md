@@ -2,6 +2,26 @@
 
 本项目的所有重要变更记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.3.2] - 2026-05-11
+
+### Highlights / 亮点
+
+- 🪟 **GitHub Release 现在覆盖 Windows ARM64** / GitHub Release now ships Windows ARM64 — Surface Pro X / Snapdragon X / Win11-ARM 用户可以下载 `_arm64-setup.exe` (NSIS) / `_arm64_en-US.msi` / `_arm64-portable.exe` 三种格式;Tauri updater 自动覆盖 `windows-aarch64` 平台,后续 ARM 设备能跟主线一起收到自动更新 / Surface Pro X / Snapdragon X / Win11-ARM users can now download `_arm64-setup.exe` (NSIS), `_arm64_en-US.msi`, and `_arm64-portable.exe`. The Tauri updater manifest now includes `windows-aarch64`, so ARM devices receive auto-updates alongside the main channel.
+- 🛠️ **修复 v1.3.1 Windows job 失败 / 便携版没传上去** / Fixed v1.3.1 Windows build failure that blocked the portable EXE — 上传 step 之前写的源路径 `target/release/IEC104Slave.exe` 实际上不存在 (那是 Tauri productName, 只出现在 `bundle/nsis/` 里), cargo 真正产物名是 crate name `iec104sim-app.exe` / `iec104master-app.exe`。修正后 v1.3.2 Release 资产里会齐齐看到便携 EXE / The step wrote `target/release/IEC104Slave.exe` as source, but that path doesn't exist — `IEC104Slave.exe` is the Tauri productName and only appears inside `bundle/nsis/` installer filenames. Cargo's actual binary follows the crate name (`iec104sim-app.exe` / `iec104master-app.exe`). Fixed source paths; v1.3.2 release ships portable EXE assets.
+- 🔧 **主站 "右键 → 编辑连接" 终于真的能开对话框** / Right-click "Edit connection" actually opens the dialog now — Toolbar 与 ConnectionTree 是 App.vue 的兄弟, Vue 的 `provide` 只能向后代注入, 兄弟之间无效, 之前点了等于什么都没发生。改由 App 持有 Toolbar ref + provide 转发 closure, ConnectionTree.inject 现在能拿到真值 / `Toolbar` and `ConnectionTree` are siblings; Vue `provide` only flows to descendants, so the previous setup silently swallowed the call. Now `App.vue` holds a `toolbarRef` and provides a forwarding closure that `ConnectionTree.inject('openEditConnection')` resolves correctly.
+
+### Added 新增
+
+- **CI / Release**: `.github/workflows/release.yml` 的 `build-slave` / `build-master` matrix 中 windows-latest 由 1 个扩成 2 个 (x64 + `aarch64-pc-windows-msvc`), 通过新 matrix key `win_arch` (x64 / arm64) 区分上传文件名,`rust_target` 区分产物路径 / Windows job in both `build-slave` and `build-master` matrices expands to `x64` + `aarch64-pc-windows-msvc`; a new `win_arch` matrix key distinguishes the uploaded portable-exe filename, `rust_target` controls the cargo target directory.
+- **CI / Release**: `scripts/gen-update-manifest.mjs` 新增 `windows-aarch64` 平台模式 (匹配 `_arm64-setup.exe`), Tauri updater 现在为 Win11-ARM / Surface Pro X / Snapdragon 设备生成正确的下载条目 / `gen-update-manifest.mjs` recognises `_arm64-setup.exe` as `windows-aarch64`, so the Tauri updater serves Win11 ARM (Surface Pro X, Snapdragon X) the correct asset.
+- **CI / Release**: `scripts/build-release-notes.mjs` PLATFORMS 数组追加三行 Windows ARM64 (NSIS / MSI / Portable), Release 描述下载表镜像 x64 三行结构 / Three Windows ARM64 rows (NSIS / MSI / Portable) added to the per-OS download table.
+- **CI / Release tests**: `scripts/{build-release-notes,gen-update-manifest}.test.mjs` 各加 ARM64 断言 (NSIS 命名 / Portable 命名 / windows-aarch64 分组), 11 项全绿 / Added ARM64 assertions to both vitest suites (NSIS naming, portable naming, `windows-aarch64` grouping); 11 cases green.
+
+### Fixed 修复
+
+- **CI / Release**: v1.3.1 Windows 上传便携 exe step 失败 (源路径写成 productName, 实际应是 cargo crate name) / Portable-exe upload step in v1.3.1 Windows job referenced productName path instead of crate-name path; fixed (`iec104sim-app.exe` / `iec104master-app.exe`).
+- **主站前端**: 主站 ConnectionTree 右键 "编辑连接" 之前 inject 拿不到 closure (Toolbar provide → ConnectionTree inject 跨兄弟无效), 点了无响应。改由 App.vue 持有 Toolbar ref + provide 转发 / Master `ConnectionTree`'s right-click "Edit connection" used to silently do nothing because the provider lived on a sibling component. Now wired through `App.vue` via a forwarding provide.
+
 ## [1.3.1] - 2026-05-11
 
 ### Highlights / 亮点
