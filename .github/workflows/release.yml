@@ -77,8 +77,11 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
 
+      # always() 让本步骤即使 tauri-action 因为 GitHub API 上传 race
+      # (Not Found / delete-a-release-asset) 失败也继续: 此时 cargo 产物已
+      # 经编译完成,便携 exe 仍可上传; job 整体状态仍会 failure 不掩盖问题。
       - name: Upload Windows portable exe (Slave)
-        if: matrix.platform == 'windows-latest'
+        if: always() && matrix.platform == 'windows-latest'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -91,6 +94,10 @@ jobs:
             SRC="target/${{ matrix.rust_target }}/release/iec104sim-app.exe"
           else
             SRC="target/release/iec104sim-app.exe"
+          fi
+          if [ ! -f "$SRC" ]; then
+            echo "::warning::cargo binary $SRC not found — skipping portable upload"
+            exit 0
           fi
           DEST="IEC104Slave_${VERSION}_${ARCH}-portable.exe"
           cp "$SRC" "$DEST"
@@ -164,8 +171,9 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
 
+      # always() 让本步骤即使 tauri-action 失败也继续 (同 Slave 注释)。
       - name: Upload Windows portable exe (Master)
-        if: matrix.platform == 'windows-latest'
+        if: always() && matrix.platform == 'windows-latest'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -177,6 +185,10 @@ jobs:
             SRC="target/${{ matrix.rust_target }}/release/iec104master-app.exe"
           else
             SRC="target/release/iec104master-app.exe"
+          fi
+          if [ ! -f "$SRC" ]; then
+            echo "::warning::cargo binary $SRC not found — skipping portable upload"
+            exit 0
           fi
           DEST="IEC104Master_${VERSION}_${ARCH}-portable.exe"
           cp "$SRC" "$DEST"
