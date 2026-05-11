@@ -72,6 +72,18 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
 
+      - name: Upload Windows portable exe (Slave)
+        if: matrix.platform == 'windows-latest'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          SRC="target/release/IEC104Slave.exe"
+          DEST="IEC104Slave_${VERSION}_x64-portable.exe"
+          cp "$SRC" "$DEST"
+          gh release upload "$GITHUB_REF_NAME" "$DEST" --clobber
+
   build-master:
     strategy:
       fail-fast: false
@@ -134,6 +146,18 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
+
+      - name: Upload Windows portable exe (Master)
+        if: matrix.platform == 'windows-latest'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          SRC="target/release/IEC104Master.exe"
+          DEST="IEC104Master_${VERSION}_x64-portable.exe"
+          cp "$SRC" "$DEST"
+          gh release upload "$GITHUB_REF_NAME" "$DEST" --clobber
 
   publish-manifest:
     needs: [build-slave, build-master]

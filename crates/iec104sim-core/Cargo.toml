@@ -1,6 +1,6 @@
 [package]
 name = "iec104sim-core"
-version = "1.0.9"
+version = "1.0.10"
 edition = "2021"
 
 [dependencies]
@@ -14,6 +14,7 @@ log = "0.4"
 rand = "0.8"
 native-tls = "0.2"
 tokio-native-tls = "0.3.1"
+rsa = { version = "0.9", default-features = false, features = ["std", "pem"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util"] }

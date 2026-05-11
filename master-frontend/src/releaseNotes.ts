@@ -4,9 +4,9 @@ export const RELEASES_URL = 'https://github.com/Carl-Dai/IEC60870-5-104-Simulato
 
 // Keep in sync with CHANGELOG.md — see `release` skill.
 export const RELEASE_NOTES: string[] = [
-  '新增 "报文解析器" 工具: 顶栏点开后粘贴一段 hex APDU, 即刻得到 APCI / ASDU / IOA 三段式可视化, 覆盖 25 种 ASDU 类型 (监视方向 NA + 时标 TB/TD/TE/TF + 控制命令 + 系统命令)',
-  '通信日志条目右键即可 "解析此报文", 自动用该条 raw_bytes 填充, 无需复制粘贴',
-  '性能: 日志面板未展开时, master 收发热路径整段跳过 format!() 字符串构造 (LogCollector 加 enabled flag + active_lc helper), 大流量场景下 CPU 与堆压力明显下降',
-  '修复: master 接收循环 4 处编译错误 (active_lc 漏传引用), workspace 重新可构建, cargo test 65/65 全绿',
-  '改进: types.ts 抽出 ChangedCategoriesMap / CategoryCountsMap 别名, 三处组件不再重复嵌套泛型',
+  'TLS 私钥自动兼容 PKCS#1 (BEGIN RSA PRIVATE KEY): 现场签出的客户端密钥常是 PKCS#1, 此前必须 openssl pkcs8 -topk8 转换才能用; 现在主站连接 TLS 子站时, 后端识别到 PKCS#1 会自动在内存里转成 PKCS#8 再交给 native-tls, PKCS#8 原样透传, 加密私钥/EC SEC1 给出明确错误提示',
+  'GitHub Release 新增 Windows 便携版: 直接下载 IEC104Master_1.3.1_x64-portable.exe 双击即用, 不写注册表, 适合 U 盘 / 免安装场景 (依赖 WebView2 Runtime, Win10 22H2+ / Win11 自带)',
+  '修复: 新建连接对话框默认证书路径与 LEGACY_CERTS 迁移列表里残留的开发者本机绝对路径已清理, 默认回归到稳定的 ./ca.pem / ./client.pem / ./client-key.pem',
+  '新增 4 项 tls_key 单元测试: 覆盖 PKCS#1 → PKCS#8 真实转换链路 + PKCS#8 原样透传 + 文件不存在 + 未知 PEM 格式被拒绝',
+  '上一版 v1.3.0 亮点: 报文解析器双端可用, 日志面板关闭时热路径跳过 format!() 字符串构造',
 ]

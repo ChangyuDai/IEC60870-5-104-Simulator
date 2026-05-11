@@ -385,8 +385,9 @@ impl SlaveServer {
             } else {
                 let cert = std::fs::read(&cfg.cert_file)
                     .map_err(|e| SlaveError::TlsError(format!("读取证书 {}: {}", cfg.cert_file, e)))?;
-                let key = std::fs::read(&cfg.key_file)
-                    .map_err(|e| SlaveError::TlsError(format!("读取密钥 {}: {}", cfg.key_file, e)))?;
+                // PKCS#1 → PKCS#8 自动转换,详见 master.rs 同段注释。
+                let key = crate::tls_key::load_key_as_pkcs8_pem(&cfg.key_file)
+                    .map_err(SlaveError::TlsError)?;
                 native_tls::Identity::from_pkcs8(&cert, &key)
                     .map_err(|e| SlaveError::TlsError(format!("加载身份: {}", e)))?
             };

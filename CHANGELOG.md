@@ -2,6 +2,33 @@
 
 本项目的所有重要变更记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.3.1] - 2026-05-11
+
+### Highlights / 亮点
+
+- 🔑 **TLS 私钥自动兼容 PKCS#1 (BEGIN RSA PRIVATE KEY)** / TLS now auto-accepts PKCS#1 keys — 真实工程现场签出来的客户端密钥常常是 `-----BEGIN RSA PRIVATE KEY-----` (PKCS#1) 格式,而 `native-tls` 的 `from_pkcs8` 严格只吃 PKCS#8。之前用户必须先 `openssl pkcs8 -topk8 -nocrypt` 转一遍才能用,踩坑率极高;现在主站和子站都新增 `tls_key::load_key_as_pkcs8_pem` helper,识别到 PKCS#1 自动在内存里转换为 PKCS#8 再交给 native-tls,PKCS#8 原样透传,加密私钥/EC SEC1 给出明确错误提示 / Field-issued client keys frequently arrive in PKCS#1 (`-----BEGIN RSA PRIVATE KEY-----`), but `native-tls::Identity::from_pkcs8` accepts only PKCS#8 — forcing users to run `openssl pkcs8 -topk8 -nocrypt` before connecting. Both master and slave now route the key through a new `tls_key::load_key_as_pkcs8_pem` helper that converts PKCS#1 → PKCS#8 in memory, passes PKCS#8 through untouched, and emits clear errors for encrypted or SEC1 EC keys.
+- 📦 **GitHub Release 新增 Windows 便携版(裸 EXE)** / GitHub Release now ships a Windows portable EXE — 不想/不能安装到系统的用户可以直接下载 `IEC104Slave_1.3.1_x64-portable.exe` 与 `IEC104Master_1.3.1_x64-portable.exe`,双击即用(仅依赖系统自带的 WebView2 Runtime,Win10 22H2+ / Win11 自带)。NSIS / MSI 安装版与自动更新通道照旧 / Users who cannot or do not want to install can grab `IEC104Slave_1.3.1_x64-portable.exe` / `IEC104Master_1.3.1_x64-portable.exe` from the release page and run them directly (WebView2 Runtime required, bundled with Win10 22H2+ / Win11). NSIS / MSI installers and the auto-update channel are unaffected.
+- 🧪 **新增 4 项 tls_key 单元测试** / 4 new `tls_key` unit tests — 覆盖 PKCS#1 → PKCS#8 真实转换链路(可被 PKCS#8 解码器再解析回来)、PKCS#8 原样透传、文件不存在错误包含路径、未知 PEM 格式被拒绝 / Cover the real PKCS#1 → PKCS#8 conversion (verified by parsing the output back), PKCS#8 pass-through, missing-file error including the path, and rejection of unknown PEM blocks.
+
+### Added 新增
+
+- **iec104sim-core**: 新增 `tls_key` 模块(crate-private),导出 `load_key_as_pkcs8_pem(path) -> Result<Vec<u8>, String>`,统一规范化私钥为 PKCS#8 PEM 字节供 `native_tls::Identity::from_pkcs8` 使用;依赖新增 `rsa = { version = "0.9", default-features = false, features = ["std", "pem"] }` / New crate-private `tls_key` module normalises any client/server key file to PKCS#8 PEM bytes via `load_key_as_pkcs8_pem`. New dependency: `rsa = "0.9"` with `std` + `pem` features.
+- **iec104sim-core**: `tls_key::tests` 共 4 个单元测试,使用 `tempfile` + `rand::rngs::OsRng` 生成真实 RSA 2048 密钥进行往返验证 / 4 new unit tests in `tls_key::tests` using `tempfile` + `OsRng` to generate real RSA-2048 keys for round-trip assertions.
+- **CI / Release**: `.github/workflows/release.yml` 在 `build-slave` 与 `build-master` 的 Windows job 中各加一步,把 `target/release/<productName>.exe` 复制为 `<productName>_<version>_x64-portable.exe` 并通过 `gh release upload --clobber` 追加到当次 Release / Release workflow now appends a Windows portable EXE asset per app via `gh release upload --clobber` in both `build-slave` and `build-master` Windows jobs.
+- **CI / Release**: `scripts/build-release-notes.mjs` `PLATFORMS` 数组追加 `Windows x64 (Portable)` 行,Release 描述的下载表自动展示便携版资产 / Added `Windows x64 (Portable)` row to the per-OS download table rendered into the release body.
+
+### Changed 改进
+
+- **iec104sim-core**: `MasterConnection::ensure_writer_setup_async` 与 `SlaveServer::accept_loop` 的 TLS 身份装载路径改走 `tls_key::load_key_as_pkcs8_pem(&cfg.key_file)?`,错误类型分别映射为 `MasterError::TlsError` / `SlaveError::TlsError`,行为对调用方完全向后兼容 / Master and slave TLS identity loading both route through the new helper; error mapping kept inside the existing `*::TlsError` channels — fully backward compatible to callers.
+
+### Fixed 修复
+
+- **主站前端**: `master-frontend/src/components/Toolbar.vue` 中默认证书路径与 `LEGACY_CERTS` 迁移列表里残留的开发者本机绝对路径已清理,新建连接对话框的 `ca_file/cert_file/key_file` 默认值回归到稳定的 `./ca.pem` / `./client.pem` / `./client-key.pem`,迁移钩子保留为空集以便未来切换默认路径时单行加入 / Removed stray developer-local absolute paths from the new-connection dialog defaults and from the `LEGACY_CERTS` migration list. Defaults are back to the stable `./ca.pem` / `./client.pem` / `./client-key.pem`; the migration hook stays in place with an empty set so future default switches can be wired in with a single line.
+
+### Tests 测试
+
+- **iec104sim-core**: `cargo test -p iec104sim-core --lib` 通过 `tls_key::tests` 全部 4 项,workspace 测试全绿 / `cargo test -p iec104sim-core --lib` runs the 4 new `tls_key::tests` plus the existing suite green.
+
 ## [1.3.0] - 2026-04-30
 
 ### Highlights / 亮点

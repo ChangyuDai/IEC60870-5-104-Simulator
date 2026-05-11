@@ -131,6 +131,12 @@ function loadForm(): NewConnForm {
       if (!merged.cert_file) merged.cert_file = def.cert_file
       if (!merged.key_file) merged.key_file = def.key_file
       if (!merged.common_addresses_text) merged.common_addresses_text = def.common_addresses_text
+      // Force-override legacy cert paths bundled with old builds. 列表为空时本段为空操作,
+      // 但保留结构以便未来切换默认路径时一行加入即可。
+      const LEGACY_CERTS = new Set<string>([])
+      if (LEGACY_CERTS.has(merged.ca_file)) merged.ca_file = def.ca_file
+      if (LEGACY_CERTS.has(merged.cert_file)) merged.cert_file = def.cert_file
+      if (LEGACY_CERTS.has(merged.key_file)) merged.key_file = def.key_file
       return merged
     }
   } catch {}

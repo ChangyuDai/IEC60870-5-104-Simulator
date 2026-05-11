@@ -760,8 +760,10 @@ impl MasterConnection {
         } else if !self.config.tls.cert_file.is_empty() && !self.config.tls.key_file.is_empty() {
             let cert_pem = std::fs::read(&self.config.tls.cert_file)
                 .map_err(|e| MasterError::TlsError(format!("读取客户端证书失败 {}: {}", self.config.tls.cert_file, e)))?;
-            let key_pem = std::fs::read(&self.config.tls.key_file)
-                .map_err(|e| MasterError::TlsError(format!("读取客户端密钥失败 {}: {}", self.config.tls.key_file, e)))?;
+            // native-tls 的 from_pkcs8 严格只吃 PKCS#8 PEM,而很多证书包给的是
+            // PKCS#1 (BEGIN RSA PRIVATE KEY)。helper 会按需做 PKCS#1 → PKCS#8 转换。
+            let key_pem = crate::tls_key::load_key_as_pkcs8_pem(&self.config.tls.key_file)
+                .map_err(MasterError::TlsError)?;
 
             let identity = native_tls::Identity::from_pkcs8(&cert_pem, &key_pem)
                 .map_err(|e| MasterError::TlsError(format!("加载客户端身份失败: {}", e)))?;
