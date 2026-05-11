@@ -26,6 +26,11 @@ jobs:
           - platform: windows-latest
             args: ''
             rust_target: ''
+            win_arch: x64
+          - platform: windows-latest
+            args: '--target aarch64-pc-windows-msvc'
+            rust_target: aarch64-pc-windows-msvc
+            win_arch: arm64
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -79,8 +84,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          SRC="target/release/IEC104Slave.exe"
-          DEST="IEC104Slave_${VERSION}_x64-portable.exe"
+          ARCH="${{ matrix.win_arch }}"
+          if [ -n "${{ matrix.rust_target }}" ]; then
+            SRC="target/${{ matrix.rust_target }}/release/IEC104Slave.exe"
+          else
+            SRC="target/release/IEC104Slave.exe"
+          fi
+          DEST="IEC104Slave_${VERSION}_${ARCH}-portable.exe"
           cp "$SRC" "$DEST"
           gh release upload "$GITHUB_REF_NAME" "$DEST" --clobber
 
@@ -101,6 +111,11 @@ jobs:
           - platform: windows-latest
             args: ''
             rust_target: ''
+            win_arch: x64
+          - platform: windows-latest
+            args: '--target aarch64-pc-windows-msvc'
+            rust_target: aarch64-pc-windows-msvc
+            win_arch: arm64
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -154,8 +169,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          SRC="target/release/IEC104Master.exe"
-          DEST="IEC104Master_${VERSION}_x64-portable.exe"
+          ARCH="${{ matrix.win_arch }}"
+          if [ -n "${{ matrix.rust_target }}" ]; then
+            SRC="target/${{ matrix.rust_target }}/release/IEC104Master.exe"
+          else
+            SRC="target/release/IEC104Master.exe"
+          fi
+          DEST="IEC104Master_${VERSION}_${ARCH}-portable.exe"
           cp "$SRC" "$DEST"
           gh release upload "$GITHUB_REF_NAME" "$DEST" --clobber
 

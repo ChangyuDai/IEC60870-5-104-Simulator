@@ -13,6 +13,7 @@ const PLATFORM_PATTERNS = [
   { key: 'darwin-aarch64', re: /_aarch64\.app\.tar\.gz$/ },
   { key: 'darwin-x86_64',  re: /_x64\.app\.tar\.gz$/ },
   { key: 'windows-x86_64', re: /_x64-setup\.exe$/ },
+  { key: 'windows-aarch64', re: /_arm64-setup\.exe$/ },
   { key: 'linux-x86_64',   re: /_amd64\.AppImage$/ },
 ]
 

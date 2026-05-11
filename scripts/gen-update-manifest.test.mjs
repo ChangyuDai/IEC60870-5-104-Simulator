@@ -9,6 +9,8 @@ const sample = [
   { name: 'IEC104Slave_aarch64.app.tar.gz.sig', browser_download_url: 'u1s' },
   { name: 'IEC104Slave_1.0.14_x64-setup.exe', browser_download_url: 'u2' },
   { name: 'IEC104Slave_1.0.14_x64-setup.exe.sig', browser_download_url: 'u2s' },
+  { name: 'IEC104Slave_1.0.14_arm64-setup.exe', browser_download_url: 'u2a' },
+  { name: 'IEC104Slave_1.0.14_arm64-setup.exe.sig', browser_download_url: 'u2as' },
   { name: 'IEC104Master_1.0.14_amd64.AppImage', browser_download_url: 'u3' },
   { name: 'IEC104Master_1.0.14_amd64.AppImage.sig', browser_download_url: 'u3s' },
   // installers that should NOT match (.dmg, .msi, .deb, .rpm) — included to
@@ -26,6 +28,8 @@ describe('groupAssetsByRole', () => {
     expect(slave['darwin-aarch64'].sigUrl).toBe('u1s')
     expect(slave['windows-x86_64'].url).toBe('u2')
     expect(slave['windows-x86_64'].sigUrl).toBe('u2s')
+    expect(slave['windows-aarch64'].url).toBe('u2a')
+    expect(slave['windows-aarch64'].sigUrl).toBe('u2as')
     expect(master['linux-x86_64'].url).toBe('u3')
     expect(master['linux-x86_64'].sigUrl).toBe('u3s')
   })
