@@ -85,10 +85,12 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           ARCH="${{ matrix.win_arch }}"
+          # cargo 产物名是 crate name (iec104sim-app.exe), 不是 Tauri productName。
+          # productName 仅出现在 bundle/nsis/ 与 bundle/msi/ 下的安装包文件名里。
           if [ -n "${{ matrix.rust_target }}" ]; then
-            SRC="target/${{ matrix.rust_target }}/release/IEC104Slave.exe"
+            SRC="target/${{ matrix.rust_target }}/release/iec104sim-app.exe"
           else
-            SRC="target/release/IEC104Slave.exe"
+            SRC="target/release/iec104sim-app.exe"
           fi
           DEST="IEC104Slave_${VERSION}_${ARCH}-portable.exe"
           cp "$SRC" "$DEST"
@@ -170,10 +172,11 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           ARCH="${{ matrix.win_arch }}"
+          # cargo 产物名是 crate name (iec104master-app.exe), 不是 Tauri productName。
           if [ -n "${{ matrix.rust_target }}" ]; then
-            SRC="target/${{ matrix.rust_target }}/release/IEC104Master.exe"
+            SRC="target/${{ matrix.rust_target }}/release/iec104master-app.exe"
           else
-            SRC="target/release/IEC104Master.exe"
+            SRC="target/release/iec104master-app.exe"
           fi
           DEST="IEC104Master_${VERSION}_${ARCH}-portable.exe"
           cp "$SRC" "$DEST"
