@@ -2,6 +2,35 @@
 
 本项目的所有重要变更记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.3.4] - 2026-05-12
+
+### Highlights / 亮点
+
+- 🛠️ **子站 IEC 104 序列号实现修复,严格主站不再在召唤后被踢线** / Slave IEC 104 sequence-number handling fixed; strict masters no longer drop the link after interrogations — 之前子站在回 `激活确认 / 激活终止` 时把主站发来的 APCI bytes 原样回送,自己的 `N(S)/N(R)` 从不前进,等于跟主站说"我是你"。严格主站会判协议违规直接 RST,宽松主站则 t1 超时关链。本版引入 `SeqState` 把每条连接的发/收序号统一收口,在收到 I 帧时 `observe_recv_iframe` 推进 `N(R)`,发 ack/term 用 `build_response_frame` 重写 APCI bytes 2–5 为子站自己的值;原来 read-loop 与 cyclic 任务各持一套计数器导致序号跳变的问题一并修复 / The slave's ack/term frames previously echoed the master's APCI control bytes verbatim and never advanced its own `N(R)` on received I-frames, so strict masters either RST'd (sequence violation) or t1-timed out. v1.3.4 introduces `SeqState` shared across cyclic / read-loop / spontaneous senders, `observe_recv_iframe` advances `N(R)` on every received I-frame, and `build_response_frame` rewrites APCI bytes 2–5 with the slave's own `N(S)/N(R)` for every ack/term — eliminating the previous twin-counter divergence in one stroke.
+- 🚦 **主站在收到 STARTDT CON 前不再发 I 帧** / Master now waits for STARTDT CON before transmitting any I-frame — 严格按 IEC 60870-5-104 §5.3,主站发完 STARTDT ACT 必须等对端 STARTDT CON 才能发 GI / 累计量召唤 / 控制等 I 帧;之前主站 TCP 三次握手后立即把 `state=Connected`,周期任务/用户点击的 GI 在 STARTDT CON 还没到时就抢跑,合规子站直接 RST。现新增 `ProtocolState.startdt_acked`,`send_async_frame` 发 I 帧前阻塞等待这个 flag,封顶 t1 后返回明确错误 `STARTDT CON 在 t1 内未收到` / Per IEC 60870-5-104 §5.3 the master must not send I-frames until the slave confirms STARTDT. v1.3.4 adds `ProtocolState.startdt_acked` (flipped on `ctrl1 == 0x0B`) and gates `send_async_frame`'s I-frame path on it, bounded by t1 — preventing the race where periodic / manual GIs raced ahead of STARTDT CON and caused conformant slaves to RST.
+- ⚡ **子站 GI / 累计量召唤批量编帧,锁开销降到 1 次** / Slave GI / CI responses now build under a single mutex acquisition — 默认站 160 数据点 × 3 CA 的总召之前会做 ~960 次 `seq.lock().await` + 等量 `queue.lock().await`,本版改为整批在单次 `seq` 锁内构造,单次 `queue.lock().extend_from_slice(&batch)` 写入;TLS 阻塞路径上 `send_gi_response_blocking` 与 type 101 块同样合并为单 `block_on` + 单 `write_all` / The previous GI loop took two mutex hops per data point (~960 awaits for a default 160-point × 3-CA call); v1.3.4 builds the full ack + GI frames + term batch under one `seq.lock().await` and writes the queue in one go. TLS path's `send_gi_response_blocking` and the type-101 block similarly collapse to a single `block_on` + single `write_all`.
+
+### Fixed 修复
+
+- **iec104sim-core / slave**: `handle_client_read_loop` 与 `handle_client_blocking` 现在共用 `ConnectionWrite.seq: Arc<Mutex<SeqState>>` (替换原裸字段 `ssn: u16, rsn: u16`),cyclic 任务、`queue_spontaneous`、读循环都走同一份序号 — 三套计数器分裂导致主站看见 `N(S)` 跳变的问题归零 / Slave's async read loop and TLS blocking handler now share `ConnectionWrite.seq: Arc<Mutex<SeqState>>` (replacing the bare `ssn: u16, rsn: u16` fields). Cyclic task, `queue_spontaneous`, and the read loops all advance the same counter — no more `N(S)` jumps that conformant masters reject.
+- **iec104sim-core / slave**: 所有 `let mut ack = data[..n].to_vec(); ack[8] = 7;` / `term[8] = 10` 模式替换为新 helper `build_response_frame(recv, cot, &mut SeqState)`,重写 APCI bytes 2–5 后再 `ssn += 2` — 之前 ack/term 实际携带的是主站的 `N(S)/N(R)`,等同协议违规 / Replaced every inline `ack[8] = 7` / `term[8] = 10` pattern with a new `build_response_frame(recv, cot, &mut SeqState)` helper that rewrites APCI bytes 2–5 to the slave's `N(S)/N(R)` and increments `ssn`. Previously those frames carried the master's own sequence numbers — a protocol violation.
+- **iec104sim-core / slave**: 收到 master I 帧时新增 `observe_recv_iframe(seq, frame)` 把本地 `rsn` 推进为 `peer_N(S) + 1`;此前 `rsn` 永远停留在 0,严格主站等不到 ACK → t1 超时关链 / Added `observe_recv_iframe(seq, frame)` to advance the slave's `rsn` to `peer_N(S) + 1` on every received I-frame. Previously `rsn` stayed at 0, leaving the master's I-frames unacknowledged and causing strict masters to t1-drop the link.
+- **iec104sim-core / master**: `process_received_frame` 收到 STARTDT CON (`ctrl1 == 0x0B`) 时翻 `protocol.startdt_acked = true` 并复用 `ack_notify` 唤醒等待方;`send_async_frame` 在 I 帧路径头部新增等待循环,超 t1 返回 `MasterError::SendError("…: STARTDT CON 在 t1 内未收到")` / `process_received_frame` flips `protocol.startdt_acked` on `ctrl1 == 0x0B` and reuses `ack_notify` to wake senders; `send_async_frame` gates the I-frame path on that flag, bounded by t1 (returns `MasterError::SendError("…: STARTDT CON 在 t1 内未收到")` on timeout).
+
+### Changed 改进
+
+- **iec104sim-core / slave**: `build_i_frame` 与 `encode_point_frame` 签名由 `&mut u16, &mut u16` 改为 `&mut SeqState`;解决了 `MutexGuard` 上对 `s.ssn` / `s.rsn` 同时 `&mut` 借用编译失败的问题,同时砍掉调用点参数数量 / `build_i_frame` and `encode_point_frame` now take `&mut SeqState` (replacing the separate `&mut u16, &mut u16` pair). This sidesteps the disjoint-borrow failure through `MutexGuard` and trims call-site arity.
+- **iec104sim-core / slave**: GI (type 100) / 累计量召唤 (type 101) 响应在异步与 TLS 阻塞两条路径上都改为单锁批量构造、单次入队;TLS 路径合并 `rt.block_on` 调用 / GI (type 100) / CI (type 101) responses on both async and TLS-blocking paths now build the full ack-frames-term batch under one `seq` lock and write the queue / TLS socket once. TLS path collapses multiple `rt.block_on` calls into one.
+- **iec104sim-core / slave**: `send_gi_response_blocking` 改为 async,接收 `&SharedSeq` 并使用连接共享序号(此前每次重置 0,会让主站看到 `N(S)` 倒退) / `send_gi_response_blocking` is now async, receives `&SharedSeq`, and uses the connection's shared sequence (previously it reset `ssn` to 0 on every call, making the master see `N(S)` jump backwards).
+
+### Tests 测试
+
+- **iec104sim-core**: `tests/protocol_state_machine.rs` 两个用例的伪从站补发一次 STARTDT CON (`68 04 0B 00 00 00`) 以适配主站新的 I 帧等待逻辑;3 个用例全绿,workspace 测试套(协议状态机 / 累计量召唤 / TLS e2e / TLS 版本协商 / TLS 发送延迟)共 18 项 ok / Updated two fake slaves in `tests/protocol_state_machine.rs` to send STARTDT CON (`68 04 0B 00 00 00`) so the master can leave its new I-frame wait gate. All 3 cases green; full workspace suite (state machine, counter interrogation, TLS e2e, TLS version negotiation, TLS send latency) 18 ok.
+
+### Internal 内部
+
+- **iec104sim-core / slave**: 重构主体在单文件内完成,`SeqState` + 两个 helper (`observe_recv_iframe`, `build_response_frame`) 替换原先分散在 read loop / TLS handler / `send_gi_response_blocking` 的局部 `ssn / rsn` 副本(共 4 处) — 单一序号源 / Refactor confined to `crates/iec104sim-core/src/slave.rs`. `SeqState` plus two helpers (`observe_recv_iframe`, `build_response_frame`) replace four separate local `ssn / rsn` copies previously scattered across the async read loop, TLS handler, and `send_gi_response_blocking` — single source of truth for per-connection sequence numbers.
+
 ## [1.3.3] - 2026-05-11
 
 ### Highlights / 亮点

@@ -248,13 +248,22 @@ impl Default for SlaveTransportConfig {
 // Connection State — shared between read task and cyclic task
 // ---------------------------------------------------------------------------
 
+/// Per-connection IEC 60870-5-104 sequence state.
+/// `ssn` is N(S)<<1 (own send count), `rsn` is N(R)<<1 (next expected peer N(S)).
+#[derive(Default)]
+struct SeqState {
+    ssn: u16,
+    rsn: u16,
+}
+
+type SharedSeq = Arc<tokio::sync::Mutex<SeqState>>;
+
 /// Per-connection write queue. The async write task drains this queue.
 struct ConnectionWrite {
     /// Mutex-protected byte queue. Write task drains this.
     queue: Arc<tokio::sync::Mutex<Vec<u8>>>,
-    /// Sequence numbers (N(S)<<1 and N(R)<<1, 16-bit).
-    ssn: u16,
-    rsn: u16,
+    /// Shared sequence state used by all senders (read loop, cyclic, spontaneous).
+    seq: SharedSeq,
     /// Last sent value string per IOA.
     last_sent: HashMap<u32, String>,
     /// Logger.
@@ -263,6 +272,31 @@ struct ConnectionWrite {
 }
 
 type SharedConnections = Arc<RwLock<HashMap<SocketAddr, ConnectionWrite>>>;
+
+/// Update local N(R) from a just-received I-frame so that subsequent outgoing
+/// frames acknowledge the master's send sequence.
+fn observe_recv_iframe(seq: &mut SeqState, frame: &[u8]) {
+    if frame.len() >= 4 {
+        let peer_ns_shifted = u16::from_le_bytes([frame[2], frame[3]]);
+        seq.rsn = peer_ns_shifted.wrapping_add(2);
+    }
+}
+
+/// Echo a received I-frame back with our own APCI control bytes and an
+/// overridden COT. Increments our N(S).
+fn build_response_frame(recv: &[u8], cot: u8, seq: &mut SeqState) -> Vec<u8> {
+    let mut out = recv.to_vec();
+    if out.len() >= 6 {
+        out[2] = (seq.ssn & 0xFF) as u8;
+        out[3] = ((seq.ssn >> 8) & 0xFF) as u8;
+        out[4] = (seq.rsn & 0xFF) as u8;
+        out[5] = ((seq.rsn >> 8) & 0xFF) as u8;
+    }
+    if out.len() > 8 { out[8] = cot; }
+    seq.ssn = seq.ssn.wrapping_add(2);
+    out
+}
+
 
 // ---------------------------------------------------------------------------
 // SlaveServer
@@ -336,14 +370,17 @@ impl SlaveServer {
         let mut total_sent = 0usize;
         for (_addr, conn) in conns.iter_mut() {
             let mut batch = Vec::new();
-            for &(ioa, asdu_type) in changed {
-                let point = match station.data_points.get(ioa, asdu_type) {
-                    Some(p) => p,
-                    None => continue,
-                };
-                let ioa_bytes = point.ioa.to_le_bytes();
-                batch.extend(encode_point_frame(&point.value, 3, &ca_bytes, &ioa_bytes[..3], &mut conn.ssn, &mut conn.rsn));
-                conn.last_sent.insert(ioa, point.value.display());
+            {
+                let mut s = conn.seq.lock().await;
+                for &(ioa, asdu_type) in changed {
+                    let point = match station.data_points.get(ioa, asdu_type) {
+                        Some(p) => p,
+                        None => continue,
+                    };
+                    let ioa_bytes = point.ioa.to_le_bytes();
+                    batch.extend(encode_point_frame(&point.value, 3, &ca_bytes, &ioa_bytes[..3], &mut *s));
+                    conn.last_sent.insert(ioa, point.value.display());
+                }
             }
             if !batch.is_empty() {
                 total_sent += 1;
@@ -447,7 +484,10 @@ impl SlaveServer {
                                 }
                                 let ca_bytes = station.common_address.to_le_bytes();
                                 let ioa_bytes = point.ioa.to_le_bytes();
-                                let asdu = encode_point_frame(&point.value, 3, &ca_bytes, &ioa_bytes[..3], &mut conn.ssn, &mut conn.rsn);
+                                let asdu = {
+                                    let mut s = conn.seq.lock().await;
+                                    encode_point_frame(&point.value, 3, &ca_bytes, &ioa_bytes[..3], &mut *s)
+                                };
                                 conn.queue.lock().await.extend(asdu);
                                 conn.last_sent.insert(point.ioa, value_str);
                             }
@@ -495,9 +535,10 @@ impl SlaveServer {
                             // Create a shared queue so queue_spontaneous() can enqueue frames
                             // that the blocking loop drains to the TLS stream.
                             let tls_queue: SharedQueue = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+                            let tls_seq: SharedSeq = Arc::new(tokio::sync::Mutex::new(SeqState::default()));
                             connections.write().await.insert(peer_addr, ConnectionWrite {
                                 queue: Arc::clone(&tls_queue),
-                                ssn: 0, rsn: 0,
+                                seq: Arc::clone(&tls_seq),
                                 last_sent: HashMap::new(),
                                 log_collector: lc.clone(),
                             });
@@ -531,7 +572,7 @@ impl SlaveServer {
                                         format!("TLS 握手成功: {}", peer_str),
                                     ));
                                 }
-                                handle_client_blocking(&mut tls_stream, stations, lc, flag, tls_queue, tls_connections, peer_addr);
+                                handle_client_blocking(&mut tls_stream, stations, lc, flag, tls_queue, tls_seq, tls_connections, peer_addr);
                             });
                         } else {
                             // Plain TCP: async with queue-based cyclic writes.
@@ -540,8 +581,10 @@ impl SlaveServer {
                             let (rh, wh) = tokio::io::split(stream);
 
                             let queue: SharedQueue = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+                            let seq: SharedSeq = Arc::new(tokio::sync::Mutex::new(SeqState::default()));
                             let queue_for_writer = Arc::clone(&queue);
                             let queue_for_reader = Arc::clone(&queue);
+                            let seq_for_reader = Arc::clone(&seq);
                             let lc_for_reader = lc.clone();
                             let stations_for_reader = stations.clone();
                             let addr_for_read = peer_addr;
@@ -549,7 +592,7 @@ impl SlaveServer {
                             // Register connection for cyclic task.
                             connections.write().await.insert(peer_addr, ConnectionWrite {
                                 queue,
-                                ssn: 0, rsn: 0,
+                                seq,
                                 last_sent: HashMap::new(),
                                 log_collector: lc.clone(),
                             });
@@ -584,7 +627,7 @@ impl SlaveServer {
 
                             // Spawn read task (owns ReadHalf + queue for enqueueing responses).
                             tokio::spawn(async move {
-                                handle_client_read_loop(rh, stations_for_reader, lc_for_reader, flag, connections, queue_for_reader, addr_for_read).await;
+                                handle_client_read_loop(rh, stations_for_reader, lc_for_reader, flag, connections, queue_for_reader, seq_for_reader, addr_for_read).await;
                             });
                         }
                     }
@@ -639,12 +682,11 @@ async fn handle_client_read_loop(
     shutdown_flag: Arc<std::sync::atomic::AtomicBool>,
     connections: SharedConnections,
     queue: SharedQueue,
+    seq: SharedSeq,
     peer_addr: SocketAddr,
 ) {
     let mut buf = [0u8; 8192];
     let mut reassembly_buf: Vec<u8> = Vec::with_capacity(65536);
-    let mut ssn: u16 = 0;
-    let mut rsn: u16 = 0;
 
     loop {
         if shutdown_flag.load(std::sync::atomic::Ordering::SeqCst) { break; }
@@ -708,33 +750,34 @@ async fn handle_client_read_loop(
                     _ => {}
                 }
             } else if ctrl1 & 0x01 == 0 && data.len() >= 12 {
+                { let mut s = seq.lock().await; observe_recv_iframe(&mut s, &data); }
                 let asdu_type = data[6];
                 let cause = data[8];
                 let ca = u16::from_le_bytes([data[10], data[11]]);
 
                 match asdu_type {
                     100 => {
-                        let mut ack = data[..n].to_vec(); ack[8] = 7;
-                        queue.lock().await.extend_from_slice(&ack);
-                        let stations_read = stations.read().await;
-                        if let Some(station) = stations_read.get(&ca) {
-                            if let Some(ref lc) = log_collector {
-                                lc.try_add(LogEntry::new(
-                                    Direction::Tx, FrameLabel::GeneralInterrogation,
-                                    format!("GI 激活确认 CA={}", ca),
-                                ));
+                        let mut batch: Vec<u8> = Vec::new();
+                        {
+                            let mut s = seq.lock().await;
+                            batch.extend_from_slice(&build_response_frame(&data[..n], 7, &mut s));
+                            let stations_read = stations.read().await;
+                            if let Some(station) = stations_read.get(&ca) {
+                                if let Some(ref lc) = log_collector {
+                                    lc.try_add(LogEntry::new(
+                                        Direction::Tx, FrameLabel::GeneralInterrogation,
+                                        format!("GI 激活确认 CA={}", ca),
+                                    ));
+                                }
+                                let ca_bytes = station.common_address.to_le_bytes();
+                                for point in station.data_points.all_sorted() {
+                                    let ioa_bytes = point.ioa.to_le_bytes();
+                                    batch.extend_from_slice(&encode_point_frame(&point.value, 20, &ca_bytes, &ioa_bytes[..3], &mut s));
+                                }
                             }
-                            // Queue GI response frames.
-                            let ca_bytes = station.common_address.to_le_bytes();
-                            for point in station.data_points.all_sorted() {
-                                let ioa_bytes = point.ioa.to_le_bytes();
-                                let asdu = encode_point_frame(&point.value, 20, &ca_bytes, &ioa_bytes[..3], &mut ssn, &mut rsn);
-                                queue.lock().await.extend_from_slice(&asdu);
-                            }
+                            batch.extend_from_slice(&build_response_frame(&data[..n], 10, &mut s));
                         }
-                        drop(stations_read);
-                        let mut term = data[..n].to_vec(); term[8] = 10;
-                        queue.lock().await.extend_from_slice(&term);
+                        queue.lock().await.extend_from_slice(&batch);
                         if let Some(ref lc) = log_collector {
                             lc.try_add(LogEntry::new(
                                 Direction::Tx, FrameLabel::GeneralInterrogation,
@@ -744,34 +787,32 @@ async fn handle_client_read_loop(
                     }
                     101 => {
                         // Counter Interrogation (C_CI_NA_1, Type 101)
-                        let mut ack = data[..n].to_vec(); ack[8] = 7;
-                        queue.lock().await.extend_from_slice(&ack);
-                        let stations_read = stations.read().await;
-                        if let Some(station) = stations_read.get(&ca) {
-                            if let Some(ref lc) = log_collector {
-                                lc.try_add(LogEntry::new(
-                                    Direction::Tx, FrameLabel::CounterInterrogation,
-                                    format!("累计量召唤 激活确认 CA={}", ca),
-                                ));
-                            }
-                            let ca_bytes = station.common_address.to_le_bytes();
-                            for point in station.data_points.all_sorted() {
-                                let ioa_bytes = point.ioa.to_le_bytes();
-                                let asdu = match &point.value {
-                                    DataPointValue::IntegratedTotal { value, carry, sequence } => {
+                        let mut batch: Vec<u8> = Vec::new();
+                        {
+                            let mut s = seq.lock().await;
+                            batch.extend_from_slice(&build_response_frame(&data[..n], 7, &mut s));
+                            let stations_read = stations.read().await;
+                            if let Some(station) = stations_read.get(&ca) {
+                                if let Some(ref lc) = log_collector {
+                                    lc.try_add(LogEntry::new(
+                                        Direction::Tx, FrameLabel::CounterInterrogation,
+                                        format!("累计量召唤 激活确认 CA={}", ca),
+                                    ));
+                                }
+                                let ca_bytes = station.common_address.to_le_bytes();
+                                for point in station.data_points.all_sorted() {
+                                    let ioa_bytes = point.ioa.to_le_bytes();
+                                    if let DataPointValue::IntegratedTotal { value, carry, sequence } = &point.value {
                                         let b = value.to_le_bytes();
                                         let mut bcr = *sequence & 0x1F;
                                         if *carry { bcr |= 0x20; }
-                                        build_i_frame(15, 37, &ca_bytes, &ioa_bytes[..3], &[b[0], b[1], b[2], b[3], bcr], &mut ssn, &mut rsn)
+                                        batch.extend_from_slice(&build_i_frame(15, 37, &ca_bytes, &ioa_bytes[..3], &[b[0], b[1], b[2], b[3], bcr], &mut s));
                                     }
-                                    _ => continue,
-                                };
-                                queue.lock().await.extend_from_slice(&asdu);
+                                }
                             }
+                            batch.extend_from_slice(&build_response_frame(&data[..n], 10, &mut s));
                         }
-                        drop(stations_read);
-                        let mut term = data[..n].to_vec(); term[8] = 10;
-                        queue.lock().await.extend_from_slice(&term);
+                        queue.lock().await.extend_from_slice(&batch);
                         if let Some(ref lc) = log_collector {
                             lc.try_add(LogEntry::new(
                                 Direction::Tx, FrameLabel::CounterInterrogation,
@@ -780,7 +821,7 @@ async fn handle_client_read_loop(
                         }
                     }
                     103 => {
-                        let mut ack = data[..n].to_vec(); ack[8] = 7;
+                        let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], 7, &mut s) };
                         queue.lock().await.extend_from_slice(&ack);
                         if let Some(ref lc) = log_collector {
                             lc.try_add(LogEntry::new(
@@ -802,10 +843,10 @@ async fn handle_client_read_loop(
                                     }
                                 }
                             }
-                            let mut ack = data[..n].to_vec(); ack[8] = 7;
+                            let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], 7, &mut s) };
                             queue.lock().await.extend_from_slice(&ack);
                             if !is_select {
-                                let mut term = data[..n].to_vec(); term[8] = 10;
+                                let term = { let mut s = seq.lock().await; build_response_frame(&data[..n], 10, &mut s) };
                                 queue.lock().await.extend_from_slice(&term);
                                 // Send spontaneous update (COT=3) after control execution
                                 let sr = stations.read().await;
@@ -813,7 +854,10 @@ async fn handle_client_read_loop(
                                     if let Some(point) = st.data_points.get_by_category(ioa, DataCategory::SinglePoint) {
                                         let ca_b = ca.to_le_bytes();
                                         let ioa_b = ioa.to_le_bytes();
-                                        let spont = encode_point_frame(&point.value, 3, &ca_b, &ioa_b[..3], &mut ssn, &mut rsn);
+                                        let spont = {
+                                            let mut s = seq.lock().await;
+                                            encode_point_frame(&point.value, 3, &ca_b, &ioa_b[..3], &mut *s)
+                                        };
                                         queue.lock().await.extend_from_slice(&spont);
                                     }
                                 }
@@ -840,17 +884,20 @@ async fn handle_client_read_loop(
                                     }
                                 }
                             }
-                            let mut ack = data[..n].to_vec(); ack[8] = 7;
+                            let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], 7, &mut s) };
                             queue.lock().await.extend_from_slice(&ack);
                             if !is_select {
-                                let mut term = data[..n].to_vec(); term[8] = 10;
+                                let term = { let mut s = seq.lock().await; build_response_frame(&data[..n], 10, &mut s) };
                                 queue.lock().await.extend_from_slice(&term);
                                 let sr = stations.read().await;
                                 if let Some(st) = sr.get(&ca) {
                                     if let Some(point) = st.data_points.get_by_category(ioa, DataCategory::DoublePoint) {
                                         let ca_b = ca.to_le_bytes();
                                         let ioa_b = ioa.to_le_bytes();
-                                        let spont = encode_point_frame(&point.value, 3, &ca_b, &ioa_b[..3], &mut ssn, &mut rsn);
+                                        let spont = {
+                                            let mut s = seq.lock().await;
+                                            encode_point_frame(&point.value, 3, &ca_b, &ioa_b[..3], &mut *s)
+                                        };
                                         queue.lock().await.extend_from_slice(&spont);
                                     }
                                 }
@@ -879,17 +926,20 @@ async fn handle_client_read_loop(
                                     }
                                 }
                             }
-                            let mut ack = data[..n].to_vec(); ack[8] = 7;
+                            let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], 7, &mut s) };
                             queue.lock().await.extend_from_slice(&ack);
                             if !is_select {
-                                let mut term = data[..n].to_vec(); term[8] = 10;
+                                let term = { let mut s = seq.lock().await; build_response_frame(&data[..n], 10, &mut s) };
                                 queue.lock().await.extend_from_slice(&term);
                                 let sr = stations.read().await;
                                 if let Some(st) = sr.get(&ca) {
                                     if let Some(point) = st.data_points.get_by_category(ioa, DataCategory::StepPosition) {
                                         let ca_b = ca.to_le_bytes();
                                         let ioa_b = ioa.to_le_bytes();
-                                        let spont = encode_point_frame(&point.value, 3, &ca_b, &ioa_b[..3], &mut ssn, &mut rsn);
+                                        let spont = {
+                                            let mut s = seq.lock().await;
+                                            encode_point_frame(&point.value, 3, &ca_b, &ioa_b[..3], &mut *s)
+                                        };
                                         queue.lock().await.extend_from_slice(&spont);
                                     }
                                 }
@@ -919,17 +969,20 @@ async fn handle_client_read_loop(
                                     }
                                 }
                             }
-                            let mut ack = data[..n].to_vec(); ack[8] = 7;
+                            let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], 7, &mut s) };
                             queue.lock().await.extend_from_slice(&ack);
                             if !is_select {
-                                let mut term = data[..n].to_vec(); term[8] = 10;
+                                let term = { let mut s = seq.lock().await; build_response_frame(&data[..n], 10, &mut s) };
                                 queue.lock().await.extend_from_slice(&term);
                                 let sr = stations.read().await;
                                 if let Some(st) = sr.get(&ca) {
                                     if let Some(point) = st.data_points.get_by_category(ioa, DataCategory::NormalizedMeasured) {
                                         let ca_b = ca.to_le_bytes();
                                         let ioa_b = ioa.to_le_bytes();
-                                        let spont = encode_point_frame(&point.value, 3, &ca_b, &ioa_b[..3], &mut ssn, &mut rsn);
+                                        let spont = {
+                                            let mut s = seq.lock().await;
+                                            encode_point_frame(&point.value, 3, &ca_b, &ioa_b[..3], &mut *s)
+                                        };
                                         queue.lock().await.extend_from_slice(&spont);
                                     }
                                 }
@@ -957,17 +1010,20 @@ async fn handle_client_read_loop(
                                     }
                                 }
                             }
-                            let mut ack = data[..n].to_vec(); ack[8] = 7;
+                            let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], 7, &mut s) };
                             queue.lock().await.extend_from_slice(&ack);
                             if !is_select {
-                                let mut term = data[..n].to_vec(); term[8] = 10;
+                                let term = { let mut s = seq.lock().await; build_response_frame(&data[..n], 10, &mut s) };
                                 queue.lock().await.extend_from_slice(&term);
                                 let sr = stations.read().await;
                                 if let Some(st) = sr.get(&ca) {
                                     if let Some(point) = st.data_points.get_by_category(ioa, DataCategory::ScaledMeasured) {
                                         let ca_b = ca.to_le_bytes();
                                         let ioa_b = ioa.to_le_bytes();
-                                        let spont = encode_point_frame(&point.value, 3, &ca_b, &ioa_b[..3], &mut ssn, &mut rsn);
+                                        let spont = {
+                                            let mut s = seq.lock().await;
+                                            encode_point_frame(&point.value, 3, &ca_b, &ioa_b[..3], &mut *s)
+                                        };
                                         queue.lock().await.extend_from_slice(&spont);
                                     }
                                 }
@@ -995,17 +1051,20 @@ async fn handle_client_read_loop(
                                     }
                                 }
                             }
-                            let mut ack = data[..n].to_vec(); ack[8] = 7;
+                            let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], 7, &mut s) };
                             queue.lock().await.extend_from_slice(&ack);
                             if !is_select {
-                                let mut term = data[..n].to_vec(); term[8] = 10;
+                                let term = { let mut s = seq.lock().await; build_response_frame(&data[..n], 10, &mut s) };
                                 queue.lock().await.extend_from_slice(&term);
                                 let sr = stations.read().await;
                                 if let Some(st) = sr.get(&ca) {
                                     if let Some(point) = st.data_points.get_by_category(ioa, DataCategory::FloatMeasured) {
                                         let ca_b = ca.to_le_bytes();
                                         let ioa_b = ioa.to_le_bytes();
-                                        let spont = encode_point_frame(&point.value, 3, &ca_b, &ioa_b[..3], &mut ssn, &mut rsn);
+                                        let spont = {
+                                            let mut s = seq.lock().await;
+                                            encode_point_frame(&point.value, 3, &ca_b, &ioa_b[..3], &mut *s)
+                                        };
                                         queue.lock().await.extend_from_slice(&spont);
                                     }
                                 }
@@ -1052,13 +1111,12 @@ fn handle_client_blocking(
     log_collector: Option<Arc<LogCollector>>,
     shutdown_flag: Arc<std::sync::atomic::AtomicBool>,
     write_queue: SharedQueue,
+    seq: SharedSeq,
     connections: SharedConnections,
     peer_addr: SocketAddr,
 ) {
     use std::io::{Read, Write};
     let mut buf = [0u8; 512];
-    let mut ssn: u16 = 0;
-    let mut rsn: u16 = 0;
 
     // Cache the runtime handle once — this function always runs inside spawn_blocking.
     let rt = tokio::runtime::Handle::current();
@@ -1128,90 +1186,81 @@ fn handle_client_blocking(
                     _ => {}
                 }
             } else if ctrl1 & 0x01 == 0 && data.len() >= 12 {
+                rt.block_on(async { let mut s = seq.lock().await; observe_recv_iframe(&mut s, data); });
                 let asdu_type = data[6];
                 let cause = data[8];
                 let ca = u16::from_le_bytes([data[10], data[11]]);
 
                 match asdu_type {
                     100 => {
-                        let mut ack = data[..n].to_vec(); ack[8] = 7;
+                        let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], 7, &mut s) });
                         let _ = stream.write_all(&ack);
-                        let rt = tokio::runtime::Handle::try_current();
-                        if let Ok(handle) = rt {
-                            let stations = stations.clone();
-                            let lc = log_collector.clone();
-                            handle.block_on(async {
-                                let stations_read = stations.read().await;
-                                if let Some(station) = stations_read.get(&ca) {
-                                    if let Some(ref lc) = lc {
-                                        lc.try_add(LogEntry::new(
-                                            Direction::Tx, FrameLabel::GeneralInterrogation,
-                                            format!("GI 激活确认 CA={}", ca),
-                                        ));
-                                    }
-                                    send_gi_response_blocking(stream, station);
-                                }
-                                drop(stations_read);
-                                let mut term = data[..n].to_vec(); term[8] = 10;
-                                let _ = stream.write_all(&term);
+                        let stations_cl = stations.clone();
+                        let lc = log_collector.clone();
+                        let seq_cl = seq.clone();
+                        rt.block_on(async {
+                            let stations_read = stations_cl.read().await;
+                            if let Some(station) = stations_read.get(&ca) {
                                 if let Some(ref lc) = lc {
                                     lc.try_add(LogEntry::new(
                                         Direction::Tx, FrameLabel::GeneralInterrogation,
-                                        format!("GI 激活终止 CA={}", ca),
+                                        format!("GI 激活确认 CA={}", ca),
                                     ));
                                 }
-                            });
-                        }
+                                send_gi_response_blocking(stream, station, &seq_cl).await;
+                            }
+                            drop(stations_read);
+                            let term = { let mut s = seq_cl.lock().await; build_response_frame(&data[..n], 10, &mut s) };
+                            let _ = stream.write_all(&term);
+                            if let Some(ref lc) = lc {
+                                lc.try_add(LogEntry::new(
+                                    Direction::Tx, FrameLabel::GeneralInterrogation,
+                                    format!("GI 激活终止 CA={}", ca),
+                                ));
+                            }
+                        });
                     }
                     101 => {
                         // Counter Interrogation (C_CI_NA_1, Type 101)
-                        let mut ack = data[..n].to_vec(); ack[8] = 7;
-                        let _ = stream.write_all(&ack);
-                        let rt = tokio::runtime::Handle::try_current();
-                        if let Ok(handle) = rt {
-                            let stations = stations.clone();
-                            let lc = log_collector.clone();
-                            handle.block_on(async {
-                                let stations_read = stations.read().await;
-                                if let Some(station) = stations_read.get(&ca) {
-                                    if let Some(ref lc) = lc {
-                                        lc.try_add(LogEntry::new(
-                                            Direction::Tx, FrameLabel::CounterInterrogation,
-                                            format!("累计量召唤 激活确认 CA={}", ca),
-                                        ));
-                                    }
-                                    // Counter interrogation: send only IntegratedTotals points
-                                    let ca_bytes = station.common_address.to_le_bytes();
-                                    let mut ssn: u16 = 0;
-                                    let mut rsn: u16 = 0;
-                                    for point in station.data_points.all_sorted() {
-                                        let ioa_bytes = point.ioa.to_le_bytes();
-                                        let asdu = match &point.value {
-                                            DataPointValue::IntegratedTotal { value, carry, sequence } => {
-                                                let b = value.to_le_bytes();
-                                                let mut bcr = *sequence & 0x1F;
-                                                if *carry { bcr |= 0x20; }
-                                                build_i_frame(15, 37, &ca_bytes, &ioa_bytes[..3], &[b[0], b[1], b[2], b[3], bcr], &mut ssn, &mut rsn)
-                                            }
-                                            _ => continue,
-                                        };
-                                        let _ = stream.write_all(&asdu);
-                                    }
-                                }
-                                drop(stations_read);
-                                let mut term = data[..n].to_vec(); term[8] = 10;
-                                let _ = stream.write_all(&term);
+                        let stations_cl = stations.clone();
+                        let lc = log_collector.clone();
+                        let seq_cl = seq.clone();
+                        let batch = rt.block_on(async {
+                            let mut batch: Vec<u8> = Vec::new();
+                            let mut s = seq_cl.lock().await;
+                            batch.extend_from_slice(&build_response_frame(&data[..n], 7, &mut s));
+                            let stations_read = stations_cl.read().await;
+                            if let Some(station) = stations_read.get(&ca) {
                                 if let Some(ref lc) = lc {
                                     lc.try_add(LogEntry::new(
                                         Direction::Tx, FrameLabel::CounterInterrogation,
-                                        format!("累计量召唤 激活终止 CA={}", ca),
+                                        format!("累计量召唤 激活确认 CA={}", ca),
                                     ));
                                 }
-                            });
-                        }
+                                let ca_bytes = station.common_address.to_le_bytes();
+                                for point in station.data_points.all_sorted() {
+                                    let ioa_bytes = point.ioa.to_le_bytes();
+                                    if let DataPointValue::IntegratedTotal { value, carry, sequence } = &point.value {
+                                        let b = value.to_le_bytes();
+                                        let mut bcr = *sequence & 0x1F;
+                                        if *carry { bcr |= 0x20; }
+                                        batch.extend_from_slice(&build_i_frame(15, 37, &ca_bytes, &ioa_bytes[..3], &[b[0], b[1], b[2], b[3], bcr], &mut s));
+                                    }
+                                }
+                            }
+                            batch.extend_from_slice(&build_response_frame(&data[..n], 10, &mut s));
+                            if let Some(ref lc) = lc {
+                                lc.try_add(LogEntry::new(
+                                    Direction::Tx, FrameLabel::CounterInterrogation,
+                                    format!("累计量召唤 激活终止 CA={}", ca),
+                                ));
+                            }
+                            batch
+                        });
+                        let _ = stream.write_all(&batch);
                     }
                     103 => {
-                        let mut ack = data[..n].to_vec(); ack[8] = 7;
+                        let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], 7, &mut s) });
                         let _ = stream.write_all(&ack);
                         if let Some(ref lc) = log_collector {
                             lc.try_add(LogEntry::new(
@@ -1239,10 +1288,10 @@ fn handle_client_blocking(
                                     });
                                 }
                             }
-                            let mut ack = data[..n].to_vec(); ack[8] = 7;
+                            let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], 7, &mut s) });
                             let _ = stream.write_all(&ack);
                             if !is_select {
-                                let mut term = data[..n].to_vec(); term[8] = 10;
+                                let term = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], 10, &mut s) });
                                 let _ = stream.write_all(&term);
                                 if let Ok(handle) = tokio::runtime::Handle::try_current() {
                                     let stations = stations.clone();
@@ -1252,7 +1301,10 @@ fn handle_client_blocking(
                                             if let Some(point) = st.data_points.get_by_category(ioa, DataCategory::SinglePoint) {
                                                 let ca_b = ca.to_le_bytes();
                                                 let ioa_b = ioa.to_le_bytes();
-                                                let spont = encode_point_frame(&point.value, 3, &ca_b, &ioa_b[..3], &mut ssn, &mut rsn);
+                                                let spont = {
+                                                    let mut s = seq.lock().await;
+                                                    encode_point_frame(&point.value, 3, &ca_b, &ioa_b[..3], &mut *s)
+                                                };
                                                 let _ = stream.write_all(&spont);
                                             }
                                         }
@@ -1287,10 +1339,10 @@ fn handle_client_blocking(
                                     });
                                 }
                             }
-                            let mut ack = data[..n].to_vec(); ack[8] = 7;
+                            let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], 7, &mut s) });
                             let _ = stream.write_all(&ack);
                             if !is_select {
-                                let mut term = data[..n].to_vec(); term[8] = 10;
+                                let term = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], 10, &mut s) });
                                 let _ = stream.write_all(&term);
                                 if let Ok(handle) = tokio::runtime::Handle::try_current() {
                                     let stations = stations.clone();
@@ -1300,7 +1352,10 @@ fn handle_client_blocking(
                                             if let Some(point) = st.data_points.get_by_category(ioa, DataCategory::DoublePoint) {
                                                 let ca_b = ca.to_le_bytes();
                                                 let ioa_b = ioa.to_le_bytes();
-                                                let spont = encode_point_frame(&point.value, 3, &ca_b, &ioa_b[..3], &mut ssn, &mut rsn);
+                                                let spont = {
+                                                    let mut s = seq.lock().await;
+                                                    encode_point_frame(&point.value, 3, &ca_b, &ioa_b[..3], &mut *s)
+                                                };
                                                 let _ = stream.write_all(&spont);
                                             }
                                         }
@@ -1337,10 +1392,10 @@ fn handle_client_blocking(
                                     });
                                 }
                             }
-                            let mut ack = data[..n].to_vec(); ack[8] = 7;
+                            let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], 7, &mut s) });
                             let _ = stream.write_all(&ack);
                             if !is_select {
-                                let mut term = data[..n].to_vec(); term[8] = 10;
+                                let term = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], 10, &mut s) });
                                 let _ = stream.write_all(&term);
                                 if let Ok(handle) = tokio::runtime::Handle::try_current() {
                                     let stations = stations.clone();
@@ -1350,7 +1405,10 @@ fn handle_client_blocking(
                                             if let Some(point) = st.data_points.get_by_category(ioa, DataCategory::StepPosition) {
                                                 let ca_b = ca.to_le_bytes();
                                                 let ioa_b = ioa.to_le_bytes();
-                                                let spont = encode_point_frame(&point.value, 3, &ca_b, &ioa_b[..3], &mut ssn, &mut rsn);
+                                                let spont = {
+                                                    let mut s = seq.lock().await;
+                                                    encode_point_frame(&point.value, 3, &ca_b, &ioa_b[..3], &mut *s)
+                                                };
                                                 let _ = stream.write_all(&spont);
                                             }
                                         }
@@ -1388,10 +1446,10 @@ fn handle_client_blocking(
                                     });
                                 }
                             }
-                            let mut ack = data[..n].to_vec(); ack[8] = 7;
+                            let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], 7, &mut s) });
                             let _ = stream.write_all(&ack);
                             if !is_select {
-                                let mut term = data[..n].to_vec(); term[8] = 10;
+                                let term = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], 10, &mut s) });
                                 let _ = stream.write_all(&term);
                                 if let Ok(handle) = tokio::runtime::Handle::try_current() {
                                     let stations = stations.clone();
@@ -1401,7 +1459,10 @@ fn handle_client_blocking(
                                             if let Some(point) = st.data_points.get_by_category(ioa, DataCategory::NormalizedMeasured) {
                                                 let ca_b = ca.to_le_bytes();
                                                 let ioa_b = ioa.to_le_bytes();
-                                                let spont = encode_point_frame(&point.value, 3, &ca_b, &ioa_b[..3], &mut ssn, &mut rsn);
+                                                let spont = {
+                                                    let mut s = seq.lock().await;
+                                                    encode_point_frame(&point.value, 3, &ca_b, &ioa_b[..3], &mut *s)
+                                                };
                                                 let _ = stream.write_all(&spont);
                                             }
                                         }
@@ -1437,10 +1498,10 @@ fn handle_client_blocking(
                                     });
                                 }
                             }
-                            let mut ack = data[..n].to_vec(); ack[8] = 7;
+                            let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], 7, &mut s) });
                             let _ = stream.write_all(&ack);
                             if !is_select {
-                                let mut term = data[..n].to_vec(); term[8] = 10;
+                                let term = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], 10, &mut s) });
                                 let _ = stream.write_all(&term);
                                 if let Ok(handle) = tokio::runtime::Handle::try_current() {
                                     let stations = stations.clone();
@@ -1450,7 +1511,10 @@ fn handle_client_blocking(
                                             if let Some(point) = st.data_points.get_by_category(ioa, DataCategory::ScaledMeasured) {
                                                 let ca_b = ca.to_le_bytes();
                                                 let ioa_b = ioa.to_le_bytes();
-                                                let spont = encode_point_frame(&point.value, 3, &ca_b, &ioa_b[..3], &mut ssn, &mut rsn);
+                                                let spont = {
+                                                    let mut s = seq.lock().await;
+                                                    encode_point_frame(&point.value, 3, &ca_b, &ioa_b[..3], &mut *s)
+                                                };
                                                 let _ = stream.write_all(&spont);
                                             }
                                         }
@@ -1486,10 +1550,10 @@ fn handle_client_blocking(
                                     });
                                 }
                             }
-                            let mut ack = data[..n].to_vec(); ack[8] = 7;
+                            let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], 7, &mut s) });
                             let _ = stream.write_all(&ack);
                             if !is_select {
-                                let mut term = data[..n].to_vec(); term[8] = 10;
+                                let term = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], 10, &mut s) });
                                 let _ = stream.write_all(&term);
                                 if let Ok(handle) = tokio::runtime::Handle::try_current() {
                                     let stations = stations.clone();
@@ -1499,7 +1563,10 @@ fn handle_client_blocking(
                                             if let Some(point) = st.data_points.get_by_category(ioa, DataCategory::FloatMeasured) {
                                                 let ca_b = ca.to_le_bytes();
                                                 let ioa_b = ioa.to_le_bytes();
-                                                let spont = encode_point_frame(&point.value, 3, &ca_b, &ioa_b[..3], &mut ssn, &mut rsn);
+                                                let spont = {
+                                                    let mut s = seq.lock().await;
+                                                    encode_point_frame(&point.value, 3, &ca_b, &ioa_b[..3], &mut *s)
+                                                };
                                                 let _ = stream.write_all(&spont);
                                             }
                                         }
@@ -1531,19 +1598,22 @@ fn handle_client_blocking(
     rt.block_on(async { connections.write().await.remove(&peer_addr); });
 }
 
-fn send_gi_response_blocking(
+async fn send_gi_response_blocking(
     stream: &mut native_tls::TlsStream<TcpStream>,
     station: &Station,
+    seq: &SharedSeq,
 ) {
     use std::io::Write;
     let ca_bytes = station.common_address.to_le_bytes();
-    let mut ssn: u16 = 0;
-    let mut rsn: u16 = 0;
-    for point in station.data_points.all_sorted() {
-        let ioa_bytes = point.ioa.to_le_bytes();
-        let asdu = encode_point_frame(&point.value, 20, &ca_bytes, &ioa_bytes[..3], &mut ssn, &mut rsn);
-        let _ = stream.write_all(&asdu);
+    let mut batch: Vec<u8> = Vec::new();
+    {
+        let mut s = seq.lock().await;
+        for point in station.data_points.all_sorted() {
+            let ioa_bytes = point.ioa.to_le_bytes();
+            batch.extend_from_slice(&encode_point_frame(&point.value, 20, &ca_bytes, &ioa_bytes[..3], &mut s));
+        }
     }
+    let _ = stream.write_all(&batch);
 }
 
 // ---------------------------------------------------------------------------
@@ -1552,7 +1622,7 @@ fn send_gi_response_blocking(
 
 fn build_i_frame(
     asdu_type: u8, cause: u8, ca: &[u8], ioa: &[u8], value_bytes: &[u8],
-    ssn: &mut u16, rsn: &mut u16,
+    seq: &mut SeqState,
 ) -> Vec<u8> {
     let asdu_len = 6 + ioa.len() + value_bytes.len();
     let total_len = 4 + asdu_len;
@@ -1562,13 +1632,13 @@ fn build_i_frame(
     // 4 APCI control bytes for I-frame:
     // Bytes 2-3: N(S) << 1, 16-bit little-endian (bit 0 = 0 indicates I-frame)
     // Bytes 4-5: N(R) << 1, 16-bit little-endian
-    frame.push((*ssn & 0xFF) as u8);
-    frame.push(((*ssn >> 8) & 0xFF) as u8);
-    frame.push((*rsn & 0xFF) as u8);
-    frame.push(((*rsn >> 8) & 0xFF) as u8);
-    *ssn = ssn.wrapping_add(2);
-    // N(R) is not auto-incremented per sent frame; it tracks the peer's N(S).
-    // Leaving rsn unchanged here — it should only be updated when receiving I-frames.
+    frame.push((seq.ssn & 0xFF) as u8);
+    frame.push(((seq.ssn >> 8) & 0xFF) as u8);
+    frame.push((seq.rsn & 0xFF) as u8);
+    frame.push(((seq.rsn >> 8) & 0xFF) as u8);
+    seq.ssn = seq.ssn.wrapping_add(2);
+    // N(R) is not auto-incremented per sent frame; it tracks the peer's N(S),
+    // updated by observe_recv_iframe on receipt.
     frame.extend_from_slice(&[asdu_type, 0x01, cause, 0x00]);
     frame.extend_from_slice(&ca[..2]);
     frame.extend_from_slice(ioa);
@@ -1579,42 +1649,42 @@ fn build_i_frame(
 /// Encode a data point value into an I-frame with the given COT.
 fn encode_point_frame(
     value: &DataPointValue, cot: u8, ca: &[u8], ioa: &[u8],
-    ssn: &mut u16, rsn: &mut u16,
+    seq: &mut SeqState,
 ) -> Vec<u8> {
     match value {
         DataPointValue::SinglePoint { value } => {
             let siq = if *value { 0x01 } else { 0x00 };
-            build_i_frame(1, cot, ca, ioa, &[siq], ssn, rsn)
+            build_i_frame(1, cot, ca, ioa, &[siq], seq)
         }
         DataPointValue::DoublePoint { value } => {
             let diq = *value & 0x03;
-            build_i_frame(3, cot, ca, ioa, &[diq], ssn, rsn)
+            build_i_frame(3, cot, ca, ioa, &[diq], seq)
         }
         DataPointValue::StepPosition { value, transient } => {
             let vti = ((*value as u8) & 0x7F) | (if *transient { 0x80 } else { 0 });
-            build_i_frame(5, cot, ca, ioa, &[vti, 0], ssn, rsn)
+            build_i_frame(5, cot, ca, ioa, &[vti, 0], seq)
         }
         DataPointValue::Bitstring { value } => {
             let b = value.to_le_bytes();
-            build_i_frame(7, cot, ca, ioa, &[b[0], b[1], b[2], b[3], 0], ssn, rsn)
+            build_i_frame(7, cot, ca, ioa, &[b[0], b[1], b[2], b[3], 0], seq)
         }
         DataPointValue::Normalized { value } => {
             let nva = (*value * 32767.0) as i16; let b = nva.to_le_bytes();
-            build_i_frame(9, cot, ca, ioa, &[b[0], b[1], 0u8], ssn, rsn)
+            build_i_frame(9, cot, ca, ioa, &[b[0], b[1], 0u8], seq)
         }
         DataPointValue::Scaled { value } => {
             let b = value.to_le_bytes();
-            build_i_frame(11, cot, ca, ioa, &[b[0], b[1], 0u8], ssn, rsn)
+            build_i_frame(11, cot, ca, ioa, &[b[0], b[1], 0u8], seq)
         }
         DataPointValue::ShortFloat { value } => {
             let b = value.to_le_bytes();
-            build_i_frame(13, cot, ca, ioa, &[b[0], b[1], b[2], b[3], 0u8], ssn, rsn)
+            build_i_frame(13, cot, ca, ioa, &[b[0], b[1], b[2], b[3], 0u8], seq)
         }
         DataPointValue::IntegratedTotal { value, carry, sequence } => {
             let b = value.to_le_bytes();
             let mut bcr = *sequence & 0x1F;
             if *carry { bcr |= 0x20; }
-            build_i_frame(15, cot, ca, ioa, &[b[0], b[1], b[2], b[3], bcr], ssn, rsn)
+            build_i_frame(15, cot, ca, ioa, &[b[0], b[1], b[2], b[3], bcr], seq)
         }
     }
 }

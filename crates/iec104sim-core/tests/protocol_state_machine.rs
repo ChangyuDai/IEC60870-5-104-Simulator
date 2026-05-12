@@ -115,12 +115,19 @@ async fn master_keeps_link_alive_when_peer_sends_frames_without_advancing_rsn() 
         stream.set_read_timeout(Some(Duration::from_millis(50))).ok();
         let mut buf = [0u8; 256];
         let mut ssn: u16 = 0;
+        let mut sent_startdt_con = false;
         let start = Instant::now();
         loop {
             if close_rx.try_recv().is_ok() {
                 break;
             }
-            let _ = stream.read(&mut buf);
+            let n = stream.read(&mut buf).unwrap_or(0);
+            // Reply STARTDT CON the moment we see any byte from the master
+            // (the master sends STARTDT ACT first thing after TCP connect).
+            if !sent_startdt_con && n > 0 {
+                let _ = stream.write_all(&[0x68, 0x04, 0x0B, 0x00, 0x00, 0x00]);
+                sent_startdt_con = true;
+            }
             if start.elapsed() >= Duration::from_secs(3) {
                 break;
             }
@@ -183,17 +190,24 @@ async fn master_drops_connection_when_peer_goes_completely_silent() {
     let port = free_port();
     let (close_tx, close_rx) = mpsc::channel::<()>();
 
-    // Slave: accept, read whatever arrives, and never reply.
+    // Slave: accept, send STARTDT CON once so the master is allowed to
+    // emit I-frames, then go totally silent. The watchdog (t3 → TESTFR
+    // → t1) should still tear the link down.
     thread::spawn(move || {
         let listener = TcpListener::bind(("127.0.0.1", port)).unwrap();
         let (mut stream, _) = listener.accept().unwrap();
         stream.set_read_timeout(Some(Duration::from_millis(200))).ok();
         let mut buf = [0u8; 256];
+        let mut sent_startdt_con = false;
         loop {
             if close_rx.try_recv().is_ok() {
                 break;
             }
-            let _ = stream.read(&mut buf);
+            let n = stream.read(&mut buf).unwrap_or(0);
+            if !sent_startdt_con && n > 0 {
+                let _ = stream.write_all(&[0x68, 0x04, 0x0B, 0x00, 0x00, 0x00]);
+                sent_startdt_con = true;
+            }
         }
     });
 

@@ -371,6 +371,9 @@ pub struct ProtocolState {
     /// Set when TESTFR_ACT is in flight; cleared by any received frame.
     /// Liveness watchdog drops the link when this is `Some(d)` and `now >= d`.
     pub test_pending_deadline: Option<std::time::Instant>,
+    /// True once the peer has answered our STARTDT ACT with STARTDT CON.
+    /// I-frames must not be transmitted before this flips (IEC 60870-5-104 §5.3).
+    pub startdt_acked: bool,
     pub t1: std::time::Duration,
     pub t2: std::time::Duration,
     pub t3: std::time::Duration,
@@ -388,6 +391,7 @@ impl ProtocolState {
             last_rx: std::time::Instant::now(),
             pending_ack_deadline: None,
             test_pending_deadline: None,
+            startdt_acked: false,
             t1, t2, t3, k, w,
         }
     }
@@ -1145,6 +1149,27 @@ async fn send_async_frame(
     let is_sframe = ctrl1 & 0x03 == 0x01;
 
     if is_iframe {
+        // Wait for STARTDT CON before allowing any I-frame on the wire.
+        // Cap the wait at t1 — if the peer never confirms STARTDT the link
+        // is dead, and the caller should see the failure promptly.
+        let startdt_deadline = {
+            let s = protocol.lock().unwrap();
+            std::time::Instant::now() + s.t1
+        };
+        loop {
+            if !matches!(*state_tx.borrow(), MasterState::Connected) {
+                return Err(MasterError::NotConnected);
+            }
+            let acked = protocol.lock().unwrap().startdt_acked;
+            if acked { break; }
+            if std::time::Instant::now() >= startdt_deadline {
+                return Err(MasterError::SendError(format!("{}: STARTDT CON 在 t1 内未收到", detail)));
+            }
+            let notif = ack_notify.notified();
+            tokio::pin!(notif);
+            let _ = tokio::time::timeout(std::time::Duration::from_millis(200), notif).await;
+        }
+
         // Block until pending_acks.len() < k. Re-check on each Notify or
         // every ~100ms; bail out if the connection drops.
         loop {
@@ -1554,13 +1579,18 @@ fn process_received_frame<W: RawWrite>(
     // protocol-state mutation are made here; I/O happens after the drop.
     let mut freed_acks = 0usize;
     let mut force_ack: Option<u16> = None;
+    let mut startdt_just_acked = false;
     {
         let mut s = protocol.lock().unwrap();
         s.last_rx = now;
         s.test_pending_deadline = None;
 
         if ctrl1 & 0x03 == 0x03 {
-            // U-frame: nothing extra to update beyond the liveness fields above.
+            // U-frame. STARTDT CON (0x0B) unlocks I-frame transmission.
+            if ctrl1 == 0x0B && !s.startdt_acked {
+                s.startdt_acked = true;
+                startdt_just_acked = true;
+            }
         } else if ctrl1 & 0x01 == 0x01 {
             // S-frame piggybacks an RSN.
             let peer_rsn = u16::from_le_bytes([data[4], data[5]]) >> 1;
@@ -1582,7 +1612,7 @@ fn process_received_frame<W: RawWrite>(
             }
         }
     }
-    if freed_acks > 0 {
+    if freed_acks > 0 || startdt_just_acked {
         ack_notify.notify_waiters();
     }
 
