@@ -18,6 +18,20 @@ import { extractChangelogSection } from './gen-update-manifest.mjs'
 const REPO = 'Carl-Dai/IEC60870-5-104-Simulator'
 const REPO_URL = `https://github.com/${REPO}`
 
+const MACOS_FIRST_LAUNCH_NOTE = [
+  '## macOS 首次启动 / First launch on macOS',
+  '',
+  '首次双击 `.app` 会被 Gatekeeper 拦截("Apple 无法验证…")。放行:打开',
+  '*系统设置 → 隐私与安全性*,滚到底点 *仍要打开*;或终端执行',
+  '`xattr -dr com.apple.quarantine "/Applications/IEC104Slave.app"`。',
+  `详细步骤见 [README](${REPO_URL}#first-launch-on-macos)。`,
+  '',
+  'First launch is blocked by Gatekeeper ("Apple could not verify…"). To allow:',
+  '*System Settings → Privacy & Security*, scroll to bottom, click *Open Anyway*; or',
+  'run `xattr -dr com.apple.quarantine "/Applications/IEC104Slave.app"` in Terminal.',
+  `Full steps in the [README](${REPO_URL}#first-launch-on-macos).`,
+].join('\n')
+
 const APPS = [
   { role: 'Slave (从站)', prefix: 'IEC104Slave' },
   { role: 'Master (主站)', prefix: 'IEC104Master' },
@@ -62,6 +76,8 @@ export function buildBody(tag, changelog) {
     lines.push(`> ⚠️  CHANGELOG.md 缺少 \`${version}\` 的 section,请补上。`)
     lines.push('')
   }
+  lines.push(MACOS_FIRST_LAUNCH_NOTE)
+  lines.push('')
   lines.push('---')
   lines.push('')
   lines.push(`完整变更历史 / Full changelog: [CHANGELOG.md](${REPO_URL}/blob/main/CHANGELOG.md)`)
