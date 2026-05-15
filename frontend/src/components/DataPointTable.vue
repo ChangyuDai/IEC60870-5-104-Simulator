@@ -423,12 +423,12 @@ defineExpose({ loadData: loadDataPoints })
       <table class="table">
         <thead>
           <tr>
-            <th class="th-ioa">IOA</th>
-            <th class="th-type">{{ t('table.asduTypeCol') }}</th>
-            <th class="th-name">{{ t('table.nameCol') }}</th>
-            <th class="th-value">{{ t('table.valueCol') }}</th>
-            <th class="th-quality">{{ t('table.qualityCol') }}</th>
-            <th class="th-timestamp">{{ t('table.timestampCol') }}</th>
+            <th class="col-ioa">IOA</th>
+            <th class="col-type">{{ t('table.asduTypeCol') }}</th>
+            <th class="col-name">{{ t('table.nameCol') }}</th>
+            <th class="col-value">{{ t('table.valueCol') }}</th>
+            <th class="col-quality">{{ t('table.qualityCol') }}</th>
+            <th class="col-timestamp">{{ t('table.timestampCol') }}</th>
           </tr>
         </thead>
       </table>
@@ -603,6 +603,7 @@ defineExpose({ loadData: loadDataPoints })
   width: 100%;
   border-collapse: collapse;
   font-size: 12px;
+  table-layout: fixed;
 }
 
 .table thead {
@@ -656,7 +657,6 @@ defineExpose({ loadData: loadDataPoints })
 }
 
 .col-name {
-  max-width: 120px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
