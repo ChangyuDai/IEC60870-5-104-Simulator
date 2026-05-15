@@ -141,20 +141,32 @@ cargo tauri dev
 从 v1.0.9 起，两个应用在启动时自动检测 GitHub Releases，发现新版本会弹窗提示安装。
 v1.0.8 及更早版本的用户需要手动升级一次到 v1.0.9，之后将自动收到后续更新。
 
-### macOS 安装提示
+### macOS 首次启动
 
-应用未做 Apple 公证（Notarization）。从 v1.1.2 起 dmg 内的 .app 带 ad-hoc 签名，
-首次打开时 macOS 会提示"无法验证开发者"，**右键 → 打开** 即可绕过。
+应用未做 Apple 公证(Notarization),首次双击 `.app` 时,macOS 会弹窗
+"未打开 IEC104Slave / IEC104Master — Apple 无法验证…",只提供 *完成* 与
+*移到废纸篓* 两个按钮。这是 macOS 15 (Sequoia) 起的标准拦截,**不是软件损坏**。
 
-如果你下载的是 v1.1.1 或更早的 dmg，看到 **"已损坏，无法打开"** 提示，是因为
-旧版完全没签名，被新 macOS 直接判定为损坏。终端跑一行解决：
+**放行步骤(任选其一):**
 
-```bash
-xattr -dr com.apple.quarantine "/Applications/IEC104Master.app"
-xattr -dr com.apple.quarantine "/Applications/IEC104Slave.app"
-```
+1. **图形界面**:
+   - 双击 `.app`,出现拦截弹窗,点 *完成*
+   - 打开 *系统设置 → 隐私与安全性*,滚到底部
+   - 看到"已阻止 IEC104Slave 的使用…",点 *仍要打开* → 输入密码
+   - 弹窗变为 *打开*,点击即可,以后双击直接启动
 
-或直接升级到 v1.1.2 及以后的版本（应用内"检查更新"也会推过来）。
+2. **终端一行命令**(快):
+
+   ```bash
+   xattr -dr com.apple.quarantine "/Applications/IEC104Slave.app"
+   xattr -dr com.apple.quarantine "/Applications/IEC104Master.app"
+   ```
+
+   命令执行后 `.app` 不再被隔离标记,双击即开。
+
+如果你看到 *"已损坏,无法打开"* 而不是上面的对话框,那是 v1.1.1 及更早完全无签名的旧版,
+请升级到 v1.1.2 以上(应用内"检查更新"也会推过来),或用上面的 `xattr` 命令清掉
+隔离属性即可。
 
 ## 许可证
 
