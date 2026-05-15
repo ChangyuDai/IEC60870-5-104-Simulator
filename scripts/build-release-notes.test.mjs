@@ -45,4 +45,12 @@ describe('buildBody', () => {
     expect(body).toContain('blob/main/CHANGELOG.md')
     expect(body).toContain('/releases>')
   })
+  it('includes the macOS first-launch guidance block', () => {
+    const body = buildBody('v1.2.3', md)
+    expect(body).toContain('macOS 首次启动 / First launch on macOS')
+    expect(body).toContain('xattr -dr com.apple.quarantine')
+    expect(body).toContain('System Settings → Privacy & Security')
+    expect(body).toContain('系统设置 → 隐私与安全性')
+    expect(body).toContain('#first-launch-on-macos')
+  })
 })
