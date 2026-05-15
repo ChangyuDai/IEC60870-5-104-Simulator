@@ -22,7 +22,7 @@ const emit = defineEmits<{
 }>()
 
 const ASDU_TYPES = computed(() =>
-  ASDU_TYPE_OPTIONS.map(o => ({ value: o.value, label: t(o.labelKey) }))
+  ASDU_TYPE_OPTIONS.map(o => ({ value: o.value, label: t(o.labelKey), typeId: o.typeId }))
 )
 
 const formIoa = ref<number | undefined>(undefined)
@@ -99,7 +99,7 @@ function handleBackdropClick(e: MouseEvent) {
             <label class="form-label">{{ t('pointModal.asduTypeLabel') }}</label>
             <select v-model="formAsduType" class="form-select">
               <option v-for="opt in ASDU_TYPES" :key="opt.value" :value="opt.value">
-                {{ opt.label }}
+                {{ opt.label }} · {{ opt.typeId }}
               </option>
             </select>
           </div>

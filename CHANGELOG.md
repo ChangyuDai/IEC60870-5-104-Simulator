@@ -2,6 +2,20 @@
 
 本项目的所有重要变更记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.3.6] - 2026-05-15
+
+### Highlights / 亮点
+
+- 🏷️ **添加点位 / 批量添加对话框的 ASDU 类型下拉每项后置 TypeID 数字** / ASDU type dropdown in the add-point and batch-add modals now shows the IEC 60870-5-101/104 TypeID after each label — 之前下拉里只看到 `单点 (SP)` / `单点带 CP56 时标 (SP_TB)` 这种语义标签,工程师还得自己心算或翻表才知道对应的 typeid 是哪个;现在每行末尾显示 `· 1` `· 30` 等数字,与左侧 ConnectionTree 的 TypeId chip 风格一致 / Previously the dropdown only showed friendly labels like `单点 (SP)` / `Single-point with CP56 time tag (SP_TB)`. Each option now appends `· 1`, `· 30`, etc. — matching the per-row TypeId chips already shown in the left ConnectionTree.
+
+### Added 新增
+
+- **frontend / constants/asduTypes.ts**: `AsduTypeOption` 接口新增 `typeId: number` 字段;16 个 ASDU 类型各自补上对应 typeid(1/30, 3/31, 5/32, 7/33, 9/34, 11/35, 13/36, 15/37),来源与 `crates/iec104sim-core/src/types.rs::AsduTypeId` 一致 / `AsduTypeOption` interface gains a `typeId: number` field; all 16 entries populated to match `types.rs::AsduTypeId`.
+
+### Changed 改进
+
+- **frontend / BatchAddModal.vue 与 DataPointModal.vue**: `<select>` 内的 `<option>` 文本从 `{{ opt.label }}` 改为 `{{ opt.label }} · {{ opt.typeId }}` / The `<option>` text in both modals now renders as `{{ opt.label }} · {{ opt.typeId }}`.
+
 ## [1.3.5] - 2026-05-15
 
 ### Highlights / 亮点
