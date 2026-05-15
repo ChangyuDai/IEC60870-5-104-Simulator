@@ -143,21 +143,33 @@ See [CHANGELOG.md](CHANGELOG.md) or the [Releases page](https://github.com/Carl-
 Starting from v1.0.9, both apps check GitHub Releases on startup and prompt the user to install
 new versions. Users on v1.0.8 or earlier need to upgrade manually one time.
 
-### macOS install note
+### First launch on macOS
 
-The bundles are **not Apple-notarized** (no paid Developer Program). From v1.1.2 the `.app`
-inside the dmg is ad-hoc signed, so on first launch macOS shows the standard "unidentified
-developer" warning — right-click → **Open** to bypass.
+The bundles are **not Apple-notarized** (no paid Developer Program). On first launch
+macOS shows *"IEC104Slave / IEC104Master cannot be opened — Apple could not verify…"*
+with only *Done* and *Move to Trash* buttons. This is the standard macOS 15 (Sequoia)
+block for ad-hoc-signed apps — the app is **not damaged**.
 
-If you downloaded a v1.1.1 or earlier dmg and see **"is damaged, can't be opened, move to
-Trash"**, that's the unsigned-app behaviour newer macOS enforces. Run:
+**Allow it (pick one):**
 
-```bash
-xattr -dr com.apple.quarantine "/Applications/IEC104Master.app"
-xattr -dr com.apple.quarantine "/Applications/IEC104Slave.app"
-```
+1. **GUI path**:
+   - Double-click the `.app`, see the block dialog, click *Done*
+   - Open *System Settings → Privacy & Security*, scroll to the bottom
+   - You'll see *"IEC104Slave was blocked…"*, click *Open Anyway* → enter password
+   - The next dialog has an *Open* button; click it. Subsequent launches go straight through.
 
-…or upgrade to v1.1.2+ (the in-app updater will push it).
+2. **One-line Terminal**:
+
+   ```bash
+   xattr -dr com.apple.quarantine "/Applications/IEC104Slave.app"
+   xattr -dr com.apple.quarantine "/Applications/IEC104Master.app"
+   ```
+
+   Strips the quarantine flag so macOS stops blocking.
+
+If you instead see *"is damaged, can't be opened"*, that's a v1.1.1-or-earlier build
+with no signature at all — upgrade to v1.1.2+ (the in-app updater will push it) or
+run the `xattr` command above.
 
 ## License
 
