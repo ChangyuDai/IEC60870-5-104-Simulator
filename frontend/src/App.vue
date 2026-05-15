@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, provide, onMounted, onUnmounted } from 'vue'
+import { ref, provide, onMounted, onUnmounted, watch } from 'vue'
 import { listen } from '@tauri-apps/api/event'
 import Toolbar from './components/Toolbar.vue'
 import ConnectionTree from './components/ConnectionTree.vue'
@@ -9,6 +9,7 @@ import LogPanel from './components/LogPanel.vue'
 import AppDialog from './components/AppDialog.vue'
 import UpdateDialog from './components/UpdateDialog.vue'
 import ParseFrameDialog from './components/ParseFrameDialog.vue'
+import Splitter from './components/Splitter.vue'
 import { invoke } from '@tauri-apps/api/core'
 import { showAlert, showConfirm, showPrompt, dialogKey } from './composables/useDialog'
 
@@ -21,6 +22,30 @@ const selectedCA = ref<number | null>(null)
 const selectedCategory = ref<string | null>(null)
 const selectedPoints = ref<{ ioa: number; asdu_type: string; value: string }[]>([])
 const logExpanded = ref(false)
+
+// Resizable layout — widths persisted to localStorage
+const LS_TREE_W = 'iec104.layout.treeWidth'
+const LS_PANEL_W = 'iec104.layout.panelWidth'
+const TREE_MIN = 180, TREE_MAX = 480, TREE_DEFAULT = 240
+const PANEL_MIN = 220, PANEL_MAX = 600, PANEL_DEFAULT = 280
+
+function loadWidth(key: string, def: number, min: number, max: number): number {
+  try {
+    const v = parseInt(localStorage.getItem(key) ?? '', 10)
+    if (Number.isFinite(v) && v >= min && v <= max) return v
+  } catch { /* ignore */ }
+  return def
+}
+
+const treeWidth = ref(loadWidth(LS_TREE_W, TREE_DEFAULT, TREE_MIN, TREE_MAX))
+const panelWidth = ref(loadWidth(LS_PANEL_W, PANEL_DEFAULT, PANEL_MIN, PANEL_MAX))
+
+watch(treeWidth, (v) => {
+  try { localStorage.setItem(LS_TREE_W, String(Math.round(v))) } catch { /* ignore */ }
+})
+watch(panelWidth, (v) => {
+  try { localStorage.setItem(LS_PANEL_W, String(Math.round(v))) } catch { /* ignore */ }
+})
 
 // Provide shared state to children
 provide('selectedServerId', selectedServerId)
@@ -140,7 +165,13 @@ function snoozeUpdate() {
 </script>
 
 <template>
-  <div :class="['app-layout', { 'log-expanded': logExpanded }]">
+  <div
+    :class="['app-layout', { 'log-expanded': logExpanded }]"
+    :style="{
+      '--tree-w': treeWidth + 'px',
+      '--panel-w': panelWidth + 'px',
+    }"
+  >
     <header class="toolbar-area">
       <Toolbar />
     </header>
@@ -152,12 +183,27 @@ function snoozeUpdate() {
         @category-select="handleCategorySelect"
       />
     </aside>
+    <Splitter
+      class="splitter-tree"
+      axis="x"
+      :min="TREE_MIN"
+      :max="TREE_MAX"
+      v-model="treeWidth"
+    />
     <main class="content-area">
       <DataPointTable
         ref="dataPointTableRef"
         @point-select="handlePointSelect"
       />
     </main>
+    <Splitter
+      class="splitter-panel"
+      axis="x"
+      :min="PANEL_MIN"
+      :max="PANEL_MAX"
+      v-model="panelWidth"
+      reverse
+    />
     <aside class="panel-area">
       <ValuePanel />
     </aside>
@@ -202,12 +248,12 @@ body {
 
 .app-layout {
   display: grid;
-  grid-template-columns: 240px 1fr 280px;
+  grid-template-columns: var(--tree-w, 240px) 4px 1fr 4px var(--panel-w, 280px);
   grid-template-rows: 42px 1fr 32px;
   grid-template-areas:
-    "toolbar toolbar toolbar"
-    "tree content panel"
-    "log log log";
+    "toolbar toolbar toolbar toolbar toolbar"
+    "tree    sp-l    content sp-r    panel"
+    "log     log     log     log     log";
   height: 100vh;
   width: 100vw;
 }
@@ -225,8 +271,11 @@ body {
 .tree-area {
   grid-area: tree;
   background: #181825;
-  border-right: 1px solid #313244;
   overflow-y: auto;
+}
+
+.splitter-tree {
+  grid-area: sp-l;
 }
 
 .content-area {
@@ -235,10 +284,13 @@ body {
   overflow: hidden;
 }
 
+.splitter-panel {
+  grid-area: sp-r;
+}
+
 .panel-area {
   grid-area: panel;
   background: #181825;
-  border-left: 1px solid #313244;
   overflow-y: auto;
 }
 

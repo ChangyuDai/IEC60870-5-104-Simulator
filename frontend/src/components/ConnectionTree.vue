@@ -20,6 +20,19 @@ const CATEGORIES = [
   '累计量 (IT)',
 ]
 
+// 每个监视方向 category 对应的 ASDU TypeId: 无时标 · CP56 时标
+// 与 crates/iec104sim-core/src/types.rs::AsduTypeId::category 一致
+const CATEGORY_TYPEIDS: Record<string, string> = {
+  '单点 (SP)': '1 · 30',
+  '双点 (DP)': '3 · 31',
+  '步位置 (ST)': '5 · 32',
+  '位串 (BO)': '7 · 33',
+  '归一化 (ME_NA)': '9 · 34',
+  '标度化 (ME_NB)': '11 · 35',
+  '浮点 (ME_NC)': '13 · 36',
+  '累计量 (IT)': '15 · 37',
+}
+
 const sharedCategoryCounts = inject<Ref<Map<string, number>>>('categoryCounts')!
 
 interface TreeServer {
@@ -235,6 +248,7 @@ function isCategorySelected(ts: TreeServer, tst: TreeStation, category: string):
               @click.stop="selectCategory(ts, tst, cat)"
             >
               <span class="node-label">{{ localizeCategoryLabel(cat) }}</span>
+              <span class="node-typeid">{{ CATEGORY_TYPEIDS[cat] }}</span>
               <span class="node-badge" v-if="sharedCategoryCounts.get(cat)">
                 {{ sharedCategoryCounts.get(cat) }}
               </span>
@@ -352,6 +366,7 @@ function isCategorySelected(ts: TreeServer, tst: TreeStation, category: string):
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
 }
 
 .node-badge {
@@ -366,6 +381,25 @@ function isCategorySelected(ts: TreeServer, tst: TreeStation, category: string):
 .tree-node.selected .node-badge {
   background: rgba(0, 0, 0, 0.2);
   color: #1e1e2e;
+}
+
+.node-typeid {
+  margin-left: auto;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 10px;
+  color: #74c7ec;
+  letter-spacing: 0.3px;
+  opacity: 0.85;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.category-node .node-badge {
+  margin-left: 8px;
+}
+
+.tree-node.selected .node-typeid {
+  color: rgba(30, 30, 46, 0.7);
 }
 
 /* Context Menu */

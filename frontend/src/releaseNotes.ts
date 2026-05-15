@@ -4,8 +4,9 @@ export const RELEASES_URL = 'https://github.com/Carl-Dai/IEC60870-5-104-Simulato
 
 // Keep in sync with CHANGELOG.md — see `release` skill.
 export const RELEASE_NOTES: string[] = [
-  '子站 IEC 104 序列号实现修复: 之前激活确认 / 激活终止把主站发来的 APCI bytes 原样回送, 自己的 N(S)/N(R) 从不前进, 严格主站判协议违规直接 RST, 宽松主站则 t1 超时关链。本版引入 SeqState 把每条连接的序号统一收口, 收到 I 帧时正确推进 N(R), 发 ack/term 用 build_response_frame 重写 APCI 为子站自己的值',
-  '子站 GI / 累计量召唤响应改批量构造: 默认站 160 数据点 × 3 CA 的总召前需要 ~960 次 await, 现整批在单 seq 锁内构造, 单次入队; TLS 阻塞路径上 send_gi_response_blocking 和 type 101 块同样合并为单 block_on + 单 write_all',
-  '配合的主站补丁: 收到 STARTDT CON 之前不再发 I 帧, 严格按 IEC 60870-5-104 §5.3; 之前 TCP 握手完即允许发 I 帧, 合规子站会直接 RST',
-  '上一版 v1.3.3 亮点: 主站 TLS 无条件关闭 hostname 校验, CA 链信任仍按 accept_invalid_certs 控制',
+  '主布局支持拖拽调整左右栏宽度: 服务器树和数据点详情两栏之间各加一条 hover 变蓝、按住可拖的细线分隔条; 拖完的宽度落 localStorage, 重启应用后恢复 (tree 180–480 px, 详情 220–600 px)',
+  '左侧类别树每行多一个 TypeId chip: monospace 小 chip 显示该 category 对应的「无时标 · CP56 时标」typeid 对 (如 1 · 30, 9 · 34), 颜色用 IOA 同色系的 sky blue, 省去翻 IEC 60870-5-101 表',
+  '数据点表表头列与数据列对齐: 之前表头 / body 是两个独立 <table>, 表头列没 CSS 宽度而 body 有, 默认 table-layout: auto 下两个 table 各算各的列宽 → 值 / 品质 / 时间戳 表头视觉错位; 改 th 复用 .col-* + table-layout: fixed 后彻底对齐',
+  'macOS 首次启动指引更新到 Sequoia 行为: 旧 "右键 → 打开" 路径自 macOS 15 (Sequoia) 起被 Apple 移除, 弹窗只剩 完成 / 移到废纸篓; README 中英文双语重写为 系统设置 → 隐私与安全性 → 仍要打开 + xattr -dr com.apple.quarantine 兜底',
+  '上一版 v1.3.4 亮点: 子站 IEC 104 序列号实现修复 + 主站 STARTDT CON 等待 + GI / 累计量召唤批量编帧',
 ]

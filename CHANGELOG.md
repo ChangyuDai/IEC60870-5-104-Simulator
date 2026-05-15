@@ -2,6 +2,30 @@
 
 本项目的所有重要变更记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.3.5] - 2026-05-15
+
+### Highlights / 亮点
+
+- 🪟 **子站主布局支持拖拽调整左右栏宽度** / Slave main layout supports drag-to-resize left/right panels — 服务器树和数据点详情两栏之间各加一条 hover 变蓝、按住可拖的细线分隔条;宽度落 `localStorage`,关闭应用再开宽度恢复 / Two thin draggable dividers (turn blue on hover) sit between the server tree, the data point table and the value panel; widths persisted to `localStorage` so they survive a restart. Range: tree 180–480 px, value panel 220–600 px.
+- 🏷️ **左侧类别树每行多一个 TypeId chip** / Slave tree gets per-category TypeId chips — 每行 label 右侧多一个 monospace 小 chip,显示该 category 对应的「无时标 · CP56 时标」typeid 对(如 `1 · 30`,`9 · 34`),颜色用 IOA 同色系的 sky blue,省去翻 IEC 60870-5-101 表 / A monospace chip next to each category label shows the IEC 60870-5-101/104 typeid pair "untimed · CP56-timed" (e.g. `1 · 30`, `9 · 34`); saves engineers a lookup against the standard tables.
+- 🔧 **数据点表表头列与数据列对齐** / Data-point table header columns align with body cells — 表头与表体是两个独立 `<table>` 元素,body 的 `<td>` 有 `.col-* { width }` 规则但表头 `<th>` 用的 `.th-*` 没 CSS,在默认 `table-layout: auto` 下两个 table 各自按内容算列宽 → `值` `品质` `时间戳` 表头视觉飘到错位。改 th 复用 `.col-*` + 两个 table 都加 `table-layout: fixed` / Header and body lived in two separate `<table>` elements; body cells had `.col-*` width rules but headers used `.th-*` with no CSS, and under default `table-layout: auto` each table sized columns from its own content. Header now reuses `.col-*`, both tables lock to `table-layout: fixed`, `.col-name` absorbs remaining space.
+- 📄 **macOS 首次启动指引更新到 Sequoia 行为** / README macOS first-launch guidance updated for Sequoia — 旧文档讲的 "右键 → 打开" 路径自 macOS 15 (Sequoia) 起被 Apple 移除,现弹窗只剩 *完成 / 移到废纸篓* 两个按钮。README 中英文双语重写为 *系统设置 → 隐私与安全性 → 仍要打开* 主路径 + `xattr -dr com.apple.quarantine` 兜底 / The old "right-click → Open" bypass was removed by Apple in macOS 15 (Sequoia); the dialog now offers only *Done* / *Move to Trash*. Both `README.md` and `README_CN.md` rewritten for the *System Settings → Privacy & Security → Open Anyway* path plus the `xattr -dr com.apple.quarantine` fallback.
+
+### Added 新增
+
+- **frontend / App.vue**: 新增 `Splitter.vue` 组件 (无依赖, ~80 行),`axis: 'x' \| 'y'`、`v-model: number`、`min/max`、可选 `reverse`;mousedown 后捕获 document mousemove/up,光标变 col-resize / row-resize,hover 时 1px 分隔线变 2px 亮蓝。主 grid 从 3 列改为 5 列 (`var(--tree-w) 4px 1fr 4px var(--panel-w)`),splitter 占独立 `sp-l / sp-r` track;CSS 变量绑定两个 ref:`treeWidth`(180–480 默认 240)与 `panelWidth`(220–600 默认 280);存到 `iec104.layout.treeWidth` / `iec104.layout.panelWidth` / Added `Splitter.vue` (zero-dep, ~80 lines): `axis`, `v-model`, `min/max`, optional `reverse`. Captures document mousemove on mousedown, swaps cursor to col-resize/row-resize, divider turns blue on hover. Main grid switches from 3 columns to 5 (`var(--tree-w) 4px 1fr 4px var(--panel-w)`); widths flow through CSS vars bound to two refs (`treeWidth` 180–480 default 240, `panelWidth` 220–600 default 280) and persist under `iec104.layout.treeWidth` / `iec104.layout.panelWidth`.
+- **frontend / ConnectionTree.vue**: category 节点新增 `node-typeid` chip,数据来自顶层 `CATEGORY_TYPEIDS` map(与 `crates/iec104sim-core/src/types.rs::AsduTypeId::category` 同步),monospace 10px,sky `#74c7ec`,选中行颜色变深以适配蓝底高对比 / Category nodes get a new `node-typeid` chip backed by a top-level `CATEGORY_TYPEIDS` map (kept in sync with `types.rs::AsduTypeId::category`). Monospace 10px, sky `#74c7ec`, dims on selected rows for contrast on the blue selection background.
+
+### Fixed 修复
+
+- **frontend / DataPointTable.vue**: 表头 6 个 `<th>` 类从 `.th-*` (无 CSS) 改为 `.col-*` 复用 body 宽度;`.table` 加 `table-layout: fixed`;`.col-name` 删 `max-width: 120px` 改为吸收剩余空间 / Header `<th>` classes changed from `.th-*` (which had no CSS) to `.col-*`; `.table` locks to `table-layout: fixed`; `.col-name` drops `max-width: 120px` and absorbs remaining space.
+- **frontend / ConnectionTree.vue**: 给 `.node-label` 加 `min-width: 0` 让长 label(归一化/标度化)在窄容器下走 ellipsis,而不是把 `node-typeid` chip 挤换行 / Added `min-width: 0` to `.node-label` so long category names (归一化/标度化) ellipsis instead of pushing the `node-typeid` chip onto a second line. `node-typeid` itself gets `white-space: nowrap; flex-shrink: 0`.
+
+### Docs 文档
+
+- **README.md / README_CN.md**: 双语重写 macOS 首次启动章节(标题英文从 *macOS install note* 改为 *First launch on macOS*,中文从 *macOS 安装提示* 改为 *macOS 首次启动*);保留 v1.1.1 及更早旧 dmg "已损坏" 的兜底升级提示 / Both READMEs rewrite the macOS first-launch section. English title moves from *macOS install note* to *First launch on macOS* (matches the GitHub slug `#first-launch-on-macos` referenced by the release-notes template). Legacy "is damaged" guidance for v1.1.1 dmgs kept as a fallback paragraph.
+- **docs/superpowers/specs/2026-05-15-macos-gatekeeper-onboarding-design.md** 与 **docs/superpowers/plans/2026-05-15-macos-gatekeeper-onboarding.md**: 落盘对应 spec 与实施计划文件(brainstorm/审计跟踪用)/ Added design spec and implementation plan for the macOS Gatekeeper onboarding doc rewrite (audit trail).
+
 ## [1.3.4] - 2026-05-12
 
 ### Highlights / 亮点
