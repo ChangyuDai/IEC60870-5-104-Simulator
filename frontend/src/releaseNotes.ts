@@ -4,7 +4,10 @@ export const RELEASES_URL = 'https://github.com/Carl-Dai/IEC60870-5-104-Simulato
 
 // Keep in sync with CHANGELOG.md — see `release` skill.
 export const RELEASE_NOTES: string[] = [
-  '添加点位 / 批量添加对话框的 ASDU 类型下拉每项后置 TypeID 数字: 之前只看到 "单点 (SP)" / "单点带 CP56 时标 (SP_TB)" 这种语义标签, 现在每行末尾显示 "· 1" "· 30" 等数字, 与左侧 ConnectionTree 的 TypeId chip 风格一致',
-  '上一版 v1.3.5 亮点: 子站主布局支持拖拽调整左右栏宽度 (宽度落 localStorage) + 左侧类别树每行多一个 TypeId chip + 数据点表表头与数据列对齐 + macOS 首次启动指引更新到 Sequoia',
-  '上一版 v1.3.4 亮点: 子站 IEC 104 序列号实现修复 + 主站 STARTDT CON 等待 + GI / 累计量召唤批量编帧',
+  '两个前端共享代码合并: 新建 shared-frontend/ 收口 5 个 Vue 组件、useDialog、i18n 核心与 ParsedFrame 类型, 净删 ~2700 行重复代码, 两个 app 通过 @shared/@app vite alias 引用',
+  'Catppuccin Mocha 色板 token 化: tokens.css 定义 --c-* 变量与跨平台 --font-mono (Cascadia Code / JetBrains Mono fallback), 22 个 .vue 中所有 hex 颜色与等宽字体栈替换为 var(...)',
+  'Toolbar 巨石拆分: slave 653 → 326 行, 抽出 NewServerModal + useMutationTimer + useCyclicTransmission 两个 composable',
+  '工具栏右上角新增版本号 + GitHub 图标 (VersionBadge), 点击复制版本号或仓库 URL, 1.5s flash toast 反馈',
+  '全局 :focus-visible 键盘焦点环 + 子站补齐暗色滚动条样式, macOS 始终显示滚动条模式下不再出白色滚动槽',
+  '上一版 v1.3.6 亮点: 添加点位 / 批量添加对话框的 ASDU 类型下拉每项后置 TypeID 数字',
 ]

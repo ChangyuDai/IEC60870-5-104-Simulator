@@ -1,32 +1,19 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { getVersion } from '@tauri-apps/api/app'
-import { APP_NAME, RELEASE_NOTES, REPO_URL, RELEASES_URL } from '../releaseNotes'
+import { APP_NAME, RELEASE_NOTES, REPO_URL, RELEASES_URL } from '@app/releaseNotes'
 import { useI18n } from '../i18n'
+import { useClipboardFlash } from '../composables/useClipboardFlash'
 
 defineProps<{ visible: boolean }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
 
 const { t } = useI18n()
+const { flash: copied, copy: copyLink } = useClipboardFlash()
 const version = ref('')
-const copied = ref('')
 onMounted(async () => {
-  try {
-    version.value = await getVersion()
-  } catch {
-    version.value = ''
-  }
+  try { version.value = await getVersion() } catch { version.value = '' }
 })
-
-async function copyLink(url: string, label: string) {
-  try {
-    await navigator.clipboard.writeText(url)
-    copied.value = `${label} ${t('about.copiedSuffix')}`
-    setTimeout(() => (copied.value = ''), 1500)
-  } catch {
-    copied.value = url
-  }
-}
 </script>
 
 <template>
@@ -68,8 +55,8 @@ async function copyLink(url: string, label: string) {
   z-index: 2100;
 }
 .about-box {
-  background: #1e1e2e;
-  border: 1px solid #45475a;
+  background: var(--c-base);
+  border: 1px solid var(--c-surface1);
   border-radius: 8px;
   width: 420px;
   max-width: 90vw;
@@ -77,20 +64,20 @@ async function copyLink(url: string, label: string) {
 }
 .about-header {
   padding: 18px 22px 10px;
-  border-bottom: 1px solid #313244;
+  border-bottom: 1px solid var(--c-surface0);
 }
-.about-title { font-size: 16px; font-weight: 600; color: #cdd6f4; }
-.about-version { font-size: 12px; color: #a6adc8; margin-top: 2px; font-variant-numeric: tabular-nums; }
-.about-body { padding: 14px 22px 8px; color: #bac2de; font-size: 13px; }
-.about-section-title { color: #cdd6f4; font-weight: 600; margin-bottom: 6px; }
+.about-title { font-size: 16px; font-weight: 600; color: var(--c-text); }
+.about-version { font-size: 12px; color: var(--c-subtext0); margin-top: 2px; font-variant-numeric: tabular-nums; }
+.about-body { padding: 14px 22px 8px; color: var(--c-subtext1); font-size: 13px; }
+.about-section-title { color: var(--c-text); font-weight: 600; margin-bottom: 6px; }
 .about-notes { margin: 0 0 14px; padding-left: 18px; line-height: 1.65; }
 .about-links { font-size: 12px; display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
-.about-links a { color: #89b4fa; text-decoration: none; cursor: pointer; }
+.about-links a { color: var(--c-blue); text-decoration: none; cursor: pointer; }
 .about-links a:hover { text-decoration: underline; }
-.about-sep { color: #585b70; }
-.about-toast { color: #a6e3a1; margin-left: 10px; font-size: 11px; }
+.about-sep { color: var(--c-surface2); }
+.about-toast { color: var(--c-green); margin-left: 10px; font-size: 11px; }
 .about-footer { display: flex; justify-content: flex-end; padding: 8px 22px 16px; }
 .btn { padding: 7px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; }
-.btn-primary { background: #89b4fa; color: #1e1e2e; }
-.btn-primary:hover { background: #74c7ec; }
+.btn-primary { background: var(--c-blue); color: var(--c-base); }
+.btn-primary:hover { background: var(--c-sapphire); }
 </style>

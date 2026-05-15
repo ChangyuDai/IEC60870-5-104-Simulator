@@ -79,7 +79,7 @@ function onDoubleClick() {
 .splitter::before {
   content: '';
   position: absolute;
-  background: #313244;
+  background: var(--c-surface0);
   transition: background 0.12s, transform 0.12s;
 }
 
@@ -99,7 +99,7 @@ function onDoubleClick() {
 
 .splitter:hover::before,
 .splitter:active::before {
-  background: #89b4fa;
+  background: var(--c-blue);
 }
 
 .axis-x:hover::before,

@@ -26,6 +26,7 @@ const dict: DictShape = {
     checkUpdate: 'Check for Updates',
     checkingUpdate: 'Checking…',
     alreadyLatest: 'You are on the latest version',
+    updateCheckFailed: 'Update check failed',
     appTitle: 'IEC104 Master',
     about: 'About',
   },

@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { ref, inject, watch, onMounted, type Ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import { dialogKey } from '../composables/useDialog'
-import type { showAlert as ShowAlert } from '../composables/useDialog'
+import { dialogKey } from '@shared/composables/useDialog'
+import type { showAlert as ShowAlert } from '@shared/composables/useDialog'
 import type { ServerInfo, StationInfo } from '../types'
-import { useI18n, localizeCategoryLabel } from '../i18n'
+import { useI18n, localizeCategoryLabel } from '@shared/i18n'
 
 const { t } = useI18n()
 const { showAlert } = inject<{ showAlert: typeof ShowAlert }>(dialogKey)!
@@ -298,13 +298,13 @@ function isCategorySelected(ts: TreeServer, tst: TreeStation, category: string):
   padding: 8px 12px;
   font-size: 11px;
   text-transform: uppercase;
-  color: #6c7086;
+  color: var(--c-overlay0);
   letter-spacing: 0.5px;
 }
 
 .tree-empty {
   padding: 16px 12px;
-  color: #6c7086;
+  color: var(--c-overlay0);
   font-size: 12px;
 }
 
@@ -319,12 +319,12 @@ function isCategorySelected(ts: TreeServer, tst: TreeStation, category: string):
 }
 
 .tree-node:hover {
-  background: #313244;
+  background: var(--c-surface0);
 }
 
 .tree-node.selected {
-  background: #89b4fa;
-  color: #1e1e2e;
+  background: var(--c-blue);
+  color: var(--c-base);
 }
 
 .tree-child {
@@ -340,11 +340,11 @@ function isCategorySelected(ts: TreeServer, tst: TreeStation, category: string):
   width: 12px;
   text-align: center;
   flex-shrink: 0;
-  color: #6c7086;
+  color: var(--c-overlay0);
 }
 
 .tree-node.selected .node-arrow {
-  color: #1e1e2e;
+  color: var(--c-base);
 }
 
 .node-status {
@@ -355,11 +355,11 @@ function isCategorySelected(ts: TreeServer, tst: TreeStation, category: string):
 }
 
 .node-status.running {
-  background: #a6e3a1;
+  background: var(--c-green);
 }
 
 .node-status.stopped {
-  background: #585b70;
+  background: var(--c-surface2);
 }
 
 .node-label {
@@ -372,22 +372,22 @@ function isCategorySelected(ts: TreeServer, tst: TreeStation, category: string):
 .node-badge {
   margin-left: auto;
   font-size: 10px;
-  color: #6c7086;
-  background: #313244;
+  color: var(--c-overlay0);
+  background: var(--c-surface0);
   padding: 1px 6px;
   border-radius: 8px;
 }
 
 .tree-node.selected .node-badge {
   background: rgba(0, 0, 0, 0.2);
-  color: #1e1e2e;
+  color: var(--c-base);
 }
 
 .node-typeid {
   margin-left: auto;
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono);
   font-size: 10px;
-  color: #74c7ec;
+  color: var(--c-sapphire);
   letter-spacing: 0.3px;
   opacity: 0.85;
   white-space: nowrap;
@@ -405,8 +405,8 @@ function isCategorySelected(ts: TreeServer, tst: TreeStation, category: string):
 /* Context Menu */
 .context-menu {
   position: fixed;
-  background: #1e1e2e;
-  border: 1px solid #45475a;
+  background: var(--c-base);
+  border: 1px solid var(--c-surface1);
   border-radius: 6px;
   z-index: 999;
   min-width: 140px;
@@ -416,7 +416,7 @@ function isCategorySelected(ts: TreeServer, tst: TreeStation, category: string):
 .context-menu-item {
   padding: 8px 14px;
   font-size: 13px;
-  color: #cdd6f4;
+  color: var(--c-text);
   cursor: pointer;
 }
 
@@ -429,11 +429,11 @@ function isCategorySelected(ts: TreeServer, tst: TreeStation, category: string):
 }
 
 .context-menu-item:hover {
-  background: #313244;
+  background: var(--c-surface0);
 }
 
 .context-menu-item.danger {
-  color: #f38ba8;
+  color: var(--c-red);
 }
 
 .context-menu-item.danger:hover {

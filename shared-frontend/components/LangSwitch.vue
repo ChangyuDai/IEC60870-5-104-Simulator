@@ -24,15 +24,15 @@ function toggle() {
   padding: 3px 8px;
   margin-right: 8px;
   background: transparent;
-  border: 1px solid #45475a;
+  border: 1px solid var(--c-surface1);
   border-radius: 4px;
-  color: #6c7086;
+  color: var(--c-overlay0);
   cursor: pointer;
   font-size: 12px;
   font-family: inherit;
 }
-.lang-switch:hover { color: #cdd6f4; background: #313244; }
+.lang-switch:hover { color: var(--c-text); background: var(--c-surface0); }
 .seg { padding: 0 2px; }
-.seg.active { color: #cdd6f4; font-weight: 600; }
-.sep { color: #45475a; }
+.seg.active { color: var(--c-text); font-weight: 600; }
+.sep { color: var(--c-surface1); }
 </style>

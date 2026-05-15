@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { ref, inject, watch, computed, nextTick, onMounted, onUnmounted, shallowRef, type Ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import { dialogKey } from '../composables/useDialog'
-import type { showAlert as ShowAlert } from '../composables/useDialog'
+import { dialogKey } from '@shared/composables/useDialog'
+import type { showAlert as ShowAlert } from '@shared/composables/useDialog'
 import type { DataPointInfo } from '../types'
 import DataPointModal from './DataPointModal.vue'
 import BatchAddModal from './BatchAddModal.vue'
-import { useI18n, localizeCategoryLabel } from '../i18n'
+import { useI18n, localizeCategoryLabel } from '@shared/i18n'
 
 const { t } = useI18n()
 const { showAlert } = inject<{ showAlert: typeof ShowAlert }>(dialogKey)!
@@ -519,14 +519,14 @@ defineExpose({ loadData: loadDataPoints })
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  border-bottom: 1px solid #313244;
+  border-bottom: 1px solid var(--c-surface0);
   flex-shrink: 0;
 }
 
 .table-title {
   font-size: 12px;
   font-weight: 600;
-  color: #cdd6f4;
+  color: var(--c-text);
   white-space: nowrap;
 }
 
@@ -534,28 +534,28 @@ defineExpose({ loadData: loadDataPoints })
   flex: 1;
   min-width: 0;
   padding: 4px 8px;
-  background: #313244;
-  border: 1px solid #45475a;
+  background: var(--c-surface0);
+  border: 1px solid var(--c-surface1);
   border-radius: 4px;
-  color: #cdd6f4;
+  color: var(--c-text);
   font-size: 12px;
   outline: none;
 }
 
 .search-input:focus {
-  border-color: #89b4fa;
+  border-color: var(--c-blue);
 }
 
 .search-input::placeholder {
-  color: #6c7086;
+  color: var(--c-overlay0);
 }
 
 .add-btn {
   padding: 2px 8px;
-  background: #313244;
-  border: 1px solid #45475a;
+  background: var(--c-surface0);
+  border: 1px solid var(--c-surface1);
   border-radius: 4px;
-  color: #a6e3a1;
+  color: var(--c-green);
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
@@ -569,7 +569,7 @@ defineExpose({ loadData: loadDataPoints })
 }
 
 .add-btn:hover:not(:disabled) {
-  background: #45475a;
+  background: var(--c-surface1);
 }
 
 .add-btn:disabled {
@@ -579,7 +579,7 @@ defineExpose({ loadData: loadDataPoints })
 
 .table-count {
   font-size: 11px;
-  color: #6c7086;
+  color: var(--c-overlay0);
   white-space: nowrap;
 }
 
@@ -589,7 +589,7 @@ defineExpose({ loadData: loadDataPoints })
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #6c7086;
+  color: var(--c-overlay0);
   font-size: 13px;
 }
 
@@ -613,29 +613,29 @@ defineExpose({ loadData: loadDataPoints })
 }
 
 .table th {
-  background: #1e1e2e;
-  color: #6c7086;
+  background: var(--c-base);
+  color: var(--c-overlay0);
   font-weight: 500;
   text-align: left;
   padding: 6px 10px;
-  border-bottom: 1px solid #313244;
+  border-bottom: 1px solid var(--c-surface0);
   position: sticky;
   top: 0;
 }
 
 .table td {
   padding: 5px 10px;
-  border-bottom: 1px solid #1e1e2e;
+  border-bottom: 1px solid var(--c-base);
   cursor: pointer;
 }
 
 .table tbody tr:hover {
-  background: #1e1e2e;
+  background: var(--c-base);
 }
 
 .table tbody tr.selected {
-  background: #89b4fa;
-  color: #1e1e2e;
+  background: var(--c-blue);
+  color: var(--c-base);
 }
 
 .table tbody tr.value-changed {
@@ -643,13 +643,13 @@ defineExpose({ loadData: loadDataPoints })
 }
 
 .col-ioa {
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono);
   width: 70px;
-  color: #89b4fa;
+  color: var(--c-blue);
 }
 
 .table tbody tr.selected .col-ioa {
-  color: #1e1e2e;
+  color: var(--c-base);
 }
 
 .col-type {
@@ -664,16 +664,16 @@ defineExpose({ loadData: loadDataPoints })
 
 .col-value {
   width: 120px;
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono);
   transition: color 0.3s;
 }
 
 .value-text {
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono);
 }
 
 .col-value.value-highlight {
-  color: #fab387;
+  color: var(--c-peach);
   font-weight: 700;
 }
 
@@ -690,39 +690,39 @@ defineExpose({ loadData: loadDataPoints })
 }
 
 .quality-dot.ok {
-  background: #a6e3a1;
+  background: var(--c-green);
 }
 
 .quality-dot.invalid {
-  background: #f38ba8;
+  background: var(--c-red);
   width: auto;
   height: auto;
   border-radius: 3px;
   padding: 1px 4px;
   font-size: 10px;
   font-weight: 600;
-  color: #1e1e2e;
+  color: var(--c-base);
 }
 
 .col-timestamp {
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
-  color: #6c7086;
+  color: var(--c-overlay0);
   width: 100px;
 }
 
 .table tbody tr.selected .col-timestamp {
-  color: #45475a;
+  color: var(--c-surface1);
 }
 
 .edit-input {
   width: 90px;
   padding: 2px 6px;
-  background: #1e1e2e;
-  border: 1px solid #89b4fa;
+  background: var(--c-base);
+  border: 1px solid var(--c-blue);
   border-radius: 3px;
-  color: #cdd6f4;
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  color: var(--c-text);
+  font-family: var(--font-mono);
   font-size: 12px;
   outline: none;
 }
@@ -730,8 +730,8 @@ defineExpose({ loadData: loadDataPoints })
 /* Context Menu */
 .context-menu {
   position: fixed;
-  background: #1e1e2e;
-  border: 1px solid #45475a;
+  background: var(--c-base);
+  border: 1px solid var(--c-surface1);
   border-radius: 6px;
   z-index: 999;
   min-width: 140px;
@@ -741,17 +741,17 @@ defineExpose({ loadData: loadDataPoints })
 .context-menu-item {
   padding: 8px 14px;
   font-size: 13px;
-  color: #cdd6f4;
+  color: var(--c-text);
   cursor: pointer;
   border-radius: 6px;
 }
 
 .context-menu-item:hover {
-  background: #313244;
+  background: var(--c-surface0);
 }
 
 .context-menu-item.danger {
-  color: #f38ba8;
+  color: var(--c-red);
 }
 
 .context-menu-item.danger:hover {

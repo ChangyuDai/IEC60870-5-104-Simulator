@@ -36,6 +36,7 @@ const dict: DictShape = {
     checkUpdate: 'Check for Updates',
     checkingUpdate: 'Checking…',
     alreadyLatest: 'You are on the latest version',
+    updateCheckFailed: 'Update check failed',
     parseFrame: 'Parse Frame',
     parseFrameInLog: 'Parse this frame',
   },

@@ -2,7 +2,7 @@
 import { ref, watch, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import type { CommandType, ControlResult } from '../types'
-import { useI18n } from '../i18n'
+import { useI18n } from '@shared/i18n'
 
 const { t } = useI18n()
 
@@ -388,8 +388,8 @@ const caSelectValue = computed<number>({
 }
 
 .modal-box {
-  background: #1e1e2e;
-  border: 1px solid #45475a;
+  background: var(--c-base);
+  border: 1px solid var(--c-surface1);
   border-radius: 8px;
   padding: 20px;
   min-width: 400px;
@@ -400,7 +400,7 @@ const caSelectValue = computed<number>({
 .modal-title {
   font-size: 15px;
   font-weight: 600;
-  color: #cdd6f4;
+  color: var(--c-text);
   margin-bottom: 16px;
 }
 
@@ -422,7 +422,7 @@ const caSelectValue = computed<number>({
   flex-direction: column;
   gap: 4px;
   font-size: 12px;
-  color: #6c7086;
+  color: var(--c-overlay0);
 }
 
 .form-row {
@@ -441,14 +441,14 @@ const caSelectValue = computed<number>({
 }
 
 .bitstring-hex {
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
-  color: #89b4fa;
+  color: var(--c-blue);
   padding-left: 2px;
 }
 
 .advanced {
-  border: 1px solid #313244;
+  border: 1px solid var(--c-surface0);
   border-radius: 4px;
   padding: 6px 10px;
 }
@@ -456,12 +456,12 @@ const caSelectValue = computed<number>({
 .advanced-summary {
   cursor: pointer;
   font-size: 12px;
-  color: #cdd6f4;
+  color: var(--c-text);
   user-select: none;
 }
 
 .advanced-summary:hover {
-  color: #89b4fa;
+  color: var(--c-blue);
 }
 
 .advanced-body {
@@ -473,7 +473,7 @@ const caSelectValue = computed<number>({
 
 .hint {
   font-size: 10px;
-  color: #6c7086;
+  color: var(--c-overlay0);
   line-height: 1.4;
 }
 
@@ -497,16 +497,16 @@ const caSelectValue = computed<number>({
 
 .form-input {
   padding: 6px 10px;
-  background: #313244;
-  border: 1px solid #45475a;
+  background: var(--c-surface0);
+  border: 1px solid var(--c-surface1);
   border-radius: 4px;
-  color: #cdd6f4;
+  color: var(--c-text);
   font-size: 13px;
 }
 
 .form-input:focus {
   outline: none;
-  border-color: #89b4fa;
+  border-color: var(--c-blue);
 }
 
 .ctrl-buttons {
@@ -517,23 +517,23 @@ const caSelectValue = computed<number>({
 .ctrl-btn {
   flex: 1;
   padding: 8px 12px;
-  border: 1px solid #45475a;
+  border: 1px solid var(--c-surface1);
   border-radius: 6px;
-  background: #313244;
-  color: #cdd6f4;
+  background: var(--c-surface0);
+  color: var(--c-text);
   font-size: 12px;
   cursor: pointer;
   transition: all 0.15s;
 }
 
 .ctrl-btn:hover {
-  background: #45475a;
+  background: var(--c-surface1);
 }
 
 .ctrl-btn.active {
-  background: #89b4fa;
-  color: #1e1e2e;
-  border-color: #89b4fa;
+  background: var(--c-blue);
+  color: var(--c-base);
+  border-color: var(--c-blue);
   font-weight: 600;
 }
 
@@ -556,23 +556,23 @@ const caSelectValue = computed<number>({
 
 .slider-input {
   flex: 1;
-  accent-color: #89b4fa;
+  accent-color: var(--c-blue);
 }
 
 .number-sm {
   width: 80px;
   padding: 4px 6px;
-  background: #313244;
-  border: 1px solid #45475a;
+  background: var(--c-surface0);
+  border: 1px solid var(--c-surface1);
   border-radius: 4px;
-  color: #cdd6f4;
+  color: var(--c-text);
   font-size: 12px;
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono);
 }
 
 .number-sm:focus {
   outline: none;
-  border-color: #89b4fa;
+  border-color: var(--c-blue);
 }
 
 .toggle-row {
@@ -587,25 +587,25 @@ const caSelectValue = computed<number>({
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: #cdd6f4;
+  color: var(--c-text);
   cursor: pointer;
 }
 
 .toggle-checkbox {
-  accent-color: #89b4fa;
+  accent-color: var(--c-blue);
 }
 
 .toggle-hint {
   font-size: 10px;
-  color: #6c7086;
+  color: var(--c-overlay0);
 }
 
 .error-msg {
   padding: 8px 10px;
   background: rgba(243, 139, 168, 0.15);
-  border: 1px solid #f38ba8;
+  border: 1px solid var(--c-red);
   border-radius: 4px;
-  color: #f38ba8;
+  color: var(--c-red);
   font-size: 12px;
   word-break: break-word;
 }
@@ -622,7 +622,7 @@ const caSelectValue = computed<number>({
 .result-ok {
   background: rgba(166, 227, 161, 0.15);
   border: 1px solid rgba(166, 227, 161, 0.3);
-  color: #a6e3a1;
+  color: var(--c-green);
 }
 
 .result-steps {
@@ -632,11 +632,11 @@ const caSelectValue = computed<number>({
 }
 
 .step-dot {
-  color: #a6e3a1;
+  color: var(--c-green);
 }
 
 .result-text {
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono);
 }
 
 .btn {
@@ -648,13 +648,13 @@ const caSelectValue = computed<number>({
 }
 
 .btn-primary {
-  background: #89b4fa;
-  color: #1e1e2e;
+  background: var(--c-blue);
+  color: var(--c-base);
   font-weight: 600;
 }
 
 .btn-primary:hover {
-  background: #74c7ec;
+  background: var(--c-sapphire);
 }
 
 .btn-primary:disabled {
@@ -663,11 +663,11 @@ const caSelectValue = computed<number>({
 }
 
 .btn-secondary {
-  background: #45475a;
-  color: #cdd6f4;
+  background: var(--c-surface1);
+  color: var(--c-text);
 }
 
 .btn-secondary:hover {
-  background: #585b70;
+  background: var(--c-surface2);
 }
 </style>

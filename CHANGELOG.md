@@ -2,6 +2,42 @@
 
 本项目的所有重要变更记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.3.7] - 2026-05-15
+
+### Highlights / 亮点
+
+- 🧹 **两个前端共享代码合并,净删 ~2700 行重复** / Slave & master frontends now share a single source tree, net ~2700 LoC of duplication removed — 新建 `shared-frontend/`,把 AboutDialog/AppDialog/UpdateDialog/LangSwitch/ParseFrameDialog 5 个 Vue 组件、`useDialog` composable、`i18n/{index,detect,types}.ts` 与 ParsedFrame 等帧解析类型集中收口;两个项目通过 vite `@shared`/`@app` alias + tsconfig paths 引用,各自 build/test 仍独立 / Introduced `shared-frontend/` for the 5 byte-identical dialogs, `useDialog`, the i18n core trio and the `ParsedFrame` type family. Both apps reference it via vite/tsconfig `@shared`/`@app` aliases while still building independently.
+- 🎨 **Catppuccin Mocha 色板 token 化 + 等宽字体栈跨平台化** / Catppuccin Mocha palette extracted to CSS custom properties, mono font stack widened — `shared-frontend/styles/tokens.css` 统一定义 `--c-crust/mantle/base/surface0..2/overlay0/blue/red/green/...` 与 `--font-mono`(扩展到 Cascadia Code / JetBrains Mono / Menlo / Consolas 跨 macOS/Linux/Windows);22 个 .vue 中所有硬编码 hex 与 `'SF Mono', 'Fira Code', monospace` 字面量批量替换为 `var(...)`,后续主题切换只改 token 文件 / `tokens.css` defines the full Catppuccin variable set plus a cross-platform `--font-mono` (adds Cascadia Code / JetBrains Mono / Menlo / Consolas). 22 .vue files had every literal hex and the `'SF Mono', 'Fira Code', monospace` stack swapped to `var(...)`.
+- 🔧 **Toolbar 巨石拆分** / Monolithic Toolbar components broken up — slave Toolbar 653 → 326 行(-50%),抽出 `NewServerModal.vue` + `useMutationTimer` + `useCyclicTransmission` 两个 composable;master Toolbar 819 → 323 行(-60%),抽出 `NewConnectionModal.vue`(含编辑模式 + 协议参数 + localStorage 持久化 + 22 字段)/ Slave Toolbar 653 → 326 lines (−50%) with `NewServerModal.vue` + `useMutationTimer` + `useCyclicTransmission` composables extracted; master Toolbar 819 → 323 lines (−60%) with `NewConnectionModal.vue` carrying the edit mode, protocol params and localStorage persistence.
+- 🆕 **工具栏右上角显示版本号 + GitHub 图标** / New version + GitHub badge in the top-right toolbar — `VersionBadge.vue` 显示 `v1.3.7 [github svg]`,点击版本号复制版本字符串,点击图标复制仓库 URL,带 1.5s 短 toast 反馈(`useClipboardFlash` 共享 composable,onUnmounted cleanup 防 setTimeout 泄漏)/ `VersionBadge.vue` renders `v1.3.7 [github svg]` in both toolbars. Clicking either copies the value with a 1.5s flash toast, backed by a shared `useClipboardFlash` composable with onUnmounted cleanup.
+- ⌨️ **全局键盘焦点环 + 子站滚动条暗色样式** / Global keyboard focus ring + slave dark scrollbar — 两边 `:focus-visible` 一律显示 2px 蓝色 outline(`* { outline: none }` 不再吞键盘焦点);slave 之前没设 webkit-scrollbar 暗色覆盖,在 macOS "始终显示滚动条" 模式下出白色滚动槽,现与 master 一致 / `:focus-visible` enforced globally so keyboard users always see the focus ring. Slave inherits master's dark webkit-scrollbar override — no more white scrollbar tracks on macOS "Always show scrollbars".
+
+### Added 新增
+
+- **shared-frontend/**: 新目录承载 `components/{AboutDialog,AppDialog,UpdateDialog,LangSwitch,ParseFrameDialog,VersionBadge}.vue`、`composables/{useDialog,useClipboardFlash}.ts`、`i18n/{index,detect,types}.ts`、`types/frame.ts`、`styles/tokens.css`、`vite/aliases.ts` / New directory holding 6 shared Vue components, 2 composables, the i18n core, frame types, design tokens and a vite-alias helper.
+- **frontend / NewServerModal.vue, composables/{useMutationTimer,useCyclicTransmission}.ts**: slave 新建服务器表单 + 随机变化定时器 + 循环传送控制各自独立模块 / Slave's new-server form, random-mutation timer and cyclic-transmission toggle each extracted into their own module.
+- **master-frontend / NewConnectionModal.vue**: master 新建/编辑连接 Modal(含 22 字段表单 + 协议参数 details + localStorage 持久化 + TLS 子表单),Toolbar 通过 modal ref `defineExpose({ openEditConnection })` 转发给 App.vue 的右键菜单 / Master's new/edit connection modal (22-field form + protocol-params details + localStorage persistence + TLS subform); Toolbar forwards `openEditConnection` via modal ref to App.vue's tree context menu.
+- **shared-frontend/vite/aliases.ts**: `buildSharedAliases(import.meta.url)` helper,统一管理两边 vite.config.ts / vitest.config.ts 的 `@app`/`@shared` 别名与 `vue`/`@tauri-apps/api/*` 的 `require.resolve` 解析(让 shared 文件能定位宿主项目的 node_modules)/ Centralised vite alias helper used by both `vite.config.ts` + `vitest.config.ts`, including `require.resolve()` of `vue` and `@tauri-apps/api/*` so shared-frontend files resolve dependencies against the host project's node_modules.
+
+### Changed 改进
+
+- **frontend & master-frontend / vite.config.ts + vitest.config.ts + tsconfig.app.json**: 加 `@app`/`@shared` 路径别名,tsconfig.app.json 加 `"exclude": ["../shared-frontend/vite/**"]` 避免 Node API 脚本被 dom tsconfig 扫到 / Added `@app`/`@shared` aliases to both vite + vitest configs; tsconfig.app.json excludes `../shared-frontend/vite/**` so the Node-API helper isn't compiled with DOM lib.
+- **frontend & master-frontend / src/types.ts**: 删除本地重复定义的 `ParsedQuality/ParsedTimestamp/ParsedObject/ParsedAsdu/ParsedApci/ParsedFrame`,改为 `export * from '@shared/types/frame'` / Replaced duplicate frame-parser interface declarations with `export * from '@shared/types/frame'`.
+- **frontend & master-frontend / src/main.ts**: 顶部 `import '@shared/styles/tokens.css'`,让 Catppuccin 变量与 `--font-mono` 在 `:root` 注册 / Each main.ts now imports `@shared/styles/tokens.css` to register the Catppuccin custom properties and `--font-mono` at `:root`.
+- **22 个 .vue (两个前端 + shared)**: 所有 hex 颜色(`#11111b`/`#1e1e2e`/`#313244`/`#cdd6f4`/`#89b4fa`/`#a6e3a1`/`#f38ba8` 等 20 种)与 `'SF Mono', 'Fira Code', monospace` 字面量机械替换为 `var(--c-*)` / `var(--font-mono)` / Mechanical replacement across 22 .vue files: all 20 Catppuccin hex literals and the `'SF Mono', 'Fira Code', monospace` font stack swapped to `var(--c-*)` / `var(--font-mono)`.
+- **master-frontend / NewConnectionModal.openEditConnection**: 用 `{ ...loadForm(), ...connFields }` 替代 18 行字段拼装 / Edit-mode form hydration collapsed from a 21-field literal to `{ ...loadForm(), ...connFields }`.
+
+### Fixed 修复
+
+- **master-frontend / App.vue**: 删 `selectedConnectionState.value = selectedConnectionState.value // preserve` 这行无意义自赋值 / Removed the `selectedConnectionState.value = selectedConnectionState.value` noise.
+- **shared-frontend / VersionBadge.vue**: flash toast 的 `setTimeout` 句柄保存,重复点击/卸载时 `clearTimeout` 上一个,onUnmounted cleanup 防内存泄漏 / `setTimeout` handle now retained and cleared on rapid re-click / unmount.
+- **master-frontend / NewConnectionModal.loadForm**: 删 `LEGACY_CERTS = new Set([])` 空 set 死代码与 3 行无 op 的 `if has(...)` 检查 / Dropped the dead `LEGACY_CERTS = new Set([])` block and the 3 no-op `if has(...)` checks.
+
+### Internal 内部
+
+- **18 个文件被删除合并**: `frontend/src/components/{AboutDialog,AppDialog,UpdateDialog,LangSwitch,ParseFrameDialog}.vue` × 2(slave + master),`{composables/useDialog.ts, i18n/{index,detect,types}.ts}` × 2,均迁入 `shared-frontend/`;前端净统计 **53 files changed, +636 / -2540**,Toolbar 拆分另增 +480 / -996(NewConnectionModal 加上其原内联代码替换)/ 18 duplicate files deleted across both frontends and moved into `shared-frontend/`. Aggregate diff for the merge phase: 53 files, +636 / −2540; Toolbar split phase: +480 / −996.
+- **shared-frontend/composables/useClipboardFlash.ts**: VersionBadge 与 AboutDialog 共用 "写剪贴板 + 1.5s flash" 模式,统一失败处理与 setTimeout cleanup / Shared `useClipboardFlash` consolidates the "write-then-flash" idiom used by VersionBadge and AboutDialog, with unified failure handling and cleanup.
+
 ## [1.3.6] - 2026-05-15
 
 ### Highlights / 亮点

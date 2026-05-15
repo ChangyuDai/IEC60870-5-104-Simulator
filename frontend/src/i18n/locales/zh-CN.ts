@@ -34,6 +34,7 @@ export type DictShape = {
     checkUpdate: string
     checkingUpdate: string
     alreadyLatest: string
+    updateCheckFailed: string
     parseFrame: string
     parseFrameInLog: string
   }
@@ -240,6 +241,7 @@ const dict: DictShape = {
     checkUpdate: '检查更新',
     checkingUpdate: '检查中…',
     alreadyLatest: '已是最新版本',
+    updateCheckFailed: '更新检查失败',
     parseFrame: '报文解析',
     parseFrameInLog: '解析此报文',
   },

@@ -2,9 +2,9 @@ import { ref, computed } from 'vue'
 import type { Locale } from './types'
 import { SUPPORTED_LOCALES, STORAGE_KEY } from './types'
 import { detectSystemLocale } from './detect'
-import zhCN from './locales/zh-CN'
-import enUS from './locales/en-US'
-import type { DictShape } from './locales/zh-CN'
+import zhCN from '@app/i18n/locales/zh-CN'
+import enUS from '@app/i18n/locales/en-US'
+import type { DictShape } from '@app/i18n/locales/zh-CN'
 
 const dictionaries: Record<Locale, DictShape> = {
   'zh-CN': zhCN,

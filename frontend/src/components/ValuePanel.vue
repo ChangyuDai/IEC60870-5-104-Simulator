@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { inject, computed, ref, watch, type Ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import { dialogKey } from '../composables/useDialog'
-import type { showAlert as ShowAlert } from '../composables/useDialog'
+import { dialogKey } from '@shared/composables/useDialog'
+import type { showAlert as ShowAlert } from '@shared/composables/useDialog'
 import type { DataPointInfo } from '../types'
-import { useI18n, localizeCategoryLabel } from '../i18n'
+import { useI18n, localizeCategoryLabel } from '@shared/i18n'
 
 const { t } = useI18n()
 const { showAlert } = inject<{ showAlert: typeof ShowAlert }>(dialogKey)!
@@ -190,26 +190,26 @@ function handleEditKeydown(e: KeyboardEvent) {
   padding: 8px 12px;
   font-size: 11px;
   text-transform: uppercase;
-  color: #6c7086;
+  color: var(--c-overlay0);
   letter-spacing: 0.5px;
 }
 
 .empty-state {
   padding: 24px 12px;
-  color: #6c7086;
+  color: var(--c-overlay0);
   text-align: center;
   font-size: 12px;
 }
 
 .detail-section {
   padding: 8px 0;
-  border-bottom: 1px solid #313244;
+  border-bottom: 1px solid var(--c-surface0);
 }
 
 .section-title {
   padding: 4px 16px;
   font-size: 11px;
-  color: #89b4fa;
+  color: var(--c-blue);
   text-transform: uppercase;
   font-weight: 600;
 }
@@ -222,13 +222,13 @@ function handleEditKeydown(e: KeyboardEvent) {
 }
 
 .detail-label {
-  color: #6c7086;
+  color: var(--c-overlay0);
   font-size: 12px;
   flex-shrink: 0;
 }
 
 .detail-value {
-  color: #cdd6f4;
+  color: var(--c-text);
   font-size: 12px;
   text-align: right;
   overflow: hidden;
@@ -237,7 +237,7 @@ function handleEditKeydown(e: KeyboardEvent) {
 }
 
 .detail-value.mono {
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono);
 }
 
 .detail-value.editable {
@@ -248,7 +248,7 @@ function handleEditKeydown(e: KeyboardEvent) {
 }
 
 .detail-value.editable:hover {
-  background: #313244;
+  background: var(--c-surface0);
 }
 
 .quality-badge {
@@ -260,13 +260,13 @@ function handleEditKeydown(e: KeyboardEvent) {
 }
 
 .quality-badge.ok {
-  background: #a6e3a1;
-  color: #1e1e2e;
+  background: var(--c-green);
+  color: var(--c-base);
 }
 
 .quality-badge.invalid {
-  background: #f38ba8;
-  color: #1e1e2e;
+  background: var(--c-red);
+  color: var(--c-base);
 }
 
 .write-row {
@@ -278,24 +278,24 @@ function handleEditKeydown(e: KeyboardEvent) {
 .write-input {
   flex: 1;
   padding: 6px 10px;
-  background: #11111b;
-  border: 1px solid #45475a;
+  background: var(--c-crust);
+  border: 1px solid var(--c-surface1);
   border-radius: 6px;
-  color: #cdd6f4;
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  color: var(--c-text);
+  font-family: var(--font-mono);
   font-size: 13px;
   outline: none;
   box-sizing: border-box;
 }
 
 .write-input:focus {
-  border-color: #89b4fa;
+  border-color: var(--c-blue);
 }
 
 .write-btn {
   padding: 6px 14px;
-  background: #89b4fa;
-  color: #1e1e2e;
+  background: var(--c-blue);
+  color: var(--c-base);
   border: none;
   border-radius: 6px;
   font-size: 12px;
@@ -305,7 +305,7 @@ function handleEditKeydown(e: KeyboardEvent) {
 }
 
 .write-btn:hover {
-  background: #74c7ec;
+  background: var(--c-sapphire);
 }
 
 .ioa-list {
@@ -317,10 +317,10 @@ function handleEditKeydown(e: KeyboardEvent) {
 
 .ioa-chip {
   padding: 2px 8px;
-  background: #313244;
+  background: var(--c-surface0);
   border-radius: 4px;
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
-  color: #89b4fa;
+  color: var(--c-blue);
 }
 </style>

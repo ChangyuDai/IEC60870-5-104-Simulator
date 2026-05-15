@@ -53,13 +53,10 @@ pub async fn check_for_update(
     write_str(&app, KEY_LAST_CHECK, &now.to_rfc3339());
 
     let updater = app.updater().map_err(|e| e.to_string())?;
-    let update = match updater.check().await {
-        Ok(u) => u,
-        Err(e) => {
-            log::warn!("update check failed: {e}");
-            return Ok(None);
-        }
-    };
+    // Surface fetch / parse failures to the caller so the UI can distinguish
+    // "already on latest" (Ok(None)) from "endpoint unreachable / 404"; the
+    // frontend silences this only for the startup auto-check.
+    let update = updater.check().await.map_err(|e| e.to_string())?;
     let Some(update) = update else { return Ok(None) };
 
     if !force {

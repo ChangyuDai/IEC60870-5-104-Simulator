@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import type { ParsedFrame, ParsedObject } from '../types'
+import type { ParsedFrame, ParsedObject } from '../types/frame'
 
 interface Props {
   visible: boolean
@@ -266,8 +266,8 @@ const hasTimestamp = computed(() => {
   z-index: 1000;
 }
 .modal-box {
-  background: #1e1e2e;
-  border: 1px solid #45475a;
+  background: var(--c-base);
+  border: 1px solid var(--c-surface1);
   border-radius: 8px;
   padding: 20px;
   min-width: 640px;
@@ -279,39 +279,39 @@ const hasTimestamp = computed(() => {
 .modal-title {
   font-size: 15px;
   font-weight: 600;
-  color: #cdd6f4;
+  color: var(--c-text);
   margin-bottom: 16px;
 }
 .modal-body { display: flex; flex-direction: column; gap: 10px; }
 .modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
-.hint { font-size: 11px; color: #6c7086; line-height: 1.5; }
-.form-label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #6c7086; }
+.hint { font-size: 11px; color: var(--c-overlay0); line-height: 1.5; }
+.form-label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--c-overlay0); }
 .hex-area {
   padding: 8px 10px;
-  background: #313244;
-  border: 1px solid #45475a;
+  background: var(--c-surface0);
+  border: 1px solid var(--c-surface1);
   border-radius: 4px;
-  color: #cdd6f4;
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  color: var(--c-text);
+  font-family: var(--font-mono);
   font-size: 12px;
   resize: vertical;
 }
-.hex-area:focus { outline: none; border-color: #89b4fa; }
+.hex-area:focus { outline: none; border-color: var(--c-blue); }
 .templates { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.templates-label { font-size: 11px; color: #6c7086; }
+.templates-label { font-size: 11px; color: var(--c-overlay0); }
 .template-btn {
   padding: 3px 8px; font-size: 11px;
-  background: #313244; border: 1px solid #45475a;
-  color: #cdd6f4; border-radius: 4px; cursor: pointer;
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  background: var(--c-surface0); border: 1px solid var(--c-surface1);
+  color: var(--c-text); border-radius: 4px; cursor: pointer;
+  font-family: var(--font-mono);
 }
-.template-btn:hover { background: #45475a; border-color: #89b4fa; }
+.template-btn:hover { background: var(--c-surface1); border-color: var(--c-blue); }
 .error-msg {
   padding: 8px 10px;
   background: rgba(243, 139, 168, 0.15);
-  border: 1px solid #f38ba8;
+  border: 1px solid var(--c-red);
   border-radius: 4px;
-  color: #f38ba8;
+  color: var(--c-red);
   font-size: 12px;
   word-break: break-word;
 }
@@ -320,60 +320,60 @@ const hasTimestamp = computed(() => {
   background: rgba(249, 226, 175, 0.12);
   border: 1px solid rgba(249, 226, 175, 0.4);
   border-radius: 4px;
-  color: #f9e2af;
+  color: var(--c-yellow);
   font-size: 11px;
   display: flex; flex-direction: column; gap: 2px;
 }
 .card {
-  background: #181825;
-  border: 1px solid #313244;
+  background: var(--c-mantle);
+  border: 1px solid var(--c-surface0);
   border-radius: 6px;
   padding: 10px 12px;
   display: flex; flex-direction: column; gap: 6px;
 }
 .card-title {
   display: flex; align-items: center; gap: 10px;
-  font-size: 12px; font-weight: 600; color: #cdd6f4;
+  font-size: 12px; font-weight: 600; color: var(--c-text);
 }
-.card-meta { color: #6c7086; font-weight: 400; font-size: 11px; }
+.card-meta { color: var(--c-overlay0); font-weight: 400; font-size: 11px; }
 .kind-chip {
   padding: 2px 8px;
   border-radius: 10px;
   font-size: 11px;
   font-weight: 600;
 }
-.kind-i { background: rgba(137, 180, 250, 0.2); color: #89b4fa; }
-.kind-s { background: rgba(249, 226, 175, 0.2); color: #f9e2af; }
-.kind-u { background: rgba(166, 227, 161, 0.2); color: #a6e3a1; }
+.kind-i { background: rgba(137, 180, 250, 0.2); color: var(--c-blue); }
+.kind-s { background: rgba(249, 226, 175, 0.2); color: var(--c-yellow); }
+.kind-u { background: rgba(166, 227, 161, 0.2); color: var(--c-green); }
 .kv { width: 100%; border-collapse: collapse; font-size: 12px; }
 .kv th {
-  text-align: left; color: #6c7086; font-weight: 400;
+  text-align: left; color: var(--c-overlay0); font-weight: 400;
   padding: 3px 8px 3px 0; width: 110px; vertical-align: top;
 }
-.kv td { color: #cdd6f4; padding: 3px 0; }
-.kv code, .objs code, .raw { font-family: 'SF Mono', 'Fira Code', monospace; }
-.flag-neg { color: #f38ba8; margin-left: 6px; font-size: 10px; }
-.flag-test { color: #f9e2af; margin-left: 6px; font-size: 10px; }
+.kv td { color: var(--c-text); padding: 3px 0; }
+.kv code, .objs code, .raw { font-family: var(--font-mono); }
+.flag-neg { color: var(--c-red); margin-left: 6px; font-size: 10px; }
+.flag-test { color: var(--c-yellow); margin-left: 6px; font-size: 10px; }
 .objs {
   width: 100%; border-collapse: collapse; font-size: 11px;
 }
 .objs th {
-  text-align: left; color: #6c7086; font-weight: 400;
-  padding: 4px 8px; border-bottom: 1px solid #313244;
+  text-align: left; color: var(--c-overlay0); font-weight: 400;
+  padding: 4px 8px; border-bottom: 1px solid var(--c-surface0);
 }
 .objs td {
-  color: #cdd6f4; padding: 3px 8px;
+  color: var(--c-text); padding: 3px 8px;
   border-bottom: 1px solid rgba(49, 50, 68, 0.4);
 }
-.objs td.q, .q { color: #a6e3a1; }
-.raw { color: #6c7086; font-size: 10px; }
+.objs td.q, .q { color: var(--c-green); }
+.raw { color: var(--c-overlay0); font-size: 10px; }
 .btn {
   padding: 7px 20px; border: none;
   border-radius: 6px; cursor: pointer; font-size: 13px;
 }
-.btn-primary { background: #89b4fa; color: #1e1e2e; font-weight: 600; }
-.btn-primary:hover:not(:disabled) { background: #74c7ec; }
+.btn-primary { background: var(--c-blue); color: var(--c-base); font-weight: 600; }
+.btn-primary:hover:not(:disabled) { background: var(--c-sapphire); }
 .btn-primary:disabled { opacity: 0.5; cursor: default; }
-.btn-secondary { background: #45475a; color: #cdd6f4; }
-.btn-secondary:hover { background: #585b70; }
+.btn-secondary { background: var(--c-surface1); color: var(--c-text); }
+.btn-secondary:hover { background: var(--c-surface2); }
 </style>

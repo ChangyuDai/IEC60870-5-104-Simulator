@@ -168,8 +168,8 @@ function handleKeydown(e: KeyboardEvent) {
 }
 
 .modal-box {
-  background: #1e1e2e;
-  border: 1px solid #45475a;
+  background: var(--c-base);
+  border: 1px solid var(--c-surface1);
   border-radius: 8px;
   padding: 20px;
   min-width: 480px;
@@ -180,7 +180,7 @@ function handleKeydown(e: KeyboardEvent) {
 .modal-title {
   font-size: 15px;
   font-weight: 600;
-  color: #cdd6f4;
+  color: var(--c-text);
   margin-bottom: 16px;
 }
 
@@ -199,7 +199,7 @@ function handleKeydown(e: KeyboardEvent) {
 
 .hint {
   font-size: 11px;
-  color: #6c7086;
+  color: var(--c-overlay0);
   line-height: 1.5;
 }
 
@@ -208,23 +208,23 @@ function handleKeydown(e: KeyboardEvent) {
   flex-direction: column;
   gap: 4px;
   font-size: 12px;
-  color: #6c7086;
+  color: var(--c-overlay0);
 }
 
 .hex-area {
   padding: 8px 10px;
-  background: #313244;
-  border: 1px solid #45475a;
+  background: var(--c-surface0);
+  border: 1px solid var(--c-surface1);
   border-radius: 4px;
-  color: #cdd6f4;
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  color: var(--c-text);
+  font-family: var(--font-mono);
   font-size: 12px;
   resize: vertical;
 }
 
 .hex-area:focus {
   outline: none;
-  border-color: #89b4fa;
+  border-color: var(--c-blue);
 }
 
 .preview-row {
@@ -235,8 +235,8 @@ function handleKeydown(e: KeyboardEvent) {
 
 .preview-msg {
   font-size: 11px;
-  color: #cdd6f4;
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  color: var(--c-text);
+  font-family: var(--font-mono);
 }
 
 .templates {
@@ -248,31 +248,31 @@ function handleKeydown(e: KeyboardEvent) {
 
 .templates-label {
   font-size: 11px;
-  color: #6c7086;
+  color: var(--c-overlay0);
 }
 
 .template-btn {
   padding: 3px 8px;
   font-size: 11px;
-  background: #313244;
-  border: 1px solid #45475a;
-  color: #cdd6f4;
+  background: var(--c-surface0);
+  border: 1px solid var(--c-surface1);
+  color: var(--c-text);
   border-radius: 4px;
   cursor: pointer;
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono);
 }
 
 .template-btn:hover {
-  background: #45475a;
-  border-color: #89b4fa;
+  background: var(--c-surface1);
+  border-color: var(--c-blue);
 }
 
 .error-msg {
   padding: 8px 10px;
   background: rgba(243, 139, 168, 0.15);
-  border: 1px solid #f38ba8;
+  border: 1px solid var(--c-red);
   border-radius: 4px;
-  color: #f38ba8;
+  color: var(--c-red);
   font-size: 12px;
   word-break: break-word;
 }
@@ -282,19 +282,19 @@ function handleKeydown(e: KeyboardEvent) {
   background: rgba(166, 227, 161, 0.12);
   border: 1px solid rgba(166, 227, 161, 0.35);
   border-radius: 4px;
-  color: #a6e3a1;
+  color: var(--c-green);
   font-size: 11px;
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-.result-line .k { color: #6c7086; margin-right: 6px; }
-.result-line .v { font-family: 'SF Mono', 'Fira Code', monospace; }
+.result-line .k { color: var(--c-overlay0); margin-right: 6px; }
+.result-line .v { font-family: var(--font-mono); }
 .result-bytes {
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono);
   word-break: break-all;
-  color: #cdd6f4;
+  color: var(--c-text);
 }
 
 .btn {
@@ -311,18 +311,18 @@ function handleKeydown(e: KeyboardEvent) {
 }
 
 .btn-primary {
-  background: #89b4fa;
-  color: #1e1e2e;
+  background: var(--c-blue);
+  color: var(--c-base);
   font-weight: 600;
 }
 
-.btn-primary:hover:not(:disabled) { background: #74c7ec; }
+.btn-primary:hover:not(:disabled) { background: var(--c-sapphire); }
 .btn-primary:disabled { opacity: 0.5; cursor: default; }
 
 .btn-secondary {
-  background: #45475a;
-  color: #cdd6f4;
+  background: var(--c-surface1);
+  color: var(--c-text);
 }
 
-.btn-secondary:hover { background: #585b70; }
+.btn-secondary:hover { background: var(--c-surface2); }
 </style>

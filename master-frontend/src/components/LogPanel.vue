@@ -2,7 +2,7 @@
 import { ref, computed, inject, onMounted, onUnmounted, watch, type Ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import type { LogEntry, ConnectionInfo } from '../types'
-import { useI18n } from '../i18n'
+import { useI18n } from '@shared/i18n'
 
 const { t, locale } = useI18n()
 
@@ -340,25 +340,25 @@ onUnmounted(() => {
   padding: 0 8px;
   cursor: pointer;
   flex-shrink: 0;
-  background: #1e1e2e;
+  background: var(--c-base);
 }
 
 .log-toggle {
   font-size: 10px;
-  color: #6c7086;
+  color: var(--c-overlay0);
   width: 16px;
   text-align: center;
 }
 
 .log-title {
   font-size: 12px;
-  color: #6c7086;
+  color: var(--c-overlay0);
 }
 
 .log-count {
   font-size: 10px;
-  background: #89b4fa;
-  color: #1e1e2e;
+  background: var(--c-blue);
+  color: var(--c-base);
   padding: 0 6px;
   border-radius: 8px;
   font-weight: 600;
@@ -372,10 +372,10 @@ onUnmounted(() => {
 
 .conn-select {
   padding: 2px 6px;
-  background: #313244;
-  border: 1px solid #45475a;
+  background: var(--c-surface0);
+  border: 1px solid var(--c-surface1);
   border-radius: 4px;
-  color: #cdd6f4;
+  color: var(--c-text);
   font-size: 11px;
   max-width: 160px;
 }
@@ -383,27 +383,27 @@ onUnmounted(() => {
 .log-btn {
   padding: 2px 8px;
   background: transparent;
-  border: 1px solid #45475a;
+  border: 1px solid var(--c-surface1);
   border-radius: 4px;
-  color: #cdd6f4;
+  color: var(--c-text);
   cursor: pointer;
   font-size: 11px;
 }
 
 .log-btn:hover {
-  background: #313244;
+  background: var(--c-surface0);
 }
 
 .log-body {
   flex: 1;
   overflow-y: auto;
-  background: #11111b;
+  background: var(--c-crust);
 }
 
 .log-empty {
   padding: 24px;
   text-align: center;
-  color: #6c7086;
+  color: var(--c-overlay0);
   font-size: 12px;
 }
 
@@ -417,20 +417,20 @@ onUnmounted(() => {
 .log-table td {
   padding: 4px 10px;
   text-align: left;
-  border-bottom: 1px solid #1e1e2e;
+  border-bottom: 1px solid var(--c-base);
 }
 
 .log-table th {
-  background: #181825;
-  color: #6c7086;
+  background: var(--c-mantle);
+  color: var(--c-overlay0);
   font-weight: 500;
   position: sticky;
   top: 0;
 }
 
 .col-time {
-  font-family: 'SF Mono', 'Fira Code', monospace;
-  color: #6c7086;
+  font-family: var(--font-mono);
+  color: var(--c-overlay0);
   width: 100px;
 }
 
@@ -439,35 +439,35 @@ onUnmounted(() => {
   width: 40px;
 }
 
-.col-dir.rx { color: #89b4fa; }
-.col-dir.tx { color: #a6e3a1; }
+.col-dir.rx { color: var(--c-blue); }
+.col-dir.tx { color: var(--c-green); }
 
 .col-frame {
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono);
   width: 130px;
   white-space: nowrap;
 }
 
-.col-frame.frame-u { color: #cba6f7; }
-.col-frame.frame-i { color: #89dceb; }
-.col-frame.frame-s { color: #f9e2af; }
+.col-frame.frame-u { color: var(--c-mauve); }
+.col-frame.frame-i { color: var(--c-sky); }
+.col-frame.frame-s { color: var(--c-yellow); }
 
 .col-cause {
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
-  color: #f9e2af;
+  color: var(--c-yellow);
   width: 160px;
   white-space: nowrap;
 }
 
 .col-detail {
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono);
 }
 
 .col-raw {
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
-  color: #585b70;
+  color: var(--c-surface2);
   max-width: 200px;
   overflow: hidden;
   text-overflow: ellipsis;

@@ -6,12 +6,12 @@ import ConnectionTree from './components/ConnectionTree.vue'
 import DataPointTable from './components/DataPointTable.vue'
 import ValuePanel from './components/ValuePanel.vue'
 import LogPanel from './components/LogPanel.vue'
-import AppDialog from './components/AppDialog.vue'
-import UpdateDialog from './components/UpdateDialog.vue'
-import ParseFrameDialog from './components/ParseFrameDialog.vue'
+import AppDialog from '@shared/components/AppDialog.vue'
+import UpdateDialog from '@shared/components/UpdateDialog.vue'
+import ParseFrameDialog from '@shared/components/ParseFrameDialog.vue'
 import Splitter from './components/Splitter.vue'
 import { invoke } from '@tauri-apps/api/core'
-import { showAlert, showConfirm, showPrompt, dialogKey } from './composables/useDialog'
+import { showAlert, showConfirm, showPrompt, dialogKey } from '@shared/composables/useDialog'
 
 const dataPointTableRef = ref<InstanceType<typeof DataPointTable> | null>(null)
 
@@ -123,17 +123,12 @@ const updateMeta = ref<UpdateMeta | null>(null)
 const updateVisible = ref(false)
 
 async function checkUpdate(force = false): Promise<UpdateMeta | null> {
-  try {
-    const meta = await invoke<UpdateMeta | null>('check_for_update', { force })
-    if (meta) {
-      updateMeta.value = meta
-      updateVisible.value = true
-    }
-    return meta
-  } catch (e) {
-    console.warn('update check failed', e)
-    return null
+  const meta = await invoke<UpdateMeta | null>('check_for_update', { force })
+  if (meta) {
+    updateMeta.value = meta
+    updateVisible.value = true
   }
+  return meta
 }
 provide('checkUpdate', checkUpdate)
 
@@ -150,7 +145,9 @@ onMounted(async () => {
     }
     refreshTree()
   })
-  setTimeout(() => checkUpdate(false), 2000)
+  setTimeout(() => {
+    checkUpdate(false).catch((e) => console.warn('auto update check failed', e))
+  }, 2000)
 })
 
 onUnmounted(() => {
@@ -242,8 +239,40 @@ html, body, #app {
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-  background: #11111b;
-  color: #cdd6f4;
+  background: var(--c-crust);
+  color: var(--c-text);
+}
+
+/* Dark scrollbars across the app — overrides macOS "Always show" white tracks */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: var(--c-mantle);
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--c-surface0);
+  border-radius: 5px;
+  border: 2px solid var(--c-mantle);
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--c-surface1);
+}
+*::-webkit-scrollbar-corner {
+  background: var(--c-mantle);
+}
+* {
+  scrollbar-color: var(--c-surface0) var(--c-mantle);
+  scrollbar-width: thin;
+}
+
+/* Keyboard focus ring — never hide it. Mouse focus stays clean via :focus-visible. */
+:focus { outline: none; }
+:focus-visible {
+  outline: 2px solid var(--c-blue);
+  outline-offset: 1px;
+  border-radius: 2px;
 }
 
 .app-layout {
@@ -264,13 +293,13 @@ body {
 
 .toolbar-area {
   grid-area: toolbar;
-  background: #1e1e2e;
-  border-bottom: 1px solid #313244;
+  background: var(--c-base);
+  border-bottom: 1px solid var(--c-surface0);
 }
 
 .tree-area {
   grid-area: tree;
-  background: #181825;
+  background: var(--c-mantle);
   overflow-y: auto;
 }
 
@@ -280,7 +309,7 @@ body {
 
 .content-area {
   grid-area: content;
-  background: #11111b;
+  background: var(--c-crust);
   overflow: hidden;
 }
 
@@ -290,14 +319,14 @@ body {
 
 .panel-area {
   grid-area: panel;
-  background: #181825;
+  background: var(--c-mantle);
   overflow-y: auto;
 }
 
 .log-area {
   grid-area: log;
-  background: #1e1e2e;
-  border-top: 1px solid #313244;
+  background: var(--c-base);
+  border-top: 1px solid var(--c-surface0);
   overflow: hidden;
 }
 </style>

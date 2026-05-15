@@ -2,7 +2,7 @@
 import { ref, inject, watch, onMounted, onUnmounted, type Ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import type { ConnectionInfo, ChangedCategoriesMap, CategoryCountsMap } from '../types'
-import { useI18n } from '../i18n'
+import { useI18n } from '@shared/i18n'
 
 const { t } = useI18n()
 
@@ -285,13 +285,13 @@ function stateClass(state: string): string {
   padding: 8px 12px;
   font-size: 11px;
   text-transform: uppercase;
-  color: #6c7086;
+  color: var(--c-overlay0);
   letter-spacing: 0.5px;
 }
 
 .tree-empty {
   padding: 24px 12px;
-  color: #6c7086;
+  color: var(--c-overlay0);
   text-align: center;
 }
 
@@ -306,18 +306,18 @@ function stateClass(state: string): string {
 }
 
 .tree-node:hover {
-  background: #1e1e2e;
+  background: var(--c-base);
 }
 
 .tree-node.selected {
-  background: #89b4fa;
-  color: #1e1e2e;
+  background: var(--c-blue);
+  color: var(--c-base);
 }
 
 .tree-node.selected .node-ca,
 .tree-node.selected .node-count,
 .tree-node.selected .ca-badge {
-  color: #1e1e2e;
+  color: var(--c-base);
   opacity: 0.85;
 }
 
@@ -338,8 +338,8 @@ function stateClass(state: string): string {
   display: inline-block;
   padding: 1px 8px;
   border-radius: 10px;
-  background: #313244;
-  color: #cba6f7;
+  background: var(--c-surface0);
+  color: var(--c-mauve);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.3px;
@@ -349,7 +349,7 @@ function stateClass(state: string): string {
   font-size: 8px;
   width: 12px;
   text-align: center;
-  color: #6c7086;
+  color: var(--c-overlay0);
 }
 
 .node-status {
@@ -359,9 +359,9 @@ function stateClass(state: string): string {
   flex-shrink: 0;
 }
 
-.node-status.connected { background: #a6e3a1; }
-.node-status.disconnected { background: #6c7086; }
-.node-status.error { background: #f38ba8; }
+.node-status.connected { background: var(--c-green); }
+.node-status.disconnected { background: var(--c-overlay0); }
+.node-status.error { background: var(--c-red); }
 
 .node-label {
   flex: 1;
@@ -372,13 +372,13 @@ function stateClass(state: string): string {
 
 .node-ca {
   font-size: 10px;
-  color: #6c7086;
+  color: var(--c-overlay0);
 }
 
 .node-count {
   font-size: 10px;
-  color: #6c7086;
-  background: #313244;
+  color: var(--c-overlay0);
+  background: var(--c-surface0);
   padding: 0 5px;
   border-radius: 8px;
   min-width: 18px;
@@ -387,8 +387,8 @@ function stateClass(state: string): string {
 
 .context-menu {
   position: fixed;
-  background: #1e1e2e;
-  border: 1px solid #45475a;
+  background: var(--c-base);
+  border: 1px solid var(--c-surface1);
   border-radius: 6px;
   padding: 4px 0;
   z-index: 999;
@@ -403,11 +403,11 @@ function stateClass(state: string): string {
 }
 
 .ctx-item:hover {
-  background: #313244;
+  background: var(--c-surface0);
 }
 
 .ctx-item.danger {
-  color: #f38ba8;
+  color: var(--c-red);
 }
 
 .cat-flash {
@@ -415,7 +415,7 @@ function stateClass(state: string): string {
 }
 
 .cat-flash .node-label {
-  color: #fab387;
+  color: var(--c-peach);
   font-weight: 600;
 }
 </style>

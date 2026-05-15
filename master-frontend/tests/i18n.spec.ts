@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { detectSystemLocale } from '../src/i18n/detect'
-import { useI18n, __resetForTests, locale } from '../src/i18n'
+import { detectSystemLocale } from '@shared/i18n/detect'
+import { useI18n, __resetForTests, locale } from '@shared/i18n'
 import { nextTick } from 'vue'
 
 describe('detectSystemLocale', () => {

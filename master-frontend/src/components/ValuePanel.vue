@@ -3,7 +3,7 @@ import { inject, computed, ref, type Ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import type { ReceivedDataPointInfo, ControlResult } from '../types'
 import { getControlConfig } from '../types'
-import { useI18n, localizeCategoryLabel } from '../i18n'
+import { useI18n, localizeCategoryLabel } from '@shared/i18n'
 
 const { t } = useI18n()
 const selectedConnectionId = inject<Ref<string | null>>('selectedConnectionId')!
@@ -276,26 +276,26 @@ watch(firstPoint, (p) => {
   padding: 8px 12px;
   font-size: 11px;
   text-transform: uppercase;
-  color: #6c7086;
+  color: var(--c-overlay0);
   letter-spacing: 0.5px;
 }
 
 .empty-state {
   padding: 24px 12px;
-  color: #6c7086;
+  color: var(--c-overlay0);
   text-align: center;
   font-size: 12px;
 }
 
 .detail-section {
-  border-bottom: 1px solid #313244;
+  border-bottom: 1px solid var(--c-surface0);
   padding-bottom: 8px;
 }
 
 .section-title {
   padding: 6px 12px;
   font-size: 11px;
-  color: #6c7086;
+  color: var(--c-overlay0);
   text-transform: uppercase;
   letter-spacing: 0.3px;
 }
@@ -311,31 +311,31 @@ watch(firstPoint, (p) => {
 }
 
 .detail-label {
-  color: #6c7086;
+  color: var(--c-overlay0);
   font-size: 12px;
 }
 
 .detail-value {
-  color: #cdd6f4;
+  color: var(--c-text);
   font-size: 12px;
   text-align: right;
 }
 
 .detail-value.mono {
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono);
 }
 
 .text-green {
-  color: #a6e3a1;
+  color: var(--c-green);
 }
 
 .text-red {
-  color: #f38ba8;
+  color: var(--c-red);
 }
 
 .detail-divider {
   height: 1px;
-  background: #313244;
+  background: var(--c-surface0);
   margin: 6px 12px;
 }
 
@@ -364,17 +364,17 @@ watch(firstPoint, (p) => {
 .ctrl-btn {
   flex: 1;
   padding: 8px 12px;
-  border: 1px solid #45475a;
+  border: 1px solid var(--c-surface1);
   border-radius: 6px;
-  background: #313244;
-  color: #cdd6f4;
+  background: var(--c-surface0);
+  color: var(--c-text);
   font-size: 12px;
   cursor: pointer;
   transition: all 0.15s;
 }
 
 .ctrl-btn:hover:not(:disabled) {
-  background: #45475a;
+  background: var(--c-surface1);
 }
 
 .ctrl-btn:disabled {
@@ -383,9 +383,9 @@ watch(firstPoint, (p) => {
 }
 
 .ctrl-btn.active {
-  background: #89b4fa;
-  color: #1e1e2e;
-  border-color: #89b4fa;
+  background: var(--c-blue);
+  color: var(--c-base);
+  border-color: var(--c-blue);
   font-weight: 600;
 }
 
@@ -395,15 +395,15 @@ watch(firstPoint, (p) => {
 }
 
 .ctrl-btn-primary {
-  background: #89b4fa;
-  color: #1e1e2e;
-  border-color: #89b4fa;
+  background: var(--c-blue);
+  color: var(--c-base);
+  border-color: var(--c-blue);
   font-weight: 600;
 }
 
 .ctrl-btn-primary:hover:not(:disabled) {
-  background: #74c7ec;
-  border-color: #74c7ec;
+  background: var(--c-sapphire);
+  border-color: var(--c-sapphire);
 }
 
 .slider-control {
@@ -420,23 +420,23 @@ watch(firstPoint, (p) => {
 
 .slider-input {
   flex: 1;
-  accent-color: #89b4fa;
+  accent-color: var(--c-blue);
 }
 
 .number-sm {
   width: 72px;
   padding: 4px 6px;
-  background: #313244;
-  border: 1px solid #45475a;
+  background: var(--c-surface0);
+  border: 1px solid var(--c-surface1);
   border-radius: 4px;
-  color: #cdd6f4;
+  color: var(--c-text);
   font-size: 12px;
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono);
 }
 
 .number-sm:focus {
   outline: none;
-  border-color: #89b4fa;
+  border-color: var(--c-blue);
 }
 
 .number-control {
@@ -447,16 +447,16 @@ watch(firstPoint, (p) => {
 
 .form-input {
   padding: 5px 8px;
-  background: #313244;
-  border: 1px solid #45475a;
+  background: var(--c-surface0);
+  border: 1px solid var(--c-surface1);
   border-radius: 4px;
-  color: #cdd6f4;
+  color: var(--c-text);
   font-size: 12px;
 }
 
 .form-input:focus {
   outline: none;
-  border-color: #89b4fa;
+  border-color: var(--c-blue);
 }
 
 .toggle-row {
@@ -471,17 +471,17 @@ watch(firstPoint, (p) => {
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: #cdd6f4;
+  color: var(--c-text);
   cursor: pointer;
 }
 
 .toggle-checkbox {
-  accent-color: #89b4fa;
+  accent-color: var(--c-blue);
 }
 
 .toggle-hint {
   font-size: 10px;
-  color: #6c7086;
+  color: var(--c-overlay0);
 }
 
 .result-indicator {
@@ -496,13 +496,13 @@ watch(firstPoint, (p) => {
 .result-ok {
   background: rgba(166, 227, 161, 0.15);
   border: 1px solid rgba(166, 227, 161, 0.3);
-  color: #a6e3a1;
+  color: var(--c-green);
 }
 
 .result-err {
   background: rgba(243, 139, 168, 0.15);
   border: 1px solid rgba(243, 139, 168, 0.3);
-  color: #f38ba8;
+  color: var(--c-red);
 }
 
 .result-steps {
@@ -512,16 +512,16 @@ watch(firstPoint, (p) => {
 }
 
 .step-dot {
-  color: #a6e3a1;
+  color: var(--c-green);
 }
 
 .result-text {
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono);
 }
 
 .no-control-hint {
   padding: 16px 12px;
-  color: #6c7086;
+  color: var(--c-overlay0);
   text-align: center;
   font-size: 12px;
   font-style: italic;

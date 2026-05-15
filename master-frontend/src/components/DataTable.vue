@@ -4,7 +4,7 @@ import { invoke } from '@tauri-apps/api/core'
 import type { ReceivedDataPointInfo, IncrementalDataResponse, CommandType, ControlResult, ChangedCategoriesMap, CategoryCountsMap } from '../types'
 import { getControlConfig } from '../types'
 import ControlDialog from './ControlDialog.vue'
-import { useI18n, localizeCategoryLabel } from '../i18n'
+import { useI18n, localizeCategoryLabel } from '@shared/i18n'
 
 const { t } = useI18n()
 
@@ -433,53 +433,53 @@ function isCtxActiveOption(optValue: string): boolean {
 
 <style scoped>
 .data-table-container { display: flex; flex-direction: column; height: 100%; }
-.empty-state { display: flex; align-items: center; justify-content: center; height: 100%; color: #6c7086; font-size: 13px; }
-.empty-hint-inline { padding: 40px; text-align: center; color: #6c7086; font-size: 13px; }
+.empty-state { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--c-overlay0); font-size: 13px; }
+.empty-hint-inline { padding: 40px; text-align: center; color: var(--c-overlay0); font-size: 13px; }
 
 .table-header {
   display: flex; align-items: center; gap: 8px; padding: 6px 10px;
-  border-bottom: 1px solid #313244; flex-shrink: 0; background: #1e1e2e;
+  border-bottom: 1px solid var(--c-surface0); flex-shrink: 0; background: var(--c-base);
 }
-.header-title { font-size: 12px; font-weight: 600; color: #89b4fa; white-space: nowrap; }
+.header-title { font-size: 12px; font-weight: 600; color: var(--c-blue); white-space: nowrap; }
 .search-input {
-  flex: 1; max-width: 200px; padding: 3px 8px; background: #313244;
-  border: 1px solid #45475a; border-radius: 4px; color: #cdd6f4; font-size: 12px; margin-left: auto;
+  flex: 1; max-width: 200px; padding: 3px 8px; background: var(--c-surface0);
+  border: 1px solid var(--c-surface1); border-radius: 4px; color: var(--c-text); font-size: 12px; margin-left: auto;
 }
-.search-input:focus { outline: none; border-color: #89b4fa; }
-.point-count { font-size: 11px; color: #6c7086; white-space: nowrap; }
+.search-input:focus { outline: none; border-color: var(--c-blue); }
+.point-count { font-size: 11px; color: var(--c-overlay0); white-space: nowrap; }
 
 .table-scroll { flex: 1; overflow-y: auto; }
 .table { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
 .table thead { position: sticky; top: 0; z-index: 2; }
 .table th {
-  background: #1e1e2e; color: #6c7086; font-weight: 500;
-  padding: 6px 10px; text-align: left; border-bottom: 1px solid #313244;
+  background: var(--c-base); color: var(--c-overlay0); font-weight: 500;
+  padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--c-surface0);
 }
 .table-body { position: absolute; top: 0; left: 0; width: 100%; }
 .table tbody tr { cursor: pointer; height: 28px; }
-.table tbody tr:hover { background: #1e1e2e; }
-.table tbody tr.selected { background: #89b4fa !important; color: #1e1e2e; }
-.table tbody tr.selected td { color: #1e1e2e !important; }
+.table tbody tr:hover { background: var(--c-base); }
+.table tbody tr.selected { background: var(--c-blue) !important; color: var(--c-base); }
+.table tbody tr.selected td { color: var(--c-base) !important; }
 .table tbody tr.value-changed { background: rgba(250, 179, 135, 0.15); }
 .table td {
-  padding: 4px 10px; border-bottom: 1px solid #1e1e2e;
+  padding: 4px 10px; border-bottom: 1px solid var(--c-base);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
-.col-ioa { font-family: 'SF Mono', 'Fira Code', monospace; width: 80px; color: #89b4fa; }
-.col-type { font-family: 'SF Mono', 'Fira Code', monospace; width: 120px; }
-.col-value { font-family: 'SF Mono', 'Fira Code', monospace; transition: color 0.3s; }
-.col-value.value-highlight { color: #fab387; font-weight: 700; }
+.col-ioa { font-family: var(--font-mono); width: 80px; color: var(--c-blue); }
+.col-type { font-family: var(--font-mono); width: 120px; }
+.col-value { font-family: var(--font-mono); transition: color 0.3s; }
+.col-value.value-highlight { color: var(--c-peach); font-weight: 700; }
 .col-quality { width: 50px; font-weight: 600; font-size: 11px; }
-.col-quality.quality-ok { color: #a6e3a1; }
-.col-quality.quality-iv { color: #f38ba8; }
-.col-timestamp { font-family: 'SF Mono', 'Fira Code', monospace; width: 120px; color: #6c7086; }
+.col-quality.quality-ok { color: var(--c-green); }
+.col-quality.quality-iv { color: var(--c-red); }
+.col-timestamp { font-family: var(--font-mono); width: 120px; color: var(--c-overlay0); }
 
 /* Context menu */
 .context-menu {
   position: fixed;
-  background: #1e1e2e;
-  border: 1px solid #45475a;
+  background: var(--c-base);
+  border: 1px solid var(--c-surface1);
   border-radius: 6px;
   padding: 4px 0;
   z-index: 999;
@@ -491,27 +491,27 @@ function isCtxActiveOption(optValue: string): boolean {
   padding: 6px 14px;
   cursor: pointer;
   font-size: 12px;
-  color: #cdd6f4;
+  color: var(--c-text);
   white-space: nowrap;
 }
 
 .ctx-item:hover {
-  background: #313244;
+  background: var(--c-surface0);
 }
 
 .ctx-active {
   font-weight: 600;
-  color: #89b4fa;
+  color: var(--c-blue);
 }
 
 .ctx-sub {
-  color: #6c7086;
+  color: var(--c-overlay0);
   font-size: 11px;
 }
 
 .ctx-divider {
   height: 1px;
-  background: #313244;
+  background: var(--c-surface0);
   margin: 4px 0;
 }
 </style>
