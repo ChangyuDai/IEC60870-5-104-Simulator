@@ -48,7 +48,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/Carl-Dai/IEC60870-5-104-Simulator/releases/latest/download/latest-master.json"
+        "https://github.com/Karl-Dai/IEC60870-5-104-Simulator/releases/latest/download/latest-master.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDkwMDdEMkNDRUUwQjJEMjYKUldRbUxRdnV6TklIa0M4Y0t2V0V5NXRVL0tUZ29hRXVQTExZTzZqaGdHTzJhN0NoL1FvY2pkSFMK"
     }
