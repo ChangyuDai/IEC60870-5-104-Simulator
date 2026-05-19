@@ -304,7 +304,7 @@ onUnmounted(() => {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(log, idx) in displayLogs" :key="idx"
+          <tr v-for="(log, idx) in displayLogs" :key="logs.length - 1 - idx"
               :class="{ 'log-row-parsable': !!log.raw_bytes && log.raw_bytes.length > 0 }"
               :title="log.raw_bytes && log.raw_bytes.length ? t('toolbar.parseFrameInLog') : ''"
               @contextmenu="onLogContextMenu($event, log)">

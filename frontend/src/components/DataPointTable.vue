@@ -33,13 +33,14 @@ const selectedRows = ref<DataPointInfo[]>([])
 const lastClickedIndex = ref(-1)
 const editingCell = ref<{ ioa: number; asduType: string } | null>(null)
 const editValue = ref('')
-const isLoading = ref(false)
 const searchQuery = ref('')
 const scrollContainer = ref<HTMLDivElement | null>(null)
 const showAddModal = ref(false)
 const showBatchModal = ref(false)
-const changedIoas = ref<Set<number>>(new Set())
-const changeTimers = new Map<number, number>()
+// Keyed by `${ioa}:${asduType}` — the same IOA hosts multiple ASDU types, so
+// an IOA-only key would flash every type on that IOA when only one changed.
+const changedKeys = ref<Set<string>>(new Set())
+const changeTimers = new Map<string, number>()
 
 // === Virtual scroll (same pattern as master DataTable) ===
 const ROW_HEIGHT = 28
@@ -60,20 +61,25 @@ function updateDisplay() {
   categoryCounts.value = counts
 }
 
-function markChanged(ioa: number) {
-  changedIoas.value.add(ioa)
-  const prev = changeTimers.get(ioa)
+function markChanged(key: string) {
+  changedKeys.value.add(key)
+  const prev = changeTimers.get(key)
   if (prev) clearTimeout(prev)
-  changeTimers.set(ioa, window.setTimeout(() => {
-    changedIoas.value.delete(ioa)
-    changeTimers.delete(ioa)
+  changeTimers.set(key, window.setTimeout(() => {
+    changedKeys.value.delete(key)
+    changeTimers.delete(key)
   }, 3000))
 }
 
 // 用后端返回的完整列表替换 dataMap，避免删除/重建 server 等场景下
 // 旧条目残留累加（前端 server_id 复用时 watcher 不触发 reset）。
+let loadInFlight = false
 async function loadDataPoints() {
   if (!selectedServerId.value || selectedCA.value === null) return
+  // Guard against overlapping polls: a slow IPC round-trip must not let the
+  // 2s timer (or a watcher) stack a second concurrent fetch.
+  if (loadInFlight) return
+  loadInFlight = true
   try {
     const points = await invoke<DataPointInfo[]>('list_data_points', {
       serverId: selectedServerId.value,
@@ -84,7 +90,7 @@ async function loadDataPoints() {
       const key = pointKey(p.ioa, p.asdu_type)
       const old = dataMap.get(key)
       if (!old || old.value !== p.value) {
-        markChanged(p.ioa)
+        markChanged(key)
       }
       fresh.set(key, p)
     }
@@ -92,6 +98,8 @@ async function loadDataPoints() {
     updateDisplay()
   } catch (e) {
     console.error('Failed to load data points:', e)
+  } finally {
+    loadInFlight = false
   }
 }
 
@@ -105,7 +113,7 @@ watch([selectedServerId, selectedCA], async ([, ], [, ]) => {
     displayPoints.value = []
     currentServerId = null
     currentCA = null
-    changedIoas.value.clear()
+    changedKeys.value.clear()
     for (const t of changeTimers.values()) clearTimeout(t)
     changeTimers.clear()
     selectedRows.value = []
@@ -118,7 +126,7 @@ watch([selectedServerId, selectedCA], async ([, ], [, ]) => {
     displayPoints.value = []
     currentServerId = srvId
     currentCA = ca
-    changedIoas.value.clear()
+    changedKeys.value.clear()
     for (const t of changeTimers.values()) clearTimeout(t)
     changeTimers.clear()
     selectedRows.value = []
@@ -162,6 +170,7 @@ onMounted(() => { startPolling() })
 onUnmounted(() => {
   stopPolling()
   for (const t of changeTimers.values()) clearTimeout(t)
+  if (scrollRaf) cancelAnimationFrame(scrollRaf)
 })
 
 // 按 asdu_type 前缀判分类，对 reactivity / HMR 错位下后端 category 字段
@@ -211,10 +220,18 @@ const visibleEnd = computed(() => {
 const visibleRows = computed(() => filteredPoints.value.slice(visibleStart.value, visibleEnd.value))
 const offsetY = computed(() => visibleStart.value * ROW_HEIGHT)
 
+// Coalesce scroll events into one update per animation frame — the raw event
+// fires far more often than the screen refreshes, and each write retriggers
+// the virtual-scroll computeds.
+let scrollRaf = 0
 function onScroll(e: Event) {
   const el = e.target as HTMLElement
-  scrollTop.value = el.scrollTop
-  containerHeight.value = el.clientHeight
+  if (scrollRaf) return
+  scrollRaf = requestAnimationFrame(() => {
+    scrollRaf = 0
+    scrollTop.value = el.scrollTop
+    containerHeight.value = el.clientHeight
+  })
 }
 
 function isSelected(point: DataPointInfo): boolean {
@@ -330,11 +347,6 @@ function handleEditKeydown(e: KeyboardEvent) {
   }
 }
 
-function formatTimestamp(ts: string | null): string {
-  if (!ts) return '-'
-  return ts
-}
-
 function onPointAdded() {
   dataRefreshKey.value++
 }
@@ -403,8 +415,7 @@ defineExpose({ loadData: loadDataPoints })
       <span class="table-count">{{ filteredPoints.length }} {{ t('table.countSuffix') }}</span>
     </div>
 
-    <div v-if="isLoading" class="table-loading">{{ t('common.loading') }}</div>
-    <div v-else-if="!selectedServerId || currentCA === null" class="table-empty">
+    <div v-if="!selectedServerId || currentCA === null" class="table-empty">
       {{ t('table.chooseStation') }}
     </div>
     <div v-else-if="filteredPoints.length === 0" class="table-empty">
@@ -438,10 +449,10 @@ defineExpose({ loadData: loadDataPoints })
           <tbody>
             <tr
               v-for="point in visibleRows"
-              :key="point.ioa"
+              :key="point.ioa + ':' + point.asdu_type"
               :class="{
                 selected: isSelected(point),
-                'value-changed': changedIoas.has(point.ioa)
+                'value-changed': changedKeys.has(point.ioa + ':' + point.asdu_type)
               }"
               @click="selectRow($event, point)"
               @contextmenu.prevent="showContextMenu($event, point)"
@@ -449,7 +460,7 @@ defineExpose({ loadData: loadDataPoints })
               <td class="col-ioa">{{ point.ioa }}</td>
               <td class="col-type">{{ point.asdu_type }}</td>
               <td class="col-name">{{ point.name || '-' }}</td>
-              <td :class="['col-value', { 'value-highlight': changedIoas.has(point.ioa) }]" @dblclick.stop="startEdit(point)">
+              <td :class="['col-value', { 'value-highlight': changedKeys.has(point.ioa + ':' + point.asdu_type) }]" @dblclick.stop="startEdit(point)">
                 <template v-if="editingCell?.ioa === point.ioa && editingCell?.asduType === point.asdu_type">
                   <input
                     v-model="editValue"
@@ -469,7 +480,7 @@ defineExpose({ loadData: loadDataPoints })
                 <span v-if="point.quality_iv" class="quality-dot invalid" title="Invalid">IV</span>
                 <span v-else class="quality-dot ok" title="Good"></span>
               </td>
-              <td class="col-timestamp">{{ formatTimestamp(point.timestamp) }}</td>
+              <td class="col-timestamp">{{ point.timestamp || '-' }}</td>
             </tr>
           </tbody>
         </table>
@@ -583,7 +594,6 @@ defineExpose({ loadData: loadDataPoints })
   white-space: nowrap;
 }
 
-.table-loading,
 .table-empty {
   flex: 1;
   display: flex;
