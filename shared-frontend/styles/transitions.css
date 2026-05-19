@@ -1,0 +1,21 @@
+/* Shared modal-dialog open/close transition.
+   Apply with <Transition name="dialog-pop"> wrapping a backdrop element whose
+   single direct child is the dialog box — `> *` then targets that box, so one
+   definition fits every dialog regardless of its inner class names. */
+
+.dialog-pop-enter-active { transition: opacity 160ms ease; }
+.dialog-pop-leave-active { transition: opacity 110ms ease; }
+.dialog-pop-enter-active > * { transition: transform 160ms ease-out, opacity 160ms ease-out; }
+.dialog-pop-leave-active > * { transition: transform 110ms ease-in, opacity 110ms ease-in; }
+
+.dialog-pop-enter-from,
+.dialog-pop-leave-to { opacity: 0; }
+.dialog-pop-enter-from > *,
+.dialog-pop-leave-to > * { transform: scale(0.96); opacity: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .dialog-pop-enter-active,
+  .dialog-pop-leave-active,
+  .dialog-pop-enter-active > *,
+  .dialog-pop-leave-active > * { transition: none; }
+}
