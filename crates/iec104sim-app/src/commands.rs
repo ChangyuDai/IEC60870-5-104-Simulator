@@ -731,120 +731,75 @@ pub async fn set_cyclic_config(
 // State Persistence Commands
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub struct PersistedServer {
-    pub bind_address: String,
-    pub port: u16,
-    pub stations: Vec<PersistedStation>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub struct PersistedStation {
-    pub common_address: u16,
-    pub name: String,
-    pub object_defs: Vec<InformationObjectDef>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub struct PersistedAppState {
-    pub version: u32,
-    pub servers: Vec<PersistedServer>,
-}
-
 #[tauri::command]
-pub async fn export_app_state(
+pub async fn save_config(
     state: State<'_, AppState>,
-) -> Result<String, String> {
-    let servers = state.servers.read().await;
-    let mut persisted_servers = Vec::new();
+    path: String,
+) -> Result<(), String> {
+    use iec104sim_core::config::{SlaveConfigFile, SlaveServerConfig, SlaveStationConfig};
 
+    let servers = state.servers.read().await;
+    let mut out = Vec::new();
     for (_id, srv_state) in servers.iter() {
         let stations = srv_state.server.stations.read().await;
-        let mut persisted_stations = Vec::new();
-
+        let mut st = Vec::new();
         for (_ca, station) in stations.iter() {
-            persisted_stations.push(PersistedStation {
+            st.push(SlaveStationConfig {
                 common_address: station.common_address,
                 name: station.name.clone(),
                 object_defs: station.object_defs.clone(),
             });
         }
-
-        persisted_servers.push(PersistedServer {
+        out.push(SlaveServerConfig {
             bind_address: srv_state.server.transport.bind_address.clone(),
             port: srv_state.server.transport.port,
-            stations: persisted_stations,
+            stations: st,
         });
     }
-
-    let app_state = PersistedAppState {
-        version: 1,
-        servers: persisted_servers,
-    };
-
-    serde_json::to_string_pretty(&app_state)
-        .map_err(|e| format!("failed to serialize: {}", e))
+    let json = SlaveConfigFile::new(out).to_json()?;
+    std::fs::write(&path, json).map_err(|e| format!("写入文件失败: {e}"))
 }
 
 #[tauri::command]
-pub async fn import_app_state(
+pub async fn load_config(
     state: State<'_, AppState>,
-    input: PersistedAppState,
+    path: String,
 ) -> Result<usize, String> {
-    if input.version != 1 {
-        return Err(format!("unsupported state version: {}", input.version));
-    }
+    use iec104sim_core::config::SlaveConfigFile;
 
-    let mut total_stations = 0;
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("读取文件失败: {e}"))?;
+    let file = SlaveConfigFile::from_json(&content)?;
 
-    for srv_input in input.servers {
+    let mut imported = 0usize;
+    for srv in file.servers {
         let id = {
             let mut counter = state.next_server_id.write().await;
             let id = format!("server_{}", *counter);
             *counter += 1;
             id
         };
-
         let transport = SlaveTransportConfig {
-            bind_address: srv_input.bind_address,
-            port: srv_input.port,
+            bind_address: srv.bind_address,
+            port: srv.port,
             tls: Default::default(),
         };
-
         let log_collector = Arc::new(LogCollector::new());
         let server = SlaveServer::new(transport).with_log_collector(log_collector.clone());
-
-        for station_input in srv_input.stations {
-            let mut station = Station::new(station_input.common_address, station_input.name);
-            for def in station_input.object_defs {
+        for st in srv.stations {
+            let mut station = Station::new(st.common_address, st.name);
+            for def in st.object_defs {
                 let _ = station.add_point(def);
             }
             let _ = server.add_station(station).await;
-            total_stations += 1;
         }
-
         state.servers.write().await.insert(
             id,
-            SlaveServerState {
-                server,
-                log_collector,
-            },
+            SlaveServerState { server, log_collector },
         );
+        imported += 1;
     }
-
-    Ok(total_stations)
-}
-
-#[tauri::command]
-pub async fn clear_app_state(
-    state: State<'_, AppState>,
-) -> Result<(), String> {
-    state.servers.write().await.clear();
-    *state.next_server_id.write().await = 0;
-    Ok(())
+    Ok(imported)
 }
 
 // ---------------------------------------------------------------------------

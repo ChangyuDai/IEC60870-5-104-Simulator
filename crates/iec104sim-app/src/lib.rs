@@ -36,10 +36,9 @@ pub fn run() {
             // Simulation commands
             commands::random_mutate_data_points,
             commands::set_cyclic_config,
-            // State persistence commands
-            commands::export_app_state,
-            commands::import_app_state,
-            commands::clear_app_state,
+            // Config file save/open
+            commands::save_config,
+            commands::load_config,
             // Tool commands
             commands::parse_hex,
             commands::parse_apci,
