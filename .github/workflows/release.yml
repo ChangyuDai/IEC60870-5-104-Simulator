@@ -224,6 +224,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      # Un-draft first: this job only runs once every build succeeded, so the
+      # release is now complete enough to go live. Publishing here (rather than
+      # last) lets the manifest scripts run against a normal published release
+      # — `releases/tags/<tag>` and public asset URLs all work. The residual
+      # window where `releases/latest` lacks the update manifest shrinks from
+      # the whole ~10-minute build to the few seconds of manifest generation.
+      - name: Publish release (clear draft flag)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit ${{ github.ref_name }} --draft=false
       - name: Install script deps
         working-directory: scripts
         run: npm install --no-audit --no-fund
@@ -249,11 +259,3 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release edit ${{ github.ref_name }} --notes-file RELEASE_BODY.md
-
-      # Clear the draft flag last — only now do installers, update manifests
-      # and the rich body all exist, so `releases/latest` flips to a release
-      # the updater can actually consume.
-      - name: Publish release (clear draft flag)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit ${{ github.ref_name }} --draft=false
