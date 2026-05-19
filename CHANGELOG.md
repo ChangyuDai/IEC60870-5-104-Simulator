@@ -2,6 +2,20 @@
 
 本项目的所有重要变更记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.3.10] - 2026-05-19
+
+### Highlights / 亮点
+
+- 🚦 **发版期间不再误触发"更新检查失败"** / Update checks no longer break during a release build — 此前发版 workflow 用 `releaseDraft: false`,tauri-action 在构建一开始就把 release 以"已发布"状态创建,于是整个 ~10 分钟 CI 窗口内 GitHub 的 `releases/latest` 已指向新版本,但 `latest-*.json` 更新清单要等最后的 `publish-manifest` job 才上传。期间老用户点"检查更新"会拉到一个没有清单的 release,报 `Could not fetch a valid release JSON from the remote`。现改为构建期间保持**草稿**,`releases/latest` 会跳过草稿、继续指向上一个完整版本,清单+安装包+富文本说明全部就位后才由最后一步转正 / The release workflow used `releaseDraft: false`, so tauri-action published the release at the *start* of the build — `releases/latest` pointed at the new version for the whole ~10-minute window while `latest-*.json` was not uploaded until the final `publish-manifest` job. Existing users who checked for updates in that window hit `Could not fetch a valid release JSON from the remote`. The release is now kept a **draft** during the build (so `releases/latest` skips it and keeps serving the previous complete release) and is only un-drafted once installers, update manifests and the rich body are all in place.
+
+### Fixed 修复
+
+- 发版构建窗口期内,旧版本应用的"检查更新"不再因拉到尚未上传更新清单的 release 而失败 / During a release build, an older app's update check no longer fails by hitting a release whose update manifest is not uploaded yet.
+
+### Changed 改进
+
+- `release.yml`:`releaseDraft: true` + `publish-manifest` 末步 `gh release edit --draft=false` 转正;附带好处是 `publish-manifest` 失败时 release 停在草稿,损坏的版本不会上线 / `release.yml` now uses `releaseDraft: true` plus a final `gh release edit --draft=false` in `publish-manifest`; as a bonus, a failed `publish-manifest` leaves the release as a draft so a broken build never goes live.
+
 ## [1.3.9] - 2026-05-19
 
 ### Highlights / 亮点
