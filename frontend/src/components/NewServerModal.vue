@@ -69,6 +69,7 @@ async function submit() {
 
 <template>
   <Teleport to="body">
+    <Transition name="dialog-pop">
     <div v-if="visible" class="modal-overlay" @mousedown.self="close">
       <div class="modal-box">
         <div class="modal-title">{{ t('newServer.title') }}</div>
@@ -121,6 +122,7 @@ async function submit() {
         </div>
       </div>
     </div>
+    </Transition>
   </Teleport>
 </template>
 

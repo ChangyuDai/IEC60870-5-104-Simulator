@@ -75,6 +75,7 @@ function handleBackdropClick(e: MouseEvent) {
 
 <template>
   <Teleport to="body">
+    <Transition name="dialog-pop">
     <div v-if="visible" class="modal-backdrop" @click="handleBackdropClick">
       <div class="modal">
         <div class="modal-header">
@@ -123,6 +124,7 @@ function handleBackdropClick(e: MouseEvent) {
         </div>
       </div>
     </div>
+    </Transition>
   </Teleport>
 </template>
 
