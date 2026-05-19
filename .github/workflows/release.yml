@@ -101,7 +101,14 @@ jobs:
           fi
           DEST="IEC104Slave_${VERSION}_${ARCH}-portable.exe"
           cp "$SRC" "$DEST"
-          gh release upload "$GITHUB_REF_NAME" "$DEST" --clobber
+          # `gh release upload --clobber` races against parallel matrix jobs
+          # (404 "delete-a-release-asset"); retry before failing the build.
+          for attempt in 1 2 3 4 5; do
+            if gh release upload "$GITHUB_REF_NAME" "$DEST" --clobber; then exit 0; fi
+            echo "::warning::release upload attempt $attempt failed, retrying in 10s"
+            sleep 10
+          done
+          echo "::error::release upload failed after 5 attempts"; exit 1
 
   build-master:
     strategy:
@@ -192,7 +199,14 @@ jobs:
           fi
           DEST="IEC104Master_${VERSION}_${ARCH}-portable.exe"
           cp "$SRC" "$DEST"
-          gh release upload "$GITHUB_REF_NAME" "$DEST" --clobber
+          # `gh release upload --clobber` races against parallel matrix jobs
+          # (404 "delete-a-release-asset"); retry before failing the build.
+          for attempt in 1 2 3 4 5; do
+            if gh release upload "$GITHUB_REF_NAME" "$DEST" --clobber; then exit 0; fi
+            echo "::warning::release upload attempt $attempt failed, retrying in 10s"
+            sleep 10
+          done
+          echo "::error::release upload failed after 5 attempts"; exit 1
 
   publish-manifest:
     needs: [build-slave, build-master]
@@ -212,7 +226,13 @@ jobs:
       - name: Upload manifests to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload ${{ github.ref_name }} latest-slave.json latest-master.json --clobber
+        run: |
+          for attempt in 1 2 3 4 5; do
+            if gh release upload ${{ github.ref_name }} latest-slave.json latest-master.json --clobber; then exit 0; fi
+            echo "::warning::manifest upload attempt $attempt failed, retrying in 10s"
+            sleep 10
+          done
+          echo "::error::manifest upload failed after 5 attempts"; exit 1
 
       - name: Render rich release body from CHANGELOG
         run: node scripts/build-release-notes.mjs ${{ github.ref_name }}
