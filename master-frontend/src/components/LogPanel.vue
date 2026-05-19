@@ -27,6 +27,8 @@ function onLogContextMenu(e: MouseEvent, log: LogEntry) {
 const logs = ref<LogEntry[]>([])
 // 倒序展示：最新条目在表格顶部，便于查看最近通讯
 const displayLogs = computed(() => logs.value.slice().reverse())
+// 折叠栏状态点:有报文流过为绿,空为暗灰。
+const hasLogs = computed(() => logs.value.length > 0)
 const connectionList = ref<{ id: string; label: string }[]>([])
 const selectedConnId = ref('')
 let refreshTimer: number | null = null
@@ -277,6 +279,7 @@ onUnmounted(() => {
   <div :class="['log-panel', { expanded }]">
     <div class="log-header" @click="emit('toggle')">
       <span class="log-toggle">{{ expanded ? '\u25BC' : '\u25B2' }}</span>
+      <span class="log-status-dot" :class="hasLogs ? 'active' : 'idle'" aria-hidden="true"></span>
       <span class="log-title">{{ t('log.title') }}</span>
       <span v-if="!expanded && logs.length > 0" class="log-count">{{ logs.length }}</span>
       <div class="log-controls" @click.stop>
@@ -326,6 +329,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   height: 100%;
+  border-top: 1px solid rgba(137, 180, 250, 0.25);
 }
 
 .log-panel:not(.expanded) {
@@ -340,7 +344,7 @@ onUnmounted(() => {
   padding: 0 8px;
   cursor: pointer;
   flex-shrink: 0;
-  background: var(--c-base);
+  background: var(--c-crust);
 }
 
 .log-toggle {
@@ -383,7 +387,7 @@ onUnmounted(() => {
 .log-btn {
   padding: 2px 8px;
   background: transparent;
-  border: 1px solid var(--c-surface1);
+  border: 1px solid var(--c-surface0);
   border-radius: 4px;
   color: var(--c-text);
   cursor: pointer;
@@ -421,7 +425,7 @@ onUnmounted(() => {
 }
 
 .log-table th {
-  background: var(--c-mantle);
+  background: var(--c-base);
   color: var(--c-overlay0);
   font-weight: 500;
   position: sticky;
@@ -473,4 +477,13 @@ onUnmounted(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.log-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.log-status-dot.active { background: var(--c-green); }
+.log-status-dot.idle { background: var(--c-overlay0); }
 </style>
