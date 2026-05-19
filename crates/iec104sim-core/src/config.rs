@@ -1,59 +1,194 @@
-use crate::data_point::InformationObjectDef;
-use crate::master::TlsConfig;
-use crate::slave::SlaveTlsConfig;
+//! 配置文件落盘格式 (save/open)。两个应用各自的 JSON 文件 schema,
+//! 带 `app` 判别字段防止跨应用误加载。TLS 不写入文件。
+
+use crate::data_point::{DataPoint, InformationObjectDef};
 use serde::{Deserialize, Serialize};
 
-/// Configuration for a slave server.
+pub const SLAVE_CONFIG_APP: &str = "iec104-slave";
+pub const MASTER_CONFIG_APP: &str = "iec104-master";
+pub const CONFIG_VERSION: u32 = 1;
+
+// ---------------------------------------------------------------------------
+// 从站文件 schema
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SlaveStationConfig {
+    pub common_address: u16,
+    pub name: String,
+    pub object_defs: Vec<InformationObjectDef>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SlaveServerConfig {
     pub bind_address: String,
     pub port: u16,
-    #[serde(default)]
-    pub tls: SlaveTlsConfig,
-    pub stations: Vec<StationConfig>,
+    pub stations: Vec<SlaveStationConfig>,
 }
 
-/// Configuration for a station within a slave server.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StationConfig {
-    pub common_address: u16,
-    pub name: String,
-    pub data_points: Vec<InformationObjectDef>,
-}
-
-/// Configuration for a master connection.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MasterConnectionConfig {
-    pub target_address: String,
-    pub port: u16,
-    pub common_address: u16,
-    pub timeout_ms: u64,
-    #[serde(default)]
-    pub tls: TlsConfig,
-}
-
-impl Default for MasterConnectionConfig {
-    fn default() -> Self {
-        Self {
-            target_address: "127.0.0.1".to_string(),
-            port: 2404,
-            common_address: 1,
-            timeout_ms: 3000,
-            tls: TlsConfig::default(),
-        }
-    }
-}
-
-/// Full app state for persistence.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PersistedAppState {
+pub struct SlaveConfigFile {
+    pub app: String,
     pub version: u32,
     pub servers: Vec<SlaveServerConfig>,
 }
 
-/// Full master app state for persistence.
+impl SlaveConfigFile {
+    pub fn new(servers: Vec<SlaveServerConfig>) -> Self {
+        Self { app: SLAVE_CONFIG_APP.to_string(), version: CONFIG_VERSION, servers }
+    }
+
+    pub fn to_json(&self) -> Result<String, String> {
+        serde_json::to_string_pretty(self).map_err(|e| format!("序列化失败: {e}"))
+    }
+
+    pub fn from_json(s: &str) -> Result<Self, String> {
+        let f: SlaveConfigFile =
+            serde_json::from_str(s).map_err(|e| format!("配置文件解析失败: {e}"))?;
+        if f.app != SLAVE_CONFIG_APP {
+            return Err(format!(
+                "配置文件类型不匹配:期望从站配置,实际为 \"{}\"",
+                f.app
+            ));
+        }
+        if f.version != CONFIG_VERSION {
+            return Err(format!("不支持的配置文件版本: {}", f.version));
+        }
+        Ok(f)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 主站文件 schema
+// ---------------------------------------------------------------------------
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PersistedMasterState {
+pub struct MasterSnapshotPoint {
+    pub ca: u16,
+    pub point: DataPoint,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MasterConnectionConfig {
+    pub target_address: String,
+    pub port: u16,
+    pub common_addresses: Vec<u16>,
+    pub timeout_ms: u64,
+    pub t0: u32,
+    pub t1: u32,
+    pub t2: u32,
+    pub t3: u32,
+    pub k: u16,
+    pub w: u16,
+    pub default_qoi: u8,
+    pub default_qcc: u8,
+    pub interrogate_period_s: u32,
+    pub counter_interrogate_period_s: u32,
+    #[serde(default)]
+    pub snapshot: Vec<MasterSnapshotPoint>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MasterConfigFile {
+    pub app: String,
     pub version: u32,
     pub connections: Vec<MasterConnectionConfig>,
+}
+
+impl MasterConfigFile {
+    pub fn new(connections: Vec<MasterConnectionConfig>) -> Self {
+        Self { app: MASTER_CONFIG_APP.to_string(), version: CONFIG_VERSION, connections }
+    }
+
+    pub fn to_json(&self) -> Result<String, String> {
+        serde_json::to_string_pretty(self).map_err(|e| format!("序列化失败: {e}"))
+    }
+
+    pub fn from_json(s: &str) -> Result<Self, String> {
+        let f: MasterConfigFile =
+            serde_json::from_str(s).map_err(|e| format!("配置文件解析失败: {e}"))?;
+        if f.app != MASTER_CONFIG_APP {
+            return Err(format!(
+                "配置文件类型不匹配:期望主站配置,实际为 \"{}\"",
+                f.app
+            ));
+        }
+        if f.version != CONFIG_VERSION {
+            return Err(format!("不支持的配置文件版本: {}", f.version));
+        }
+        Ok(f)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::data_point::DataPoint;
+    use crate::types::AsduTypeId;
+
+    #[test]
+    fn slave_file_round_trip() {
+        let file = SlaveConfigFile::new(vec![SlaveServerConfig {
+            bind_address: "0.0.0.0".to_string(),
+            port: 2404,
+            stations: vec![SlaveStationConfig {
+                common_address: 1,
+                name: "站1".to_string(),
+                object_defs: vec![],
+            }],
+        }]);
+        let json = file.to_json().unwrap();
+        let parsed = SlaveConfigFile::from_json(&json).unwrap();
+        assert_eq!(json, parsed.to_json().unwrap());
+        assert_eq!(parsed.servers.len(), 1);
+        assert_eq!(parsed.servers[0].stations[0].common_address, 1);
+    }
+
+    #[test]
+    fn slave_from_json_rejects_wrong_app() {
+        let json = r#"{"app":"iec104-master","version":1,"servers":[]}"#;
+        let err = SlaveConfigFile::from_json(json).unwrap_err();
+        assert!(err.contains("类型不匹配"), "err was: {err}");
+    }
+
+    #[test]
+    fn slave_from_json_rejects_bad_version() {
+        let json = r#"{"app":"iec104-slave","version":999,"servers":[]}"#;
+        let err = SlaveConfigFile::from_json(json).unwrap_err();
+        assert!(err.contains("版本"), "err was: {err}");
+    }
+
+    #[test]
+    fn slave_from_json_rejects_corrupt() {
+        let err = SlaveConfigFile::from_json("not json").unwrap_err();
+        assert!(err.contains("解析失败"), "err was: {err}");
+    }
+
+    #[test]
+    fn master_file_round_trip_with_snapshot() {
+        let point = DataPoint::new(100, AsduTypeId::MSpNa1);
+        let file = MasterConfigFile::new(vec![MasterConnectionConfig {
+            target_address: "127.0.0.1".to_string(),
+            port: 2404,
+            common_addresses: vec![1, 2],
+            timeout_ms: 3000,
+            t0: 30, t1: 15, t2: 10, t3: 20, k: 12, w: 8,
+            default_qoi: 20, default_qcc: 5,
+            interrogate_period_s: 0,
+            counter_interrogate_period_s: 0,
+            snapshot: vec![MasterSnapshotPoint { ca: 1, point }],
+        }]);
+        let json = file.to_json().unwrap();
+        let parsed = MasterConfigFile::from_json(&json).unwrap();
+        assert_eq!(json, parsed.to_json().unwrap());
+        assert_eq!(parsed.connections[0].snapshot[0].ca, 1);
+        assert_eq!(parsed.connections[0].snapshot[0].point.ioa, 100);
+    }
+
+    #[test]
+    fn master_from_json_rejects_wrong_app() {
+        let json = r#"{"app":"iec104-slave","version":1,"connections":[]}"#;
+        let err = MasterConfigFile::from_json(json).unwrap_err();
+        assert!(err.contains("类型不匹配"), "err was: {err}");
+    }
 }
