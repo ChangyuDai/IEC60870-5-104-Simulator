@@ -143,16 +143,18 @@ async function addStation() {
       >
         <span class="toolbar-label">{{ mutationActive ? t('toolbar.stopMutation') : t('toolbar.randomMutation') }}</span>
       </button>
-      <input
-        type="number"
-        class="interval-input"
-        min="100"
-        max="60000"
-        step="100"
-        v-model.number="mutationRate"
-        :title="t('toolbar.mutationInterval')"
-      />
-      <span class="rate-label">ms</span>
+      <div class="interval-field">
+        <input
+          type="number"
+          class="interval-input"
+          min="100"
+          max="60000"
+          step="100"
+          v-model.number="mutationRate"
+          :title="t('toolbar.mutationInterval')"
+        />
+        <span class="rate-label">ms</span>
+      </div>
     </div>
     <div class="toolbar-divider"></div>
     <div class="toolbar-group interval-group">
@@ -164,16 +166,18 @@ async function addStation() {
       >
         <span class="toolbar-label">{{ cyclicActive ? t('toolbar.stopCyclic') : t('toolbar.cyclicSend') }}</span>
       </button>
-      <input
-        type="number"
-        class="interval-input"
-        min="100"
-        max="60000"
-        step="100"
-        v-model.number="cyclicInterval"
-        :title="t('toolbar.sendInterval')"
-      />
-      <span class="rate-label">ms</span>
+      <div class="interval-field">
+        <input
+          type="number"
+          class="interval-input"
+          min="100"
+          max="60000"
+          step="100"
+          v-model.number="cyclicInterval"
+          :title="t('toolbar.sendInterval')"
+        />
+        <span class="rate-label">ms</span>
+      </div>
     </div>
     <div class="toolbar-divider"></div>
     <div class="toolbar-group">
@@ -272,20 +276,40 @@ async function addStation() {
   background: var(--c-lavender);
 }
 
+/* button + value field read as one segmented control */
 .interval-group {
+  align-items: stretch;
+  gap: 0;
+}
+
+.interval-group .toolbar-btn {
+  border-radius: 4px 0 0 4px;
+}
+
+.interval-field {
+  display: flex;
   align-items: center;
+  gap: 1px;
+  padding: 0 7px 0 2px;
+  background: var(--c-surface0);
+  border: 1px solid var(--c-surface1);
+  border-left: none;
+  border-radius: 0 4px 4px 0;
+}
+
+.interval-field:focus-within {
+  border-color: var(--c-blue);
 }
 
 .interval-input {
-  width: 60px;
-  padding: 2px 4px;
-  background: var(--c-surface0);
-  border: 1px solid var(--c-surface1);
-  border-radius: 4px;
+  width: 44px;
+  padding: 2px;
+  background: transparent;
+  border: none;
   color: var(--c-text);
   font-size: 11px;
   font-family: var(--font-mono);
-  text-align: center;
+  text-align: right;
   -moz-appearance: textfield;
 }
 
@@ -293,11 +317,6 @@ async function addStation() {
 .interval-input::-webkit-outer-spin-button {
   -webkit-appearance: none;
   margin: 0;
-}
-
-.interval-input:focus {
-  outline: none;
-  border-color: var(--c-blue);
 }
 
 .rate-label {

@@ -5,6 +5,7 @@ import { dialogKey } from '@shared/composables/useDialog'
 import type { showAlert as ShowAlert } from '@shared/composables/useDialog'
 import type { DataPointInfo } from '../types'
 import { useI18n, localizeCategoryLabel } from '@shared/i18n'
+import EmptyState from '@shared/components/EmptyState.vue'
 
 const { t } = useI18n()
 const { showAlert } = inject<{ showAlert: typeof ShowAlert }>(dialogKey)!
@@ -96,9 +97,17 @@ function handleEditKeydown(e: KeyboardEvent) {
   <div class="value-panel">
     <div class="panel-header">{{ t('valuePanel.title') }}</div>
 
-    <div v-if="!hasSelection" class="empty-state">
-      {{ t('valuePanel.selectPointHint') }}
-    </div>
+    <EmptyState
+      v-if="!hasSelection"
+      compact
+      :title="t('valuePanel.selectPointHint')"
+      :hint="t('valuePanel.selectPointHintSub')"
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="4" y="3" width="16" height="18" rx="2" />
+        <path d="M8 8h8M8 12h8M8 16h5" />
+      </svg>
+    </EmptyState>
 
     <template v-else-if="isSingle && pointDetail">
       <!-- Single point detail -->
@@ -192,13 +201,6 @@ function handleEditKeydown(e: KeyboardEvent) {
   text-transform: uppercase;
   color: var(--c-overlay0);
   letter-spacing: 0.5px;
-}
-
-.empty-state {
-  padding: 24px 12px;
-  color: var(--c-overlay0);
-  text-align: center;
-  font-size: 12px;
 }
 
 .detail-section {

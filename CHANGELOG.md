@@ -2,6 +2,26 @@
 
 本项目的所有重要变更记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.3.13] - 2026-05-19
+
+### Highlights / 亮点
+
+- 🧭 **空状态全部改为引导式** / Every empty area is now a guided empty-state — 子站连接树「暂无服务器」、中部「未选站 / 站内 0 点」、详情面板「未选点」原先只有一行灰字,现统一改为「线框图标 + 标题 + 下一步操作提示」,中部大空态还带一层淡蓝径向辉光;新增共享组件 `EmptyState.vue` / The slave's empty server tree, "no station / no points" center area and detail panel previously showed a single grey line each; they now render an icon + title + next-step hint via a new shared `EmptyState.vue`, with a faint blue glow behind the large one.
+- ✨ **弹窗升级为「模糊 + 弹性」开合** / Dialogs upgraded to a blur-and-spring open animation — 弹窗打开时背景磨砂虚化(`backdrop-filter`),弹窗本体用 back 缓动从 0.9 缩放轻微过冲到位;10 个弹窗(主从两端)统一生效,`prefers-reduced-motion` 下仍自动关闭动画 / Opening a dialog now frosts the page behind it and the box springs in from scale 0.9 with a slight overshoot; applied to all 10 dialogs across both apps, still disabled under `prefers-reduced-motion`.
+- 🎛️ **工具栏区间控件收成一体** / Toolbar interval controls tightened into one segmented unit — 「随机变化 / 周期发送」的 按钮 + 输入框 + `ms` 由松散三段并到一个分段控件,`ms` 内嵌为输入框后缀 / The button + input + `ms` of "Random Mutation / Cyclic Send" merged into a single segmented control with `ms` as an inline suffix.
+- 📖 **README 重构** / README rebuilt — 中英两份 README 按高 star 项目惯例重写:居中 hero 头部 + 徽章 + 目录 + 可扫读特性分组,macOS 首次启动长说明折叠进 `<details>` / Both READMEs rewritten with a centered hero header, badges, a table of contents, scannable feature groups and the long macOS first-launch guide folded into a `<details>` block.
+
+### Added 新增
+
+- 新增共享组件 `shared-frontend/components/EmptyState.vue`(图标 slot + 标题 + 提示,`compact` / `full` 两态,full 带径向辉光) / Added shared `shared-frontend/components/EmptyState.vue` (icon slot + title + hint, `compact` / `full` variants, the full one carrying a radial glow).
+- i18n 新增 4 条空状态引导副文案 key(中英各一份) / Added 4 empty-state hint strings to the i18n dictionaries (English + 简体中文).
+
+### Changed 改进
+
+- `transitions.css` 的 `dialog-pop`:入场改 `cubic-bezier(.34,1.56,.64,1)` + `scale(0.9)` 自然过冲,新增 `.dialog-blur` 类做背景磨砂;10 个弹窗 backdrop 接入 / `dialog-pop` in `transitions.css` now uses a back-easing curve with `scale(0.9)` overshoot and a new `.dialog-blur` class for the frosted backdrop; all 10 dialog backdrops adopt it.
+- 子站 `ConnectionTree` / `DataPointTable` / `ValuePanel` 四处空状态改用 `EmptyState`,`Toolbar` 的两个区间组改为分段控件 / The slave's four empty states switch to `EmptyState`; the two `Toolbar` interval groups become segmented controls.
+- 中英 README 全面重构(结构、徽章、目录、折叠块) / Both READMEs fully restructured (layout, badges, table of contents, collapsible section).
+
 ## [1.3.12] - 2026-05-19
 
 ### Highlights / 亮点

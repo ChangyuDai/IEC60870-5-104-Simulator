@@ -62,6 +62,7 @@ export type DictShape = {
   tree: {
     title: string
     noServers: string
+    noServersHint: string
     ctxStartServer: string
     ctxStopServer: string
     ctxDeleteServer: string
@@ -102,7 +103,9 @@ export type DictShape = {
     addPointTitle: string
     batchAdd: string
     chooseStation: string
+    chooseStationHint: string
     noPoints: string
+    noPointsHint: string
     asduTypeCol: string
     nameCol: string
     valueCol: string
@@ -138,6 +141,7 @@ export type DictShape = {
   valuePanel: {
     title: string
     selectPointHint: string
+    selectPointHintSub: string
     sectionInfo: string
     asduType: string
     category: string
@@ -269,6 +273,7 @@ const dict: DictShape = {
   tree: {
     title: '服务器',
     noServers: '暂无服务器',
+    noServersHint: '点击左上角「+ 新建服务器」开始',
     ctxStartServer: '启动服务器',
     ctxStopServer: '停止服务器',
     ctxDeleteServer: '删除服务器',
@@ -308,8 +313,10 @@ const dict: DictShape = {
     searchPlaceholder: '搜索 IOA / 名称...',
     addPointTitle: '添加数据点',
     batchAdd: '批量',
-    chooseStation: '请在左侧树形导航中选择一个站',
-    noPoints: '暂无数据点',
+    chooseStation: '选择一个站',
+    chooseStationHint: '在左侧导航树中点击一个站查看数据点',
+    noPoints: '该站暂无数据点',
+    noPointsHint: '用右上角「+」或「批量」添加数据点',
     asduTypeCol: 'ASDU 类型',
     nameCol: '名称',
     valueCol: '值',
@@ -344,7 +351,8 @@ const dict: DictShape = {
   },
   valuePanel: {
     title: '数据点详情',
-    selectPointHint: '选择一个数据点查看详情',
+    selectPointHint: '未选择数据点',
+    selectPointHintSub: '在数据点表中点击任意一行查看详情',
     sectionInfo: '基本信息',
     asduType: 'ASDU 类型',
     category: '分类',

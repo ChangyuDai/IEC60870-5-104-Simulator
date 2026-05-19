@@ -112,7 +112,7 @@ onBeforeUnmount(() => {
 <template>
   <Teleport to="body">
     <Transition name="dialog-pop">
-      <div v-if="visible" class="upd-backdrop" @mousedown.self="onBackdrop">
+      <div v-if="visible" class="upd-backdrop dialog-blur" @mousedown.self="onBackdrop">
         <div class="upd-dialog" role="dialog" aria-modal="true" aria-labelledby="upd-title">
           <!-- Header -->
           <div class="upd-header">

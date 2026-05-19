@@ -4,7 +4,8 @@ export const RELEASES_URL = 'https://github.com/Karl-Dai/IEC60870-5-104-Simulato
 
 // Keep in sync with CHANGELOG.md — see `release` skill.
 export const RELEASE_NOTES: string[] = [
-  '全部弹窗统一平滑开合动画: 新增共享 dialog-pop 过渡(遮罩淡入淡出 + 0.96→1 缩放), 9 个模态弹窗与更新弹窗统一接入, 遵循 prefers-reduced-motion',
-  '底部日志区改为终端控制台条: 近黑背景 + 蓝色细发丝顶边 + 状态点(有报文为绿、空闲为暗灰)',
-  '上一版 v1.3.11 亮点: 根除发版 CI 资产上传 404 竞态',
+  '弹窗升级为「模糊 + 弹性」开合: 背景磨砂虚化 + 弹窗 back 缓动轻微过冲, 10 个弹窗统一生效, 遵循 prefers-reduced-motion',
+  '子站空状态全部改为引导式: 线框图标 + 标题 + 下一步操作提示',
+  '工具栏「随机变化 / 周期发送」收成一体化分段控件',
+  'README 重构: 居中 hero 头部 + 徽章 + 目录 + 可扫读特性分组',
 ]

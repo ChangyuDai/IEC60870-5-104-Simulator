@@ -7,6 +7,7 @@ import type { DataPointInfo, IncrementalDataResponse } from '../types'
 import DataPointModal from './DataPointModal.vue'
 import BatchAddModal from './BatchAddModal.vue'
 import { useI18n, localizeCategoryLabel } from '@shared/i18n'
+import EmptyState from '@shared/components/EmptyState.vue'
 
 const { t } = useI18n()
 const { showAlert } = inject<{ showAlert: typeof ShowAlert }>(dialogKey)!
@@ -448,12 +449,28 @@ defineExpose({ loadData: loadDataPoints })
       <span class="table-count">{{ filteredPoints.length }} {{ t('table.countSuffix') }}</span>
     </div>
 
-    <div v-if="!selectedServerId || currentCA === null" class="table-empty">
-      {{ t('table.chooseStation') }}
-    </div>
-    <div v-else-if="filteredPoints.length === 0" class="table-empty">
-      {{ t('table.noPoints') }}
-    </div>
+    <EmptyState
+      v-if="!selectedServerId || currentCA === null"
+      :title="t('table.chooseStation')"
+      :hint="t('table.chooseStationHint')"
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="9" y="3" width="6" height="5" rx="1" />
+        <rect x="2.5" y="16" width="6" height="5" rx="1" />
+        <rect x="15.5" y="16" width="6" height="5" rx="1" />
+        <path d="M12 8v3.5M5.5 16v-2.5a1 1 0 0 1 1-1h11a1 1 0 0 1 1 1V16" />
+      </svg>
+    </EmptyState>
+    <EmptyState
+      v-else-if="filteredPoints.length === 0"
+      :title="t('table.noPoints')"
+      :hint="t('table.noPointsHint')"
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="4" width="18" height="16" rx="1.5" />
+        <path d="M3 10h18M3 15h18M11 4v16" />
+      </svg>
+    </EmptyState>
 
     <div
       v-else
@@ -625,15 +642,6 @@ defineExpose({ loadData: loadDataPoints })
   font-size: 11px;
   color: var(--c-overlay0);
   white-space: nowrap;
-}
-
-.table-empty {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--c-overlay0);
-  font-size: 13px;
 }
 
 .table-scroll-container {

@@ -241,7 +241,7 @@ defineExpose({ openEditConnection, openNew })
 <template>
   <Teleport to="body">
     <Transition name="dialog-pop">
-    <div v-if="visible" class="modal-backdrop" @mousedown.self="close">
+    <div v-if="visible" class="modal-backdrop dialog-blur" @mousedown.self="close">
       <div class="modal-box">
         <div class="modal-title">
           {{ editingConnId ? t('newConn.editTitle') : t('newConn.title') }}

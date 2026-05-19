@@ -76,7 +76,7 @@ function handleBackdropClick(e: MouseEvent) {
 <template>
   <Teleport to="body">
     <Transition name="dialog-pop">
-    <div v-if="visible" class="modal-backdrop" @click="handleBackdropClick">
+    <div v-if="visible" class="modal-backdrop dialog-blur" @click="handleBackdropClick">
       <div class="modal">
         <div class="modal-header">
           <span class="modal-title">{{ t('pointModal.title') }}</span>

@@ -5,6 +5,7 @@ import { dialogKey } from '@shared/composables/useDialog'
 import type { showAlert as ShowAlert } from '@shared/composables/useDialog'
 import type { ServerInfo, StationInfo } from '../types'
 import { useI18n, localizeCategoryLabel } from '@shared/i18n'
+import EmptyState from '@shared/components/EmptyState.vue'
 
 const { t } = useI18n()
 const { showAlert } = inject<{ showAlert: typeof ShowAlert }>(dialogKey)!
@@ -212,7 +213,18 @@ function isCategorySelected(ts: TreeServer, tst: TreeStation, category: string):
 <template>
   <div class="connection-tree" @click="closeContextMenu">
     <div class="tree-header">{{ t('tree.title') }}</div>
-    <div v-if="treeData.length === 0" class="tree-empty">{{ t('tree.noServers') }}</div>
+    <EmptyState
+      v-if="treeData.length === 0"
+      compact
+      :title="t('tree.noServers')"
+      :hint="t('tree.noServersHint')"
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+        <rect x="3" y="4" width="18" height="6" rx="1.5" />
+        <rect x="3" y="14" width="18" height="6" rx="1.5" />
+        <path d="M6.5 7h.01M6.5 17h.01" />
+      </svg>
+    </EmptyState>
 
     <div v-for="ts in treeData" :key="ts.server.id" class="tree-node-group">
       <!-- Server Node -->
@@ -300,12 +312,6 @@ function isCategorySelected(ts: TreeServer, tst: TreeStation, category: string):
   text-transform: uppercase;
   color: var(--c-overlay0);
   letter-spacing: 0.5px;
-}
-
-.tree-empty {
-  padding: 16px 12px;
-  color: var(--c-overlay0);
-  font-size: 12px;
 }
 
 .tree-node {
