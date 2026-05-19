@@ -18,6 +18,7 @@ onMounted(async () => {
 
 <template>
   <Teleport to="body">
+    <Transition name="dialog-pop">
     <div v-if="visible" class="about-backdrop" @mousedown.self="emit('close')">
       <div class="about-box" role="dialog" aria-modal="true">
         <div class="about-header">
@@ -41,6 +42,7 @@ onMounted(async () => {
         </div>
       </div>
     </div>
+    </Transition>
   </Teleport>
 </template>
 

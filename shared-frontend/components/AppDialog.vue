@@ -36,6 +36,7 @@ function handleKeydown(e: KeyboardEvent) {
 
 <template>
   <Teleport to="body">
+    <Transition name="dialog-pop">
     <div v-if="state.visible" class="dialog-backdrop" @mousedown.self="dialogCancel" @keydown="handleKeydown">
       <div class="dialog" role="dialog" aria-modal="true">
         <div class="dialog-header">
@@ -66,6 +67,7 @@ function handleKeydown(e: KeyboardEvent) {
         </div>
       </div>
     </div>
+    </Transition>
   </Teleport>
 </template>
 

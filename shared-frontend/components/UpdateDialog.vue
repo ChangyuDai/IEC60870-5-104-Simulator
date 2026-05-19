@@ -111,7 +111,7 @@ onBeforeUnmount(() => {
 
 <template>
   <Teleport to="body">
-    <Transition name="upd-fade">
+    <Transition name="dialog-pop">
       <div v-if="visible" class="upd-backdrop" @mousedown.self="onBackdrop">
         <div class="upd-dialog" role="dialog" aria-modal="true" aria-labelledby="upd-title">
           <!-- Header -->
@@ -412,21 +412,7 @@ onBeforeUnmount(() => {
 .upd-notes::-webkit-scrollbar-track,
 .upd-body::-webkit-scrollbar-track { background: transparent; }
 
-/* Entrance animation */
-.upd-fade-enter-active,
-.upd-fade-leave-active { transition: opacity 160ms ease; }
-.upd-fade-enter-active .upd-dialog,
-.upd-fade-leave-active .upd-dialog { transition: transform 160ms ease, opacity 160ms ease; }
-.upd-fade-enter-from,
-.upd-fade-leave-to { opacity: 0; }
-.upd-fade-enter-from .upd-dialog,
-.upd-fade-leave-to .upd-dialog { transform: scale(0.96); opacity: 0; }
-
 @media (prefers-reduced-motion: reduce) {
-  .upd-fade-enter-active,
-  .upd-fade-leave-active,
-  .upd-fade-enter-active .upd-dialog,
-  .upd-fade-leave-active .upd-dialog,
   .upd-fill { transition: none; }
 }
 </style>
