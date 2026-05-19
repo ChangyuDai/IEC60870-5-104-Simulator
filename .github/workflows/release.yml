@@ -79,6 +79,11 @@ jobs:
           # clears the draft flag once installers + manifest + body are all in.
           releaseDraft: true
           prerelease: false
+          # The project ships its own latest-slave/master.json via
+          # gen-update-manifest; tauri-action's latest.json is unused. Being a
+          # single shared filename, every parallel matrix job clobbers it —
+          # the source of the flaky "delete-a-release-asset" 404 race. Skip it.
+          includeUpdaterJson: false
           args: ${{ matrix.args }}
 
       # always() 让本步骤即使 tauri-action 因为 GitHub API 上传 race
@@ -184,6 +189,11 @@ jobs:
           # clears the draft flag once installers + manifest + body are all in.
           releaseDraft: true
           prerelease: false
+          # The project ships its own latest-slave/master.json via
+          # gen-update-manifest; tauri-action's latest.json is unused. Being a
+          # single shared filename, every parallel matrix job clobbers it —
+          # the source of the flaky "delete-a-release-asset" 404 race. Skip it.
+          includeUpdaterJson: false
           args: ${{ matrix.args }}
 
       # always() 让本步骤即使 tauri-action 失败也继续 (同 Slave 注释)。
