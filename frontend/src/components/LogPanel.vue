@@ -34,6 +34,8 @@ function onLogContextMenu(e: MouseEvent, log: LogEntry) {
 const logs = shallowRef<LogEntry[]>([])
 // 倒序：最新条目浮到顶部，与主站 LogPanel 行为对齐。
 const displayLogs = computed(() => logs.value.slice().reverse())
+// 折叠栏状态点:有报文流过为绿,空为暗灰。
+const hasLogs = computed(() => logs.value.length > 0)
 const isLoading = ref(false)
 const error = ref<string | null>(null)
 let refreshTimer: number | null = null
@@ -178,6 +180,7 @@ onUnmounted(() => stopAutoRefresh())
   <div :class="['log-panel', { expanded }]">
     <div class="log-header" @click="toggleExpanded">
       <span class="log-toggle">{{ expanded ? '\u25BC' : '\u25B2' }}</span>
+      <span class="log-status-dot" :class="hasLogs ? 'active' : 'idle'" aria-hidden="true"></span>
       <span class="log-title">{{ t('log.title') }}</span>
       <div class="log-controls" @click.stop>
         <button class="log-btn" @click="loadLogs" :title="t('log.titleRefresh')">{{ t('log.refresh') }}</button>
@@ -221,6 +224,7 @@ onUnmounted(() => stopAutoRefresh())
   flex-direction: column;
   height: 100%;
   transition: height 0.2s ease;
+  border-top: 1px solid rgba(137, 180, 250, 0.25);
 }
 
 .log-panel:not(.expanded) {
@@ -235,7 +239,7 @@ onUnmounted(() => stopAutoRefresh())
   padding: 0 8px;
   cursor: pointer;
   flex-shrink: 0;
-  background: var(--c-base);
+  background: var(--c-crust);
 }
 
 .log-toggle {
@@ -259,7 +263,7 @@ onUnmounted(() => stopAutoRefresh())
 .log-btn {
   padding: 2px 8px;
   background: transparent;
-  border: 1px solid var(--c-surface1);
+  border: 1px solid var(--c-surface0);
   border-radius: 4px;
   color: var(--c-text);
   cursor: pointer;
@@ -299,7 +303,7 @@ onUnmounted(() => stopAutoRefresh())
 }
 
 .log-table th {
-  background: var(--c-mantle);
+  background: var(--c-base);
   color: var(--c-overlay0);
   font-weight: 500;
   position: sticky;
@@ -332,4 +336,13 @@ onUnmounted(() => stopAutoRefresh())
 .col-detail {
   color: var(--c-subtext0);
 }
+
+.log-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.log-status-dot.active { background: var(--c-green); }
+.log-status-dot.idle { background: var(--c-overlay0); }
 </style>
