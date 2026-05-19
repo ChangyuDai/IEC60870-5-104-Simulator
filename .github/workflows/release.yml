@@ -73,7 +73,11 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: '${{ github.ref_name }}'
           releaseBody: 'See the assets below to download the installers for your platform.'
-          releaseDraft: false
+          # Keep the release a draft during the build: GitHub's
+          # `releases/latest` skips drafts, so existing users' update checks
+          # keep hitting the previous *complete* release. publish-manifest
+          # clears the draft flag once installers + manifest + body are all in.
+          releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
 
@@ -174,7 +178,11 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: '${{ github.ref_name }}'
           releaseBody: 'See the assets below to download the installers for your platform.'
-          releaseDraft: false
+          # Keep the release a draft during the build: GitHub's
+          # `releases/latest` skips drafts, so existing users' update checks
+          # keep hitting the previous *complete* release. publish-manifest
+          # clears the draft flag once installers + manifest + body are all in.
+          releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
 
@@ -241,3 +249,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release edit ${{ github.ref_name }} --notes-file RELEASE_BODY.md
+
+      # Clear the draft flag last — only now do installers, update manifests
+      # and the rich body all exist, so `releases/latest` flips to a release
+      # the updater can actually consume.
+      - name: Publish release (clear draft flag)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit ${{ github.ref_name }} --draft=false
