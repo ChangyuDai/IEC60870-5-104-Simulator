@@ -2,6 +2,19 @@
 
 本项目的所有重要变更记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.3.12] - 2026-05-19
+
+### Highlights / 亮点
+
+- ✨ **全部弹窗统一平滑开合动画** / All dialogs share one smooth open/close animation — 新增共享 `dialog-pop` 过渡(遮罩 160ms 淡入 / 110ms 淡出,弹窗 0.96→1 缩放),9 个模态弹窗 + 更新弹窗统一接入,替换原先的硬切与各自为政的零散动画;遵循 `prefers-reduced-motion`,无障碍模式下自动关闭动画 / A shared `dialog-pop` transition (backdrop 160ms-in / 110ms-out fade plus a 0.96→1 box scale) now drives 9 modal dialogs and the update dialog, replacing abrupt show/hide; it honours `prefers-reduced-motion`.
+- 🖥️ **底部日志区改为终端控制台条** / Bottom log area restyled as a terminal console bar — 主站与子站底部日志栏改用近黑 `--c-crust` 背景、1px 蓝色细发丝顶边与状态点(有报文流过为绿、空闲为暗灰),观感更贴近专业协议工具 / Both master and slave bottom log panels now use a near-black `--c-crust` background, a 1px blue hairline top border and a status dot (green when logs flow, grey when idle).
+
+### Changed 改进
+
+- 新增共享样式 `shared-frontend/styles/transitions.css` 定义 `dialog-pop` 过渡;`AboutDialog`、`AppDialog`、`ParseFrameDialog`、`UpdateDialog`、`NewServerModal`、`DataPointModal`、`BatchAddModal`、`ControlDialog`、`RawSendDialog`、`NewConnectionModal` 全部套用 `<Transition name="dialog-pop">` / Added shared `shared-frontend/styles/transitions.css` defining `dialog-pop`; all 10 dialogs/modals now wrap their backdrop in `<Transition name="dialog-pop">`.
+- `UpdateDialog` 从自带的 `upd-fade` 动画迁移到共享 `dialog-pop`,删除重复过渡定义 / `UpdateDialog` migrated from its bespoke `upd-fade` to the shared `dialog-pop`, dropping a duplicate transition definition.
+- 主站与子站 `LogPanel` 折叠栏新增 `hasLogs` 状态点,表头底色对齐 `--c-base`,按钮描边改用 `--c-surface0` / Master and slave `LogPanel` headers gain a `hasLogs` status dot; table headers align to `--c-base` and button borders use `--c-surface0`.
+
 ## [1.3.11] - 2026-05-19
 
 ### Highlights / 亮点
