@@ -4,8 +4,9 @@ export const RELEASES_URL = 'https://github.com/Karl-Dai/IEC60870-5-104-Simulato
 
 // Keep in sync with CHANGELOG.md — see `release` skill.
 export const RELEASE_NOTES: string[] = [
-  '子站修复: 主站发出 STARTDT 之前子站不再发送周期/突发 I 帧, 消除主站接收序号永久失步与持续的 "unexpted I-Frame ns" 报错',
-  '子站新增 per-connection 数据传输状态机: 上送仅在 STARTDT_ACT 激活后、STOPDT_ACT 之前进行',
-  '新增 startdt_gating 回归测试: 验证 STARTDT 前子站零 I 帧上送、STARTDT 后恢复正常',
-  '上一版 v1.3.7 亮点: 两个前端共享代码合并 (shared-frontend/, 净删 ~2700 行) + Catppuccin 色板 token 化 + Toolbar 拆分',
+  '更新弹窗彻底重写: 改用 Catppuccin 深色主题, release notes 富格式渲染, 不再是白底弹窗 + Markdown 原文',
+  '日志面板 v-for :key 由列表下标改为稳定前向索引, 新日志插入头部时不再整列重渲染',
+  '发版 CI 加固: gh release upload --clobber 加重试, 杜绝并行竞态 404 拖垮构建',
+  '仓库 URL 由旧用户名 Carl-Dai 迁移到 Karl-Dai',
+  '上一版 v1.3.8 亮点: 子站仅在 STARTDT 激活后才发送周期/突发 I 帧, 修复主站序号失步',
 ]

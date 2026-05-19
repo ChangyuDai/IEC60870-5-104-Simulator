@@ -2,6 +2,33 @@
 
 本项目的所有重要变更记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.3.9] - 2026-05-19
+
+### Highlights / 亮点
+
+- 🎨 **更新弹窗彻底重写,适配深色主题** / Update dialog fully rewritten for the dark theme — 旧弹窗用了 tokens.css 里并不存在的 `--surface`/`--text` 变量,全部回退成 `#fff`/`#222`,在深色应用里炸出一个刺眼的白底红框;且 release notes 用 `<pre>` 原样输出,`###`、`**`、`- 🔌` 等 Markdown 标记字面显示。现整体改用 Catppuccin 语义 token,并内置轻量 Markdown 渲染(标题/项目符号/加粗/行内代码),配规范的头/体/脚结构、自绘进度条与错误态 / The old dialog referenced `--surface`/`--text` variables that tokens.css never defined, so it fell back to `#fff`/`#222` — a glaring white box in a dark app — and dumped raw Markdown (`###`, `**`, `-`) as plain text. It now uses Catppuccin tokens throughout with a lightweight Markdown renderer (headings, bullets, bold, inline code), a proper header/body/footer, a custom progress bar and error state.
+- ⚡ **子站数据点表改用增量轮询** / Slave data-point table switched to incremental polling — 此前每 2 秒全量拉取 `list_data_points`,80000 个点的连接每轮都要 IPC 序列化整张表、重建 Map、排序。新增后端 `list_data_points_since` 命令,只回传 `update_seq` 超过游标的点;静止时每轮回传 0 个点 / The table previously refetched all of `list_data_points` every 2s — for an 80k-point connection that meant serialising the whole table over IPC, rebuilding a Map and sorting it each tick. A new `list_data_points_since` backend command returns only points changed past the caller's cursor; at rest each poll transfers zero points.
+- 🐛 **修正数据点表行 key 重复导致的渲染错乱** / Fixed duplicate row keys mangling the data-point table — 同一 IOA 上挂着多种 ASDU 类型,而行 `:key` 只用了 `ioa`,重复 key 让 Vue 复用 DOM 出错(选中/编辑/高亮串到别的行);现改为 `ioa+asdu_type` 复合键 / The same IOA hosts multiple ASDU types but the row `:key` used only `ioa`; duplicate keys made Vue reuse DOM incorrectly (selection/edit/highlight leaking to the wrong row). The key is now a composite of `ioa` and `asdu_type`.
+- 🛠️ **发版 CI 加固 + 仓库地址迁移** / Release CI hardened + repo URL migration — `gh release upload --clobber` 在并行 matrix job 下偶发 404 竞态(曾导致 v1.3.7 一个构建失败、release body 未替换),三处上传现加 5 次重试;所有硬编码仓库 URL 由旧用户名 `Carl-Dai` 迁移到 `Karl-Dai` / `gh release upload --clobber` could hit a flaky 404 race under parallel matrix jobs (it broke one v1.3.7 build and left its release body unreplaced); all three uploads now retry up to 5×. Every hardcoded repo URL moved from the old `Carl-Dai` username to `Karl-Dai`.
+
+### Fixed 修复
+
+- 更新弹窗不再是深色应用里的白底弹窗;release notes 以富格式渲染而非 Markdown 原文 / The update dialog is no longer a white box in the dark app; release notes render rich instead of raw Markdown.
+- 数据点表行 `:key` 改为 `ioa+asdu_type` 复合键,消除同 IOA 多类型时的 DOM 复用错乱 / Data-point table row `:key` is now `ioa+asdu_type`, eliminating DOM-reuse glitches when one IOA carries multiple types.
+- `changedKeys` 改按 `ioa:asduType` 索引,改一个类型不再点亮该 IOA 上的所有行 / Change highlighting is keyed by `ioa:asduType`, so changing one type no longer flashes every row on that IOA.
+- 主/子站日志面板 `v-for` 的 `:key` 由列表下标改为稳定的前向索引,新日志插入头部时不再整列重渲染 / The log panels' `v-for` `:key` moved from the list index to a stable forward index, so prepending a new log no longer re-renders the whole list.
+- 发版 workflow 三处 `gh release upload --clobber` 加重试,杜绝并行 clobber 的 404 竞态拖垮构建 / Release workflow retries all three `gh release upload --clobber` calls, so a parallel-clobber 404 no longer fails the build.
+
+### Changed 改进
+
+- 子站数据点轮询改为增量(`list_data_points_since` + `update_seq` 游标),删除经 `total_count` 不一致触发全量重同步 / Slave data-point polling is now incremental (`list_data_points_since` + an `update_seq` cursor); deletions trigger a full resync via a `total_count` mismatch.
+- `onScroll` 用 `requestAnimationFrame` 合帧;`loadDataPoints` 加并发保护;清理死代码 `isLoading` / 空操作 `formatTimestamp` / Virtual-scroll `onScroll` is coalesced via `requestAnimationFrame`; `loadDataPoints` guards against overlapping fetches; dead `isLoading` / no-op `formatTimestamp` removed.
+- 仓库 URL 由 `Carl-Dai` 迁移到 `Karl-Dai`(README、releaseNotes、tauri updater endpoint、CI 脚本)/ Repo URLs migrated from `Carl-Dai` to `Karl-Dai` (README, releaseNotes, tauri updater endpoint, CI scripts).
+
+### Tests 测试
+
+- 新增 `test_mark_changed_drives_incremental`:验证 `get_mut` 值写入不影响 `changed_since`、而 `mark_changed` 使其可见 / Added `test_mark_changed_drives_incremental` verifying a bare `get_mut` write is invisible to `changed_since` while `mark_changed` makes it visible.
+
 ## [1.3.8] - 2026-05-19
 
 ### Highlights / 亮点
