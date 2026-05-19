@@ -264,6 +264,12 @@ struct ConnectionWrite {
     queue: Arc<tokio::sync::Mutex<Vec<u8>>>,
     /// Shared sequence state used by all senders (read loop, cyclic, spontaneous).
     seq: SharedSeq,
+    /// IEC 60870-5-104 data-transfer state. Cyclic and spontaneous I-frames may
+    /// only be sent while this is `true` — i.e. after the master has issued
+    /// STARTDT and before STOPDT. The read loop flips it; the cyclic task and
+    /// `queue_spontaneous` honour it. Sending I-frames before STARTDT desyncs
+    /// the master's receive sequence counter permanently.
+    started: Arc<std::sync::atomic::AtomicBool>,
     /// Last sent value string per IOA.
     last_sent: HashMap<u32, String>,
     /// Logger.
@@ -369,6 +375,8 @@ impl SlaveServer {
         let mut conns = self.connections.write().await;
         let mut total_sent = 0usize;
         for (_addr, conn) in conns.iter_mut() {
+            // Only send to connections in the STARTED data-transfer state.
+            if !conn.started.load(std::sync::atomic::Ordering::SeqCst) { continue; }
             let mut batch = Vec::new();
             {
                 let mut s = conn.seq.lock().await;
@@ -475,6 +483,9 @@ impl SlaveServer {
                     let mut conns = cyclic_connections.write().await;
                     let to_remove = Vec::new();
                     for (_addr, conn) in conns.iter_mut() {
+                        // Skip connections that have not issued STARTDT — sending
+                        // I-frames in the STOPPED state desyncs the master's N(S).
+                        if !conn.started.load(std::sync::atomic::Ordering::SeqCst) { continue; }
                         for station in stations_read.values() {
                             if !station.cyclic_config.enabled { continue; }
                             for point in station.data_points.all_sorted() {
@@ -536,9 +547,11 @@ impl SlaveServer {
                             // that the blocking loop drains to the TLS stream.
                             let tls_queue: SharedQueue = Arc::new(tokio::sync::Mutex::new(Vec::new()));
                             let tls_seq: SharedSeq = Arc::new(tokio::sync::Mutex::new(SeqState::default()));
+                            let tls_started = Arc::new(std::sync::atomic::AtomicBool::new(false));
                             connections.write().await.insert(peer_addr, ConnectionWrite {
                                 queue: Arc::clone(&tls_queue),
                                 seq: Arc::clone(&tls_seq),
+                                started: Arc::clone(&tls_started),
                                 last_sent: HashMap::new(),
                                 log_collector: lc.clone(),
                             });
@@ -572,7 +585,7 @@ impl SlaveServer {
                                         format!("TLS 握手成功: {}", peer_str),
                                     ));
                                 }
-                                handle_client_blocking(&mut tls_stream, stations, lc, flag, tls_queue, tls_seq, tls_connections, peer_addr);
+                                handle_client_blocking(&mut tls_stream, stations, lc, flag, tls_queue, tls_seq, tls_started, tls_connections, peer_addr);
                             });
                         } else {
                             // Plain TCP: async with queue-based cyclic writes.
@@ -582,9 +595,11 @@ impl SlaveServer {
 
                             let queue: SharedQueue = Arc::new(tokio::sync::Mutex::new(Vec::new()));
                             let seq: SharedSeq = Arc::new(tokio::sync::Mutex::new(SeqState::default()));
+                            let started = Arc::new(std::sync::atomic::AtomicBool::new(false));
                             let queue_for_writer = Arc::clone(&queue);
                             let queue_for_reader = Arc::clone(&queue);
                             let seq_for_reader = Arc::clone(&seq);
+                            let started_for_reader = Arc::clone(&started);
                             let lc_for_reader = lc.clone();
                             let stations_for_reader = stations.clone();
                             let addr_for_read = peer_addr;
@@ -593,6 +608,7 @@ impl SlaveServer {
                             connections.write().await.insert(peer_addr, ConnectionWrite {
                                 queue,
                                 seq,
+                                started,
                                 last_sent: HashMap::new(),
                                 log_collector: lc.clone(),
                             });
@@ -627,7 +643,7 @@ impl SlaveServer {
 
                             // Spawn read task (owns ReadHalf + queue for enqueueing responses).
                             tokio::spawn(async move {
-                                handle_client_read_loop(rh, stations_for_reader, lc_for_reader, flag, connections, queue_for_reader, seq_for_reader, addr_for_read).await;
+                                handle_client_read_loop(rh, stations_for_reader, lc_for_reader, flag, connections, queue_for_reader, seq_for_reader, started_for_reader, addr_for_read).await;
                             });
                         }
                     }
@@ -683,6 +699,7 @@ async fn handle_client_read_loop(
     connections: SharedConnections,
     queue: SharedQueue,
     seq: SharedSeq,
+    started: Arc<std::sync::atomic::AtomicBool>,
     peer_addr: SocketAddr,
 ) {
     let mut buf = [0u8; 8192];
@@ -727,6 +744,8 @@ async fn handle_client_read_loop(
             if ctrl1 & 0x03 == 0x03 {
                 match ctrl1 {
                     0x07 => {
+                        // STARTDT_ACT → enable data transfer, then confirm.
+                        started.store(true, std::sync::atomic::Ordering::SeqCst);
                         let resp = [0x68, 0x04, 0x0B, 0x00, 0x00, 0x00];
                         queue.lock().await.extend_from_slice(&resp);
                         if let Some(ref lc) = log_collector {
@@ -734,6 +753,8 @@ async fn handle_client_read_loop(
                         }
                     }
                     0x13 => {
+                        // STOPDT_ACT → disable data transfer, then confirm.
+                        started.store(false, std::sync::atomic::Ordering::SeqCst);
                         let resp = [0x68, 0x04, 0x23, 0x00, 0x00, 0x00];
                         queue.lock().await.extend_from_slice(&resp);
                         if let Some(ref lc) = log_collector {
@@ -1112,6 +1133,7 @@ fn handle_client_blocking(
     shutdown_flag: Arc<std::sync::atomic::AtomicBool>,
     write_queue: SharedQueue,
     seq: SharedSeq,
+    started: Arc<std::sync::atomic::AtomicBool>,
     connections: SharedConnections,
     peer_addr: SocketAddr,
 ) {
@@ -1163,6 +1185,8 @@ fn handle_client_blocking(
             if ctrl1 & 0x03 == 0x03 {
                 match ctrl1 {
                     0x07 => {
+                        // STARTDT_ACT → enable data transfer, then confirm.
+                        started.store(true, std::sync::atomic::Ordering::SeqCst);
                         let resp = [0x68, 0x04, 0x0B, 0x00, 0x00, 0x00];
                         let _ = stream.write_all(&resp);
                         if let Some(ref lc) = log_collector {
@@ -1170,6 +1194,8 @@ fn handle_client_blocking(
                         }
                     }
                     0x13 => {
+                        // STOPDT_ACT → disable data transfer, then confirm.
+                        started.store(false, std::sync::atomic::Ordering::SeqCst);
                         let resp = [0x68, 0x04, 0x23, 0x00, 0x00, 0x00];
                         let _ = stream.write_all(&resp);
                         if let Some(ref lc) = log_collector {
