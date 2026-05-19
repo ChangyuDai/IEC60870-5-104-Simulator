@@ -199,6 +199,29 @@ impl DataPointMap {
         self.seq_counter
     }
 
+    /// Bump the change counter and stamp an exact point, so incremental
+    /// queries (`changed_since`) observe value mutations — not only inserts.
+    /// A control command or manual edit changes `value` in place via
+    /// `get_mut`, which does not touch `update_seq`; callers must follow such
+    /// a mutation with `mark_changed`.
+    pub fn mark_changed(&mut self, ioa: u32, asdu_type: AsduTypeId) {
+        self.seq_counter += 1;
+        let seq = self.seq_counter;
+        if let Some(p) = self.points.get_mut(&(ioa, asdu_type)) {
+            p.update_seq = seq;
+        }
+    }
+
+    /// Like `mark_changed` but resolves the point by category, mirroring
+    /// `get_mut_by_category` — used by control handlers that target a category.
+    pub fn mark_changed_by_category(&mut self, ioa: u32, category: DataCategory) {
+        self.seq_counter += 1;
+        let seq = self.seq_counter;
+        if let Some(p) = self.get_mut_by_category(ioa, category) {
+            p.update_seq = seq;
+        }
+    }
+
     /// Get points changed since the given sequence number, sorted by IOA.
     pub fn changed_since(&self, seq: u64) -> Vec<&DataPoint> {
         let mut pts: Vec<&DataPoint> = self.points.values()
@@ -286,5 +309,33 @@ mod tests {
         assert_eq!(map.len(), 4);
         assert!(map.contains(100, AsduTypeId::MSpNa1));
         assert!(map.contains(100, AsduTypeId::MMeNc1));
+    }
+
+    #[test]
+    fn test_mark_changed_drives_incremental() {
+        let mut map = DataPointMap::new();
+        map.insert(DataPoint::new(1, AsduTypeId::MSpNa1));
+        map.insert(DataPoint::new(2, AsduTypeId::MSpNa1));
+        let baseline = map.current_seq();
+        assert!(map.changed_since(baseline).is_empty());
+
+        // A bare get_mut value write must NOT advance the counter.
+        if let Some(p) = map.get_mut(1, AsduTypeId::MSpNa1) {
+            p.value = DataPointValue::SinglePoint { value: true };
+        }
+        assert!(
+            map.changed_since(baseline).is_empty(),
+            "get_mut alone must not be visible to changed_since"
+        );
+
+        // mark_changed stamps the point so incremental queries observe it.
+        map.mark_changed(1, AsduTypeId::MSpNa1);
+        let changed = map.changed_since(baseline);
+        assert_eq!(changed.len(), 1);
+        assert_eq!(changed[0].ioa, 1);
+
+        // mark_changed_by_category resolves the point by category.
+        map.mark_changed_by_category(2, DataCategory::SinglePoint);
+        assert_eq!(map.changed_since(baseline).len(), 2);
     }
 }

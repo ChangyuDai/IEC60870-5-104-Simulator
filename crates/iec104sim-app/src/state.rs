@@ -65,3 +65,13 @@ pub struct DataPointInfo {
     pub quality_iv: bool,
     pub timestamp: Option<String>,
 }
+
+/// Response for incremental data-point polling: only the points whose
+/// `update_seq` exceeds the caller's `since_seq`, plus the current counter
+/// and total count (the latter lets the frontend detect deletions).
+#[derive(Debug, Clone, Serialize)]
+pub struct IncrementalDataResponse {
+    pub seq: u64,
+    pub total_count: usize,
+    pub points: Vec<DataPointInfo>,
+}

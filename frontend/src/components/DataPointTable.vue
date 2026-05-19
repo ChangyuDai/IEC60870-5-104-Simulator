@@ -3,7 +3,7 @@ import { ref, inject, watch, computed, nextTick, onMounted, onUnmounted, shallow
 import { invoke } from '@tauri-apps/api/core'
 import { dialogKey } from '@shared/composables/useDialog'
 import type { showAlert as ShowAlert } from '@shared/composables/useDialog'
-import type { DataPointInfo } from '../types'
+import type { DataPointInfo, IncrementalDataResponse } from '../types'
 import DataPointModal from './DataPointModal.vue'
 import BatchAddModal from './BatchAddModal.vue'
 import { useI18n, localizeCategoryLabel } from '@shared/i18n'
@@ -27,6 +27,9 @@ const displayPoints = shallowRef<DataPointInfo[]>([])
 const categoryCounts = inject<Ref<Map<string, number>>>('categoryCounts')!
 let currentServerId: string | null = null
 let currentCA: number | null = null
+// Incremental polling cursor: list_data_points_since returns only points
+// whose update_seq exceeds this. Reset to 0 on station switch.
+let lastSeq = 0
 
 // === UI state ===
 const selectedRows = ref<DataPointInfo[]>([])
@@ -73,29 +76,57 @@ function markChanged(key: string) {
 
 // 用后端返回的完整列表替换 dataMap，避免删除/重建 server 等场景下
 // 旧条目残留累加（前端 server_id 复用时 watcher 不触发 reset）。
+// Merge one incremental point into dataMap, flashing it if the value moved.
+function mergePoint(p: DataPointInfo) {
+  const key = pointKey(p.ioa, p.asdu_type)
+  const old = dataMap.get(key)
+  if (!old || old.value !== p.value) markChanged(key)
+  dataMap.set(key, p)
+}
+
 let loadInFlight = false
+// Incremental fetch: pulls only points changed since `lastSeq` instead of the
+// whole (up to 80k-row) table every tick. `changed_since` cannot express
+// deletions, so a `total_count` mismatch triggers one full resync from seq 0.
 async function loadDataPoints() {
-  if (!selectedServerId.value || selectedCA.value === null) return
+  const srvId = selectedServerId.value
+  const ca = selectedCA.value
+  if (!srvId || ca === null) return
   // Guard against overlapping polls: a slow IPC round-trip must not let the
   // 2s timer (or a watcher) stack a second concurrent fetch.
   if (loadInFlight) return
   loadInFlight = true
   try {
-    const points = await invoke<DataPointInfo[]>('list_data_points', {
-      serverId: selectedServerId.value,
-      commonAddress: selectedCA.value,
+    const resp = await invoke<IncrementalDataResponse>('list_data_points_since', {
+      serverId: srvId,
+      commonAddress: ca,
+      sinceSeq: lastSeq,
     })
-    const fresh = new Map<string, DataPointInfo>()
-    for (const p of points) {
-      const key = pointKey(p.ioa, p.asdu_type)
-      const old = dataMap.get(key)
-      if (!old || old.value !== p.value) {
-        markChanged(key)
+    for (const p of resp.points) mergePoint(p)
+    lastSeq = resp.seq
+    let changed = resp.points.length > 0
+
+    if (dataMap.size !== resp.total_count) {
+      // A point was removed — rebuild from scratch, diffing against the
+      // previous cache so unchanged rows do not all flash.
+      const prev = dataMap
+      dataMap = new Map()
+      const full = await invoke<IncrementalDataResponse>('list_data_points_since', {
+        serverId: srvId,
+        commonAddress: ca,
+        sinceSeq: 0,
+      })
+      for (const p of full.points) {
+        const key = pointKey(p.ioa, p.asdu_type)
+        const old = prev.get(key)
+        if (!old || old.value !== p.value) markChanged(key)
+        dataMap.set(key, p)
       }
-      fresh.set(key, p)
+      lastSeq = full.seq
+      changed = true
     }
-    dataMap = fresh
-    updateDisplay()
+
+    if (changed) updateDisplay()
   } catch (e) {
     console.error('Failed to load data points:', e)
   } finally {
@@ -110,6 +141,7 @@ watch([selectedServerId, selectedCA], async ([, ], [, ]) => {
   if (!srvId || ca === null) {
     // Cleared selection
     dataMap = new Map()
+    lastSeq = 0
     displayPoints.value = []
     currentServerId = null
     currentCA = null
@@ -123,6 +155,7 @@ watch([selectedServerId, selectedCA], async ([, ], [, ]) => {
   // Only reset if server or CA actually changed
   if (srvId !== currentServerId || ca !== currentCA) {
     dataMap = new Map()
+    lastSeq = 0
     displayPoints.value = []
     currentServerId = srvId
     currentCA = ca

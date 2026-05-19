@@ -862,6 +862,7 @@ async fn handle_client_read_loop(
                                         dp.value = DataPointValue::SinglePoint { value };
                                         dp.timestamp = Some(chrono::Utc::now());
                                     }
+                                    st.data_points.mark_changed_by_category(ioa, DataCategory::SinglePoint);
                                 }
                             }
                             let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], 7, &mut s) };
@@ -903,6 +904,7 @@ async fn handle_client_read_loop(
                                         dp.value = DataPointValue::DoublePoint { value };
                                         dp.timestamp = Some(chrono::Utc::now());
                                     }
+                                    st.data_points.mark_changed_by_category(ioa, DataCategory::DoublePoint);
                                 }
                             }
                             let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], 7, &mut s) };
@@ -945,6 +947,7 @@ async fn handle_client_read_loop(
                                             dp.timestamp = Some(chrono::Utc::now());
                                         }
                                     }
+                                    st.data_points.mark_changed_by_category(ioa, DataCategory::StepPosition);
                                 }
                             }
                             let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], 7, &mut s) };
@@ -988,6 +991,7 @@ async fn handle_client_read_loop(
                                         dp.value = DataPointValue::Normalized { value };
                                         dp.timestamp = Some(chrono::Utc::now());
                                     }
+                                    st.data_points.mark_changed_by_category(ioa, DataCategory::NormalizedMeasured);
                                 }
                             }
                             let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], 7, &mut s) };
@@ -1029,6 +1033,7 @@ async fn handle_client_read_loop(
                                         dp.value = DataPointValue::Scaled { value: sva };
                                         dp.timestamp = Some(chrono::Utc::now());
                                     }
+                                    st.data_points.mark_changed_by_category(ioa, DataCategory::ScaledMeasured);
                                 }
                             }
                             let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], 7, &mut s) };
@@ -1070,6 +1075,7 @@ async fn handle_client_read_loop(
                                         dp.value = DataPointValue::ShortFloat { value };
                                         dp.timestamp = Some(chrono::Utc::now());
                                     }
+                                    st.data_points.mark_changed_by_category(ioa, DataCategory::FloatMeasured);
                                 }
                             }
                             let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], 7, &mut s) };
@@ -1310,6 +1316,7 @@ fn handle_client_blocking(
                                                 dp.value = DataPointValue::SinglePoint { value };
                                                 dp.timestamp = Some(chrono::Utc::now());
                                             }
+                                            st.data_points.mark_changed_by_category(ioa, DataCategory::SinglePoint);
                                         }
                                     });
                                 }
@@ -1361,6 +1368,7 @@ fn handle_client_blocking(
                                                 dp.value = DataPointValue::DoublePoint { value };
                                                 dp.timestamp = Some(chrono::Utc::now());
                                             }
+                                            st.data_points.mark_changed_by_category(ioa, DataCategory::DoublePoint);
                                         }
                                     });
                                 }
@@ -1414,6 +1422,7 @@ fn handle_client_blocking(
                                                     dp.timestamp = Some(chrono::Utc::now());
                                                 }
                                             }
+                                            st.data_points.mark_changed_by_category(ioa, DataCategory::StepPosition);
                                         }
                                     });
                                 }
@@ -1468,6 +1477,7 @@ fn handle_client_blocking(
                                                 dp.value = DataPointValue::Normalized { value };
                                                 dp.timestamp = Some(chrono::Utc::now());
                                             }
+                                            st.data_points.mark_changed_by_category(ioa, DataCategory::NormalizedMeasured);
                                         }
                                     });
                                 }
@@ -1520,6 +1530,7 @@ fn handle_client_blocking(
                                                 dp.value = DataPointValue::Scaled { value: sva };
                                                 dp.timestamp = Some(chrono::Utc::now());
                                             }
+                                            st.data_points.mark_changed_by_category(ioa, DataCategory::ScaledMeasured);
                                         }
                                     });
                                 }
@@ -1572,6 +1583,7 @@ fn handle_client_blocking(
                                                 dp.value = DataPointValue::ShortFloat { value };
                                                 dp.timestamp = Some(chrono::Utc::now());
                                             }
+                                            st.data_points.mark_changed_by_category(ioa, DataCategory::FloatMeasured);
                                         }
                                     });
                                 }

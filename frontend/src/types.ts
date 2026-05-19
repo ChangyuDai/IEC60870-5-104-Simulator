@@ -23,6 +23,16 @@ export interface DataPointInfo {
   timestamp: string | null
 }
 
+/** Response of the incremental `list_data_points_since` command. */
+export interface IncrementalDataResponse {
+  /** Current sequence counter — pass back as `sinceSeq` next poll. */
+  seq: number
+  /** Backend's total point count — a mismatch vs the local cache means a delete. */
+  total_count: number
+  /** Only the points changed since the caller's `sinceSeq`. */
+  points: DataPointInfo[]
+}
+
 export interface LogEntry {
   timestamp: string
   direction: string

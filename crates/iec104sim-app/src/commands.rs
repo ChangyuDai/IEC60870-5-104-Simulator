@@ -1,5 +1,5 @@
-use crate::state::{AppState, DataPointInfo, ServerInfo, SlaveServerState, StationInfo};
-use iec104sim_core::data_point::{DataPointValue, InformationObjectDef};
+use crate::state::{AppState, DataPointInfo, IncrementalDataResponse, ServerInfo, SlaveServerState, StationInfo};
+use iec104sim_core::data_point::{DataPoint, DataPointValue, InformationObjectDef};
 use iec104sim_core::log_collector::LogCollector;
 use iec104sim_core::log_entry::LogEntry;
 use iec104sim_core::slave::{SlaveServer, SlaveTransportConfig, Station};
@@ -466,11 +466,34 @@ pub async fn update_data_point(
 
     point.value = new_value;
     point.timestamp = Some(chrono::Utc::now());
+    // Stamp the change so incremental polling (list_data_points_since) sees it —
+    // a bare get_mut value write does not bump update_seq.
+    station.data_points.mark_changed(ioa, asdu);
 
     drop(stations);
     srv.server.queue_spontaneous(common_address, &[(ioa, asdu)]).await;
 
     Ok(())
+}
+
+/// Map a core `DataPoint` to the serialisable `DataPointInfo` the UI consumes.
+fn data_point_to_info(
+    p: &DataPoint,
+    def_map: &std::collections::HashMap<(u32, AsduTypeId), &InformationObjectDef>,
+) -> DataPointInfo {
+    let def = def_map.get(&(p.ioa, p.asdu_type));
+    DataPointInfo {
+        ioa: p.ioa,
+        asdu_type: p.asdu_type.name().to_string(),
+        category: p.asdu_type.category().name().to_string(),
+        name: def.map(|d| d.name.clone()).unwrap_or_default(),
+        comment: def.map(|d| d.comment.clone()).unwrap_or_default(),
+        value: p.value.display(),
+        quality_iv: p.quality.iv,
+        // DataPoint.timestamp 内部存 UTC 便于无歧义比较；展示给用户时转为
+        // 本地时区,这样 UI 看到的"时间戳"和系统挂钟一致。
+        timestamp: p.timestamp.map(|t| t.with_timezone(&chrono::Local).format("%H:%M:%S%.3f").to_string()),
+    }
 }
 
 #[tauri::command]
@@ -499,25 +522,50 @@ pub async fn list_data_points(
         .collect();
 
     let result: Vec<DataPointInfo> = points
-        .iter()
-        .map(|p| {
-            let def = def_map.get(&(p.ioa, p.asdu_type));
-            DataPointInfo {
-                ioa: p.ioa,
-                asdu_type: p.asdu_type.name().to_string(),
-                category: p.asdu_type.category().name().to_string(),
-                name: def.map(|d| d.name.clone()).unwrap_or_default(),
-                comment: def.map(|d| d.comment.clone()).unwrap_or_default(),
-                value: p.value.display(),
-                quality_iv: p.quality.iv,
-                // DataPoint.timestamp 内部存 UTC 便于无歧义比较；展示给用户时
-                // 转为本地时区,这样 UI 看到的"时间戳"和系统挂钟一致。
-                timestamp: p.timestamp.map(|t| t.with_timezone(&chrono::Local).format("%H:%M:%S%.3f").to_string()),
-            }
-        })
+        .into_iter()
+        .map(|p| data_point_to_info(p, &def_map))
         .collect();
 
     Ok(result)
+}
+
+/// Incremental variant of `list_data_points`: returns only points whose
+/// `update_seq` exceeds `since_seq`, so a polling UI transfers a handful of
+/// changed rows instead of the whole (potentially 80k-row) table each tick.
+/// `total_count` lets the caller detect deletions via a size mismatch.
+#[tauri::command]
+pub async fn list_data_points_since(
+    state: State<'_, AppState>,
+    server_id: String,
+    common_address: u16,
+    since_seq: u64,
+) -> Result<IncrementalDataResponse, String> {
+    let servers = state.servers.read().await;
+    let srv = servers
+        .get(&server_id)
+        .ok_or_else(|| format!("server {} not found", server_id))?;
+
+    let stations = srv.server.stations.read().await;
+    let station = stations
+        .get(&common_address)
+        .ok_or_else(|| format!("station CA={} not found", common_address))?;
+
+    let def_map: std::collections::HashMap<(u32, AsduTypeId), &InformationObjectDef> =
+        station.object_defs.iter()
+            .map(|d| ((d.ioa, d.asdu_type), d))
+            .collect();
+
+    let points: Vec<DataPointInfo> = station.data_points
+        .changed_since(since_seq)
+        .into_iter()
+        .map(|p| data_point_to_info(p, &def_map))
+        .collect();
+
+    Ok(IncrementalDataResponse {
+        seq: station.data_points.current_seq(),
+        total_count: station.data_points.len(),
+        points,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -639,6 +687,11 @@ pub async fn random_mutate_data_points(
         }
         (mutated, changed_ioas)
     }; // rng dropped here
+
+    // Stamp every mutated point for incremental polling.
+    for &(ioa, asdu_type) in &changed_ioas {
+        station.data_points.mark_changed(ioa, asdu_type);
+    }
 
     drop(stations);
     srv.server.queue_spontaneous(request.common_address, &changed_ioas).await;
