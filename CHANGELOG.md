@@ -2,6 +2,20 @@
 
 本项目的所有重要变更记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.3.8] - 2026-05-19
+
+### Highlights / 亮点
+
+- 🔌 **修复子站在 STARTDT 前发送 I 帧导致主站序号永久失步** / Fixed the slave emitting I-frames before STARTDT, which permanently desynced the master's receive sequence counter — 子站此前在 TCP 连接建立的瞬间就把连接注册进发送列表,周期任务与突发上送会立即向其发 I 帧,不等主站的 STARTDT 激活。主站在 STOPPED 态丢弃这些帧且不推进接收序号 V(R),于是子站 N(S) 永久超前,主站持续报 `Receive unexpted I-Frame ns`,偏移量恒定等于 STARTDT 前发出的帧数。现新增 per-connection 数据传输状态机:STARTDT_ACT 激活、STOPDT_ACT 停止,周期与突发上送只对已激活的连接发送 / The slave registered a connection the moment TCP was accepted and began sending cyclic/spontaneous I-frames before the master issued STARTDT. A master in the STOPPED state discards those frames without advancing V(R), so the slave's N(S) ran permanently ahead and the master logged `Receive unexpted I-Frame ns` with a constant offset. A per-connection data-transfer state machine now gates cyclic and spontaneous sends on STARTDT/STOPDT.
+
+### Fixed 修复
+
+- 子站只在收到 STARTDT_ACT 后、STOPDT_ACT 之前发送周期/突发 I 帧;`ConnectionWrite` 新增 `started` 原子标志,异步与 TLS 两个读循环均在 STARTDT/STOPDT 处理处翻转该标志 / The slave sends cyclic and spontaneous I-frames only while data transfer is active; a new atomic `started` flag on `ConnectionWrite` is flipped by the STARTDT/STOPDT handler in both the async and TLS read loops.
+
+### Tests 测试
+
+- 新增 `startdt_gating.rs` 回归测试:断言 STARTDT 前子站发出 0 个 I 帧、STARTDT 后恢复正常上送 / Added the `startdt_gating.rs` regression test asserting zero I-frames before STARTDT and normal flow afterwards.
+
 ## [1.3.7] - 2026-05-15
 
 ### Highlights / 亮点

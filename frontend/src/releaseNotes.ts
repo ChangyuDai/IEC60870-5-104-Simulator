@@ -4,10 +4,8 @@ export const RELEASES_URL = 'https://github.com/Carl-Dai/IEC60870-5-104-Simulato
 
 // Keep in sync with CHANGELOG.md — see `release` skill.
 export const RELEASE_NOTES: string[] = [
-  '两个前端共享代码合并: 新建 shared-frontend/ 收口 5 个 Vue 组件、useDialog、i18n 核心与 ParsedFrame 类型, 净删 ~2700 行重复代码, 两个 app 通过 @shared/@app vite alias 引用',
-  'Catppuccin Mocha 色板 token 化: tokens.css 定义 --c-* 变量与跨平台 --font-mono (Cascadia Code / JetBrains Mono fallback), 22 个 .vue 中所有 hex 颜色与等宽字体栈替换为 var(...)',
-  'Toolbar 巨石拆分: slave 653 → 326 行, 抽出 NewServerModal + useMutationTimer + useCyclicTransmission 两个 composable',
-  '工具栏右上角新增版本号 + GitHub 图标 (VersionBadge), 点击复制版本号或仓库 URL, 1.5s flash toast 反馈',
-  '全局 :focus-visible 键盘焦点环 + 子站补齐暗色滚动条样式, macOS 始终显示滚动条模式下不再出白色滚动槽',
-  '上一版 v1.3.6 亮点: 添加点位 / 批量添加对话框的 ASDU 类型下拉每项后置 TypeID 数字',
+  '修复子站在主站发出 STARTDT 之前就发送周期/突发 I 帧的问题: 此前连接一建立就上送, 主站在 STOPPED 态丢弃且不计数, 导致子站 N(S) 永久超前并持续报 "unexpted I-Frame ns"',
+  '新增 per-connection 数据传输状态机: 周期与突发上送仅在 STARTDT_ACT 激活后、STOPDT_ACT 之前发送',
+  '新增 startdt_gating 回归测试: 验证 STARTDT 前子站零 I 帧上送、STARTDT 后恢复正常',
+  '上一版 v1.3.7 亮点: 两个前端共享代码合并 (shared-frontend/, 净删 ~2700 行) + Catppuccin 色板 token 化 + Toolbar 拆分',
 ]
