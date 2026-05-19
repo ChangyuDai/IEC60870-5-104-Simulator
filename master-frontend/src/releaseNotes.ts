@@ -4,6 +4,7 @@ export const RELEASES_URL = 'https://github.com/Karl-Dai/IEC60870-5-104-Simulato
 
 // Keep in sync with CHANGELOG.md — see `release` skill.
 export const RELEASE_NOTES: string[] = [
-  '修复发版构建窗口期内"检查更新"失败的问题: release 改为构建期间保持草稿, releases/latest 始终指向更新清单完整的版本, 不再报 "Could not fetch a valid release JSON"',
-  '上一版 v1.3.9 亮点: 更新弹窗重写 (Catppuccin 深色主题 + 富格式渲染) + 子站数据点表改用增量轮询',
+  '根除发版 CI 反复出现的资产上传 404 失败: 关闭 tauri-action 冗余的 latest.json, 消除并行 matrix job 抢传同名文件的竞态',
+  '发版流程进一步收紧: publish-manifest 首步即转正, 更新清单脚本全程对已发布 release 运行',
+  '上一版 v1.3.10 亮点: 发版构建期间 release 保持草稿, 旧版应用"检查更新"不再受 CI 窗口期影响',
 ]

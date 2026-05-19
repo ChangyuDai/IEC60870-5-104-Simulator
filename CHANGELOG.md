@@ -2,6 +2,21 @@
 
 本项目的所有重要变更记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.3.11] - 2026-05-19
+
+### Highlights / 亮点
+
+- 🔁 **根除发版反复出现的资产上传 404 失败** / Fixed the recurring release-asset upload 404 — 发版 CI 多次因 `tauri-action` 报 `Not Found - delete-a-release-asset` 而失败(v1.3.7、v1.3.10)。根因:`tauri-action` 每次调用都生成并上传一个名为 `latest.json` 的更新清单,而 build-slave + build-master 约 10 个并行 matrix job 各自上传同名文件、互相 delete-then-upload 抢同一个文件名,在 GitHub API 最终一致性下偶发 DELETE 404。项目本就不用 tauri 的 `latest.json`(updater 指向自建的 `latest-slave/master.json`),现以 `includeUpdaterJson: false` 关闭它 —— 唯一的跨 job 同名资产消失,竞态根除 / The release CI repeatedly failed with `tauri-action`'s `Not Found - delete-a-release-asset` (v1.3.7, v1.3.10). Root cause: `tauri-action` generates and uploads an updater manifest named `latest.json` on every invocation, and the ~10 parallel build-slave/build-master matrix jobs all uploaded that single shared filename — clobbering each other with concurrent delete-then-upload calls that hit GitHub's eventually-consistent API. The project does not use tauri's `latest.json` (the updater points at its own `latest-slave/master.json`), so it is now disabled via `includeUpdaterJson: false`, removing the only cross-job filename collision.
+- 🚦 **发版窗口期更新检查的残留破窗再收窄** / The remaining update-check window during a release shrank further — `publish-manifest` 改为**第一步**就把 release 转正(而非最后一步)。这样更新清单脚本全程对着正常的已发布 release 跑,`releases/latest` 缺清单的窗口从一次失败修复时引入的「需脚本兼容草稿」复杂度,简化为生成+上传清单的几十秒 / `publish-manifest` now clears the draft flag as its *first* step. The manifest scripts run against a normal published release throughout, and the window where `releases/latest` lacks the update manifest is just the few seconds of manifest generation.
+
+### Fixed 修复
+
+- 发版 CI 不再因并行 matrix job 抢传 `tauri-action` 的 `latest.json` 而偶发 `delete-a-release-asset` 404 失败 / The release CI no longer flakily fails with a `delete-a-release-asset` 404 from parallel matrix jobs racing on `tauri-action`'s `latest.json`.
+
+### Changed 改进
+
+- `release.yml`:两个 `tauri-action` 步骤加 `includeUpdaterJson: false`;`publish-manifest` 把 `gh release edit --draft=false` 转正移到首步,后续步骤对已发布 release 运行,更新清单脚本无需任何改动 / `release.yml`: both `tauri-action` steps gain `includeUpdaterJson: false`; `publish-manifest` moves `gh release edit --draft=false` to its first step so later steps run against a published release with no manifest-script changes.
+
 ## [1.3.10] - 2026-05-19
 
 ### Highlights / 亮点
