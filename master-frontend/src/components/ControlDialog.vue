@@ -238,6 +238,7 @@ const caSelectValue = computed<number>({
 
 <template>
   <Teleport to="body">
+    <Transition name="dialog-pop">
     <div v-if="visible" class="modal-backdrop" @mousedown.self="emit('close')" @keydown="handleKeydown">
       <div class="modal-box">
         <div class="modal-title">{{ t('control.title') }}</div>
@@ -373,6 +374,7 @@ const caSelectValue = computed<number>({
         </div>
       </div>
     </div>
+    </Transition>
   </Teleport>
 </template>
 

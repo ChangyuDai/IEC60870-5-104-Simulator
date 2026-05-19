@@ -240,6 +240,7 @@ defineExpose({ openEditConnection, openNew })
 
 <template>
   <Teleport to="body">
+    <Transition name="dialog-pop">
     <div v-if="visible" class="modal-backdrop" @mousedown.self="close">
       <div class="modal-box">
         <div class="modal-title">
@@ -320,6 +321,7 @@ defineExpose({ openEditConnection, openNew })
         </div>
       </div>
     </div>
+    </Transition>
   </Teleport>
 </template>
 
