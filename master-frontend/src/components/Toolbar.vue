@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { inject, ref, type Ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import { save, open } from '@tauri-apps/plugin-dialog'
 import { dialogKey } from '@shared/composables/useDialog'
 import type { showAlert as ShowAlert } from '@shared/composables/useDialog'
 import AboutDialog from '@shared/components/AboutDialog.vue'
@@ -170,6 +171,36 @@ async function sendCounterRead() {
   }
 }
 
+async function saveConfig() {
+  const path = await save({
+    filters: [{ name: 'IEC104 Config', extensions: ['json'] }],
+    defaultPath: 'iec104-master-config.json',
+  })
+  if (!path) return
+  try {
+    await invoke('save_config', { path })
+    await showAlert(t('toolbar.configSaved'))
+  } catch (e) {
+    await showAlert(`${t('toolbar.configSaveFailed')}: ${e}`)
+  }
+}
+
+async function openConfig() {
+  const path = await open({
+    multiple: false,
+    filters: [{ name: 'IEC104 Config', extensions: ['json'] }],
+  })
+  if (!path || typeof path !== 'string') return
+  try {
+    const count = await invoke<number>('load_config', { path })
+    refreshTree()
+    refreshData()
+    await showAlert(t('toolbar.configLoaded', { count }))
+  } catch (e) {
+    await showAlert(`${t('toolbar.configLoadFailed')}: ${e}`)
+  }
+}
+
 const isConnected = () => selectedConnectionState.value === 'Connected'
 const hasConnection = () => selectedConnectionId.value !== null
 </script>
@@ -218,6 +249,17 @@ const hasConnection = () => selectedConnectionId.value !== null
     <div class="toolbar-group">
       <button class="toolbar-btn" @click="openParseFrame()">
         {{ t('toolbar.parseFrame') }}
+      </button>
+    </div>
+
+    <div class="toolbar-divider"></div>
+
+    <div class="toolbar-group">
+      <button class="toolbar-btn" @click="saveConfig">
+        {{ t('toolbar.saveConfig') }}
+      </button>
+      <button class="toolbar-btn" @click="openConfig">
+        {{ t('toolbar.openConfig') }}
       </button>
     </div>
 

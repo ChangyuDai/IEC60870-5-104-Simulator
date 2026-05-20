@@ -27,6 +27,12 @@ export type DictShape = {
     updateCheckFailed: string
     appTitle: string
     about: string
+    saveConfig: string
+    openConfig: string
+    configSaved: string
+    configLoaded: string
+    configSaveFailed: string
+    configLoadFailed: string
   }
   newConn: {
     title: string
@@ -252,6 +258,12 @@ const dict: DictShape = {
     updateCheckFailed: '更新检查失败',
     appTitle: 'IEC104 Master',
     about: '关于',
+    saveConfig: '保存配置',
+    openConfig: '打开配置',
+    configSaved: '配置已保存',
+    configLoaded: '已导入 {count} 个连接',
+    configSaveFailed: '保存失败',
+    configLoadFailed: '打开失败',
   },
   newConn: {
     title: '新建连接',

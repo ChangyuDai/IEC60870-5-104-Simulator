@@ -29,6 +29,12 @@ const dict: DictShape = {
     updateCheckFailed: 'Update check failed',
     appTitle: 'IEC104 Master',
     about: 'About',
+    saveConfig: 'Save Config',
+    openConfig: 'Open Config',
+    configSaved: 'Configuration saved',
+    configLoaded: 'Imported {count} connection(s)',
+    configSaveFailed: 'Save failed',
+    configLoadFailed: 'Open failed',
   },
   newConn: {
     title: 'New Connection',
