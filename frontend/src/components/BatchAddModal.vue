@@ -111,14 +111,6 @@ function applyNextFreeGap() {
   if (nextFreeGapStart.value !== null) startIoa.value = nextFreeGapStart.value
 }
 
-// Task-5 template will consume these — suppress noUnusedLocals until then.
-void conflictRanges
-void canApplyNextIoa
-void canApplyNextGap
-void nextIoaDisabledTooltip
-void nextGapDisabledTooltip
-void applyNextAvailableIoa
-void applyNextFreeGap
 
 watch(() => props.visible, (visible) => {
   if (visible) {
@@ -200,9 +192,44 @@ function handleBackdropClick(e: MouseEvent) {
                 {{ opt.label }} · {{ opt.typeId }}
               </option>
             </select>
-            <div v-if="existingSameTypeIoas.length > 0" class="existing-summary">
-              {{ t('batchModal.existingSameType', { count: existingSameTypeIoas.length }) }}
-              <span class="ioa-ranges">IOA: {{ existingRangesText }}</span>
+            <div class="summary-card">
+              <div class="summary-card__title">
+                <span class="summary-card__type">{{ formAsduType }}</span>
+                <span class="summary-card__sep">·</span>
+                <span class="summary-card__count">
+                  <template v-if="existingSameTypeIoas.length > 0">
+                    {{ t('batchModal.existingSameType', { count: existingSameTypeIoas.length }) }}
+                  </template>
+                  <template v-else>{{ t('batchModal.summaryEmpty') }}</template>
+                </span>
+              </div>
+              <div v-if="existingSameTypeIoas.length > 0" class="summary-card__ranges">
+                <span class="summary-card__ranges-label">IOA</span>
+                <span class="summary-card__ranges-value">{{ existingRangesText }}</span>
+              </div>
+              <div class="summary-card__actions">
+                <button
+                  type="button"
+                  class="summary-card__btn"
+                  :disabled="!canApplyNextIoa"
+                  :title="nextIoaDisabledTooltip"
+                  @click="applyNextAvailableIoa"
+                >
+                  {{ t('batchModal.nextIoaBtn') }}
+                </button>
+                <button
+                  type="button"
+                  class="summary-card__btn"
+                  :disabled="!canApplyNextGap"
+                  :title="nextGapDisabledTooltip"
+                  @click="applyNextFreeGap"
+                >
+                  {{ t('batchModal.nextGapBtn') }}
+                </button>
+              </div>
+              <div v-if="conflictCount > 0" class="summary-card__conflict">
+                {{ t('batchModal.conflictDetail', { ranges: conflictRanges, count: conflictCount }) }}
+              </div>
             </div>
           </div>
 
@@ -222,9 +249,7 @@ function handleBackdropClick(e: MouseEvent) {
               <span>{{ t('batchModal.rangeHint', { startIoa, endIoa, count }) }}</span>
             </template>
           </div>
-          <div v-if="conflictCount > 0" class="conflict-warn">
-            {{ t('batchModal.conflictWarn', { count: conflictCount }) }}
-          </div>
+
         </div>
 
         <div class="modal-footer">
@@ -345,23 +370,86 @@ function handleBackdropClick(e: MouseEvent) {
   color: var(--c-red);
 }
 
-.existing-summary {
+.summary-card {
   margin-top: 6px;
-  font-size: 12px;
-  color: var(--c-overlay1);
+  padding: 10px 12px;
+  background: var(--c-mantle);
+  border: 1px solid var(--c-surface1);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
-.existing-summary .ioa-ranges {
+.summary-card__title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.summary-card__type {
+  font-weight: 600;
+  color: var(--c-text);
+}
+
+.summary-card__sep {
+  color: var(--c-overlay0);
+}
+
+.summary-card__count {
+  color: var(--c-subtext0);
+}
+
+.summary-card__ranges {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.summary-card__ranges-label {
+  color: var(--c-overlay0);
+}
+
+.summary-card__ranges-value {
   font-family: var(--font-mono);
   color: var(--c-text);
-  margin-left: 6px;
   word-break: break-all;
 }
 
-.conflict-warn {
+.summary-card__actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.summary-card__btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  background: var(--c-surface0);
+  border: 1px solid var(--c-surface1);
+  color: var(--c-text);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.summary-card__btn:hover:not(:disabled) {
+  background: var(--c-surface1);
+}
+
+.summary-card__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.summary-card__conflict {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--c-red);
   color: var(--c-red);
   font-size: 12px;
-  margin-top: 2px;
+  font-family: var(--font-mono);
 }
 
 .modal-footer {
