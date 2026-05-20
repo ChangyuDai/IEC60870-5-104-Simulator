@@ -37,6 +37,12 @@ export type DictShape = {
     updateCheckFailed: string
     parseFrame: string
     parseFrameInLog: string
+    saveConfig: string
+    openConfig: string
+    configSaved: string
+    configLoaded: string
+    configSaveFailed: string
+    configLoadFailed: string
   }
   newServer: {
     title: string
@@ -67,6 +73,17 @@ export type DictShape = {
     ctxStopServer: string
     ctxDeleteServer: string
     ctxDeleteStation: string
+    connTooltip: string
+  }
+  connections: {
+    title: string
+    summary: string
+    empty: string
+    emptyHint: string
+    stateActive: string
+    stateConnected: string
+    colPeer: string
+    colState: string
   }
   category: {
     single_point: string
@@ -248,6 +265,12 @@ const dict: DictShape = {
     updateCheckFailed: '更新检查失败',
     parseFrame: '报文解析',
     parseFrameInLog: '解析此报文',
+    saveConfig: '保存配置',
+    openConfig: '打开配置',
+    configSaved: '配置已保存',
+    configLoaded: '已导入 {count} 个服务器',
+    configSaveFailed: '保存失败',
+    configLoadFailed: '打开失败',
   },
   newServer: {
     title: '新建服务器',
@@ -278,6 +301,17 @@ const dict: DictShape = {
     ctxStopServer: '停止服务器',
     ctxDeleteServer: '删除服务器',
     ctxDeleteStation: '删除站',
+    connTooltip: '已连接 {n} 个客户端',
+  },
+  connections: {
+    title: '连接状态',
+    summary: '{n} 个客户端已连接',
+    empty: '暂无客户端连接',
+    emptyHint: '服务器运行后，master 连接将显示在此处',
+    stateActive: '数据传输中',
+    stateConnected: '已连接',
+    colPeer: '客户端地址',
+    colState: '状态',
   },
   category: {
     single_point: '单点 (SP)',

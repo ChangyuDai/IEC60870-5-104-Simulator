@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, inject, type Ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import { save, open } from '@tauri-apps/plugin-dialog'
 import { dialogKey } from '@shared/composables/useDialog'
 import type { showAlert as ShowAlert, showPrompt as ShowPrompt } from '@shared/composables/useDialog'
 import AboutDialog from '@shared/components/AboutDialog.vue'
@@ -90,6 +91,35 @@ async function addStation() {
     refreshTree()
   } catch (e) {
     await showAlert(String(e))
+  }
+}
+
+async function saveConfig() {
+  const path = await save({
+    filters: [{ name: 'IEC104 Config', extensions: ['json'] }],
+    defaultPath: 'iec104-slave-config.json',
+  })
+  if (!path) return
+  try {
+    await invoke('save_config', { path })
+    await showAlert(t('toolbar.configSaved'))
+  } catch (e) {
+    await showAlert(`${t('toolbar.configSaveFailed')}: ${e}`)
+  }
+}
+
+async function openConfig() {
+  const path = await open({
+    multiple: false,
+    filters: [{ name: 'IEC104 Config', extensions: ['json'] }],
+  })
+  if (!path || typeof path !== 'string') return
+  try {
+    const count = await invoke<number>('load_config', { path })
+    refreshTree()
+    await showAlert(t('toolbar.configLoaded', { count }))
+  } catch (e) {
+    await showAlert(`${t('toolbar.configLoadFailed')}: ${e}`)
   }
 }
 
@@ -183,6 +213,15 @@ async function addStation() {
     <div class="toolbar-group">
       <button class="toolbar-btn" @click="openParseFrame()" :title="t('toolbar.parseFrame')">
         <span class="toolbar-label">{{ t('toolbar.parseFrame') }}</span>
+      </button>
+    </div>
+    <div class="toolbar-divider"></div>
+    <div class="toolbar-group">
+      <button class="toolbar-btn" @click="saveConfig" :title="t('toolbar.saveConfig')">
+        <span class="toolbar-label">{{ t('toolbar.saveConfig') }}</span>
+      </button>
+      <button class="toolbar-btn" @click="openConfig" :title="t('toolbar.openConfig')">
+        <span class="toolbar-label">{{ t('toolbar.openConfig') }}</span>
       </button>
     </div>
     <button class="toolbar-btn toolbar-btn-update" :disabled="updateChecking" @click="manualCheckUpdate">
