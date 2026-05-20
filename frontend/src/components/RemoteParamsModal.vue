@@ -80,7 +80,19 @@ watch(() => props.visible, (v) => {
 
           <div class="modal-body">
             <div v-if="loading" class="muted">{{ t('runtimeParams.loading') }}</div>
-            <RemoteParamsForm v-else :timing="timing" :ops="ops" />
+            <RemoteParamsForm v-else :timing="timing" :ops="ops">
+              <template #actions-fixed="{ enabled }">
+                <label class="fixed-enable">
+                  <input type="checkbox" v-model="ops.fixed_mutation.enabled" />
+                  <span class="track" :class="{ on: enabled }">
+                    <span class="thumb" />
+                  </span>
+                  <span class="fixed-enable-label">
+                    保存后<strong>{{ enabled ? '运行' : '停止' }}</strong>
+                  </span>
+                </label>
+              </template>
+            </RemoteParamsForm>
             <p v-if="lastError" class="error">{{ lastError }}</p>
           </div>
 
@@ -197,5 +209,72 @@ watch(() => props.visible, (v) => {
 .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .muted { color: var(--c-subtext0); font-size: 12px; }
-.error { color: var(--c-red); font-size: 12px; margin-top: 8px; }
+.error {
+  margin-top: 10px;
+  padding: 6px 8px;
+  font-size: 11.5px;
+  color: var(--c-red);
+  background: color-mix(in srgb, var(--c-red) 12%, transparent);
+  border-left: 2px solid var(--c-red);
+  border-radius: 3px;
+}
+
+.fixed-enable {
+  margin-top: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 11.5px;
+  color: var(--c-subtext0);
+}
+
+.fixed-enable input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.fixed-enable:focus-within .track {
+  outline: 2px solid var(--c-blue);
+  outline-offset: 2px;
+}
+
+.fixed-enable .track {
+  position: relative;
+  width: 26px;
+  height: 14px;
+  border-radius: 8px;
+  background: var(--c-surface1);
+  transition: background 120ms ease;
+}
+
+.fixed-enable .thumb {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--c-overlay1, #6c7086);
+  transition: transform 140ms cubic-bezier(.4,.0,.2,1), background 120ms ease;
+}
+
+.fixed-enable .track.on { background: color-mix(in srgb, var(--c-green) 60%, var(--c-surface1)); }
+.fixed-enable .track.on .thumb {
+  transform: translateX(12px);
+  background: var(--c-green);
+}
+
+.fixed-enable-label strong {
+  color: var(--c-text);
+  font-weight: 600;
+}
 </style>
