@@ -6,6 +6,7 @@ import ConnectionTree from './components/ConnectionTree.vue'
 import DataPointTable from './components/DataPointTable.vue'
 import ValuePanel from './components/ValuePanel.vue'
 import LogPanel from './components/LogPanel.vue'
+import RemoteParamsPanel from './components/RemoteParamsPanel.vue'
 import AppDialog from '@shared/components/AppDialog.vue'
 import UpdateDialog from '@shared/components/UpdateDialog.vue'
 import ParseFrameDialog from '@shared/components/ParseFrameDialog.vue'
@@ -205,6 +206,10 @@ function snoozeUpdate() {
       <ValuePanel />
     </aside>
 
+    <aside class="params-area">
+      <RemoteParamsPanel />
+    </aside>
+
     <footer class="log-area">
       <LogPanel :expanded="logExpanded" @toggle="toggleLog" />
     </footer>
@@ -277,18 +282,31 @@ body {
 
 .app-layout {
   display: grid;
-  grid-template-columns: var(--tree-w, 240px) 4px 1fr 4px var(--panel-w, 280px);
+  grid-template-columns: var(--tree-w, 240px) 4px 1fr 4px var(--panel-w, 280px) auto;
   grid-template-rows: 42px 1fr 32px;
   grid-template-areas:
-    "toolbar toolbar toolbar toolbar toolbar"
-    "tree    sp-l    content sp-r    panel"
-    "log     log     log     log     log";
+    "toolbar toolbar toolbar toolbar toolbar toolbar"
+    "tree    sp-l    content sp-r    panel   params"
+    "log     log     log     log     log     log";
   height: 100vh;
   width: 100vw;
 }
 
 .app-layout.log-expanded {
   grid-template-rows: 42px 1fr 200px;
+}
+
+.params-area {
+  grid-area: params;
+  background: var(--c-mantle);
+  width: 320px;
+  overflow: hidden;
+  border-left: 1px solid var(--c-surface0);
+}
+
+/* 折叠态:面板自身把宽度压到 36px,grid 自适应 */
+.params-area:has(.remote-params.collapsed) {
+  width: 36px;
 }
 
 .toolbar-area {
