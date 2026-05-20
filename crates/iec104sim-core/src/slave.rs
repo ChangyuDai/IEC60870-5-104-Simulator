@@ -1008,37 +1008,44 @@ async fn handle_client_read_loop(
                                 ));
                             }
                         } else {
-                            let mut batch: Vec<u8> = Vec::new();
-                            {
+                            // ACT_CON 立即入队，避免主站 t1 超时。
+                            let con = {
                                 let mut s = seq.lock().await;
-                                batch.extend_from_slice(&build_response_frame(&data[..n], 7, &mut s));
-                                let stations_read = stations.read().await;
-                                if let Some(station) = stations_read.get(&ca) {
-                                    if let Some(ref lc) = log_collector {
-                                        lc.try_add(LogEntry::new(
-                                            Direction::Tx, FrameLabel::GeneralInterrogation,
-                                            format!("GI 激活确认 CA={}", ca),
-                                        ));
-                                    }
-                                    let ca_bytes = station.common_address.to_le_bytes();
-                                    for point in station.data_points.all_sorted() {
-                                        batch.extend_from_slice(&encode_point_frame_ex(point, 20, &ca_bytes, &mut s, None));
-                                        if ops_snapshot.gi_include_timestamped
-                                            && point.asdu_type.timestamped_variant().is_some()
-                                            && !point.asdu_type.is_timestamped()
-                                        {
-                                            batch.extend_from_slice(&encode_point_frame_ex(point, 20, &ca_bytes, &mut s, Some(true)));
-                                        }
-                                    }
-                                }
-                                batch.extend_from_slice(&build_response_frame(&data[..n], 10, &mut s));
-                            }
-                            queue.lock().await.extend_from_slice(&batch);
+                                build_response_frame(&data[..n], 7, &mut s)
+                            };
+                            queue.lock().await.extend_from_slice(&con);
                             if let Some(ref lc) = log_collector {
                                 lc.try_add(LogEntry::new(
                                     Direction::Tx, FrameLabel::GeneralInterrogation,
-                                    format!("GI 激活终止 CA={}", ca),
+                                    format!("GI 激活确认 CA={}", ca),
                                 ));
+                            }
+                            // 拷贝点位快照，释放 stations 读锁后再去独立 task 发送。
+                            let (points_snapshot, ca_bytes_opt): (Vec<DataPoint>, Option<[u8; 2]>) = {
+                                let stations_read = stations.read().await;
+                                if let Some(station) = stations_read.get(&ca) {
+                                    let pts: Vec<DataPoint> = station.data_points.all_sorted()
+                                        .into_iter().cloned().collect();
+                                    (pts, Some(station.common_address.to_le_bytes()))
+                                } else {
+                                    (Vec::new(), None)
+                                }
+                            };
+                            if let Some(ca_bytes) = ca_bytes_opt {
+                                let k = protocol_timing.read().await.k;
+                                let queue_clone = Arc::clone(&queue);
+                                let seq_clone = Arc::clone(&seq);
+                                let lc_clone = log_collector.clone();
+                                let recv_template = data[..n].to_vec();
+                                let include_ts = ops_snapshot.gi_include_timestamped;
+                                tokio::spawn(async move {
+                                    run_interrogation(
+                                        points_snapshot, ca_bytes, 20,
+                                        recv_template, include_ts,
+                                        queue_clone, seq_clone, k, lc_clone,
+                                        FrameLabel::GeneralInterrogation, ca,
+                                    ).await;
+                                });
                             }
                         }
                     }
@@ -1051,38 +1058,44 @@ async fn handle_client_read_loop(
                                 ));
                             }
                         } else {
-                            let mut batch: Vec<u8> = Vec::new();
-                            {
+                            let con = {
                                 let mut s = seq.lock().await;
-                                batch.extend_from_slice(&build_response_frame(&data[..n], 7, &mut s));
-                                let stations_read = stations.read().await;
-                                if let Some(station) = stations_read.get(&ca) {
-                                    if let Some(ref lc) = log_collector {
-                                        lc.try_add(LogEntry::new(
-                                            Direction::Tx, FrameLabel::CounterInterrogation,
-                                            format!("累计量召唤 激活确认 CA={}", ca),
-                                        ));
-                                    }
-                                    let ca_bytes = station.common_address.to_le_bytes();
-                                    for point in station.data_points.all_sorted() {
-                                        if !matches!(point.value, DataPointValue::IntegratedTotal { .. }) { continue; }
-                                        batch.extend_from_slice(&encode_point_frame_ex(point, 37, &ca_bytes, &mut s, Some(false)));
-                                        if ops_snapshot.gi_include_timestamped
-                                            && point.asdu_type.timestamped_variant().is_some()
-                                            && !point.asdu_type.is_timestamped()
-                                        {
-                                            batch.extend_from_slice(&encode_point_frame_ex(point, 37, &ca_bytes, &mut s, Some(true)));
-                                        }
-                                    }
-                                }
-                                batch.extend_from_slice(&build_response_frame(&data[..n], 10, &mut s));
-                            }
-                            queue.lock().await.extend_from_slice(&batch);
+                                build_response_frame(&data[..n], 7, &mut s)
+                            };
+                            queue.lock().await.extend_from_slice(&con);
                             if let Some(ref lc) = log_collector {
                                 lc.try_add(LogEntry::new(
                                     Direction::Tx, FrameLabel::CounterInterrogation,
-                                    format!("累计量召唤 激活终止 CA={}", ca),
+                                    format!("累计量召唤 激活确认 CA={}", ca),
                                 ));
+                            }
+                            let (points_snapshot, ca_bytes_opt): (Vec<DataPoint>, Option<[u8; 2]>) = {
+                                let stations_read = stations.read().await;
+                                if let Some(station) = stations_read.get(&ca) {
+                                    let pts: Vec<DataPoint> = station.data_points.all_sorted()
+                                        .into_iter()
+                                        .filter(|p| matches!(p.value, DataPointValue::IntegratedTotal { .. }))
+                                        .cloned().collect();
+                                    (pts, Some(station.common_address.to_le_bytes()))
+                                } else {
+                                    (Vec::new(), None)
+                                }
+                            };
+                            if let Some(ca_bytes) = ca_bytes_opt {
+                                let k = protocol_timing.read().await.k;
+                                let queue_clone = Arc::clone(&queue);
+                                let seq_clone = Arc::clone(&seq);
+                                let lc_clone = log_collector.clone();
+                                let recv_template = data[..n].to_vec();
+                                let include_ts = ops_snapshot.gi_include_timestamped;
+                                tokio::spawn(async move {
+                                    run_interrogation(
+                                        points_snapshot, ca_bytes, 37,
+                                        recv_template, include_ts,
+                                        queue_clone, seq_clone, k, lc_clone,
+                                        FrameLabel::CounterInterrogation, ca,
+                                    ).await;
+                                });
                             }
                         }
                     }
@@ -1111,7 +1124,7 @@ async fn handle_client_read_loop(
                                 }
                             }
                             if ops_snapshot.answer_commands {
-                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { ops_snapshot.execute_ack_cot.as_u8() };
+                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
                             let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) };
                             queue.lock().await.extend_from_slice(&ack);
                             if !is_select {
@@ -1156,7 +1169,7 @@ async fn handle_client_read_loop(
                                 }
                             }
                             if ops_snapshot.answer_commands {
-                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { ops_snapshot.execute_ack_cot.as_u8() };
+                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
                             let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) };
                             queue.lock().await.extend_from_slice(&ack);
                             if !is_select {
@@ -1202,7 +1215,7 @@ async fn handle_client_read_loop(
                                 }
                             }
                             if ops_snapshot.answer_commands {
-                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { ops_snapshot.execute_ack_cot.as_u8() };
+                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
                             let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) };
                             queue.lock().await.extend_from_slice(&ack);
                             if !is_select {
@@ -1249,7 +1262,7 @@ async fn handle_client_read_loop(
                                 }
                             }
                             if ops_snapshot.answer_commands {
-                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { ops_snapshot.execute_ack_cot.as_u8() };
+                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
                             let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) };
                             queue.lock().await.extend_from_slice(&ack);
                             if !is_select {
@@ -1294,7 +1307,7 @@ async fn handle_client_read_loop(
                                 }
                             }
                             if ops_snapshot.answer_commands {
-                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { ops_snapshot.execute_ack_cot.as_u8() };
+                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
                             let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) };
                             queue.lock().await.extend_from_slice(&ack);
                             if !is_select {
@@ -1339,7 +1352,7 @@ async fn handle_client_read_loop(
                                 }
                             }
                             if ops_snapshot.answer_commands {
-                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { ops_snapshot.execute_ack_cot.as_u8() };
+                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
                             let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) };
                             queue.lock().await.extend_from_slice(&ack);
                             if !is_select {
@@ -1609,7 +1622,7 @@ fn handle_client_blocking(
                                 }
                             }
                             if ops_snapshot.answer_commands {
-                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { ops_snapshot.execute_ack_cot.as_u8() };
+                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
                             let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) });
                             let _ = stream.write_all(&ack);
                             if !is_select {
@@ -1664,7 +1677,7 @@ fn handle_client_blocking(
                                 }
                             }
                             if ops_snapshot.answer_commands {
-                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { ops_snapshot.execute_ack_cot.as_u8() };
+                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
                             let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) });
                             let _ = stream.write_all(&ack);
                             if !is_select {
@@ -1721,7 +1734,7 @@ fn handle_client_blocking(
                                 }
                             }
                             if ops_snapshot.answer_commands {
-                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { ops_snapshot.execute_ack_cot.as_u8() };
+                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
                             let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) });
                             let _ = stream.write_all(&ack);
                             if !is_select {
@@ -1779,7 +1792,7 @@ fn handle_client_blocking(
                                 }
                             }
                             if ops_snapshot.answer_commands {
-                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { ops_snapshot.execute_ack_cot.as_u8() };
+                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
                             let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) });
                             let _ = stream.write_all(&ack);
                             if !is_select {
@@ -1835,7 +1848,7 @@ fn handle_client_blocking(
                                 }
                             }
                             if ops_snapshot.answer_commands {
-                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { ops_snapshot.execute_ack_cot.as_u8() };
+                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
                             let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) });
                             let _ = stream.write_all(&ack);
                             if !is_select {
@@ -1891,7 +1904,7 @@ fn handle_client_blocking(
                                 }
                             }
                             if ops_snapshot.answer_commands {
-                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { ops_snapshot.execute_ack_cot.as_u8() };
+                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
                             let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) });
                             let _ = stream.write_all(&ack);
                             if !is_select {
@@ -2190,8 +2203,9 @@ async fn encode_segment_and_enqueue(
     frames_emitted
 }
 
-/// GI/CI 的独立 task 执行体：把点位按 (NA 类型, 连续 IOA) 切段，
-/// 每段调 `encode_segment_and_enqueue`，最后入队 ACT_TERM。
+/// GI/CI 的独立 task 执行体：按 (point.asdu_type, 连续 IOA) 切段，
+/// 每段调 `encode_segment_and_enqueue`；TB 类型段自然带时标，
+/// NA 类型段若开启 `include_timestamped` 且存在 TB 变体则额外再发一份时标副本。
 /// `points` 必须已经按 IOA 升序排好；调用方应在 read loop 内只持锁拷贝一份。
 async fn run_interrogation(
     points: Vec<DataPoint>,
@@ -2208,23 +2222,22 @@ async fn run_interrogation(
 ) {
     let mut i = 0;
     while i < points.len() {
-        let (type0, _) = encode_na_value(&points[i].value);
+        let kind0 = points[i].asdu_type;
         let ioa0 = points[i].ioa;
         let mut j = i + 1;
         while j < points.len() {
-            let (tj, _) = encode_na_value(&points[j].value);
-            if tj != type0 || points[j].ioa != ioa0 + (j - i) as u32 { break; }
+            if points[j].asdu_type != kind0 || points[j].ioa != ioa0 + (j - i) as u32 { break; }
             j += 1;
         }
         let seg = &points[i..j];
-        encode_segment_and_enqueue(seg, cot_data, &ca_bytes, &seq, &queue, k, false).await;
-        if include_timestamped {
-            // 只有当 NA 类型有对应 TB 变体时才发时标副本。
-            if let Some(na_id) = AsduTypeId::from_u8(type0) {
-                if na_id.timestamped_variant().is_some() {
-                    encode_segment_and_enqueue(seg, cot_data, &ca_bytes, &seq, &queue, k, true).await;
-                }
-            }
+        let kind_is_timestamped = kind0.is_timestamped();
+        encode_segment_and_enqueue(
+            seg, cot_data, &ca_bytes, &seq, &queue, k, kind_is_timestamped,
+        ).await;
+        if include_timestamped && !kind_is_timestamped && kind0.timestamped_variant().is_some() {
+            encode_segment_and_enqueue(
+                seg, cot_data, &ca_bytes, &seq, &queue, k, true,
+            ).await;
         }
         i = j;
     }

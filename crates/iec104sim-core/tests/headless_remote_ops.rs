@@ -65,9 +65,17 @@ async fn command_silenced_but_slave_value_updated() {
     let ops = RemoteOperationConfig { answer_commands: false, ..Default::default() };
     let pair = Pair::spawn(ops).await;
 
-    // 用 master 现有连接发 GI,GI=true (默认),所以能填充 baseline。
+    // 注意:这里 GI=true (默认),但 answer_commands=false → GI 仍会响应,命令静默。
     pair.master.conn.send_interrogation(1).await.unwrap();
     let _ = wait_for_ioa_count(&pair.master.conn, 1, 1, DEFAULT_TIMEOUT).await;
+    // 等到 GI 应答完全停止 (seq 在 400ms 内不增长视为稳定)。
+    let mut last = pair.master.conn.received_data.read().await.current_seq();
+    loop {
+        sleep(Duration::from_millis(400)).await;
+        let cur = pair.master.conn.received_data.read().await.current_seq();
+        if cur == last { break; }
+        last = cur;
+    }
 
     let initial = master_point_value(&pair.master.conn, 1, 1, AsduTypeId::MSpNa1)
         .await
