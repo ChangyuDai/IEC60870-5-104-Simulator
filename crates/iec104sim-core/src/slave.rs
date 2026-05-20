@@ -596,11 +596,13 @@ impl SlaveServer {
         self.connections = Arc::new(RwLock::new(HashMap::new()));
         let connections = self.connections.clone();
         let cyclic_connections = connections.clone();
+        let remote_ops = self.remote_ops.clone();
 
         // Start cyclic background task.
         let cyclic_stations = self.stations.clone();
         let cyclic_flag = self.shutdown_flag.clone();
         let cyclic_log = self.log_collector.clone();
+        let cyclic_remote_ops = self.remote_ops.clone();
         let cyclic_handle = tokio::spawn(async move {
             // Use interval_ms from the first enabled station, default to 2000ms
             let get_interval_ms = || async {
@@ -623,13 +625,12 @@ impl SlaveServer {
                     interval = tokio::time::interval(std::time::Duration::from_millis(interval_ms as u64));
                 }
 
+                let ops_snapshot = cyclic_remote_ops.read().await.clone();
                 let stations_read = cyclic_stations.read().await;
                 let addrs_to_remove: Vec<SocketAddr> = {
                     let mut conns = cyclic_connections.write().await;
                     let to_remove = Vec::new();
                     for (_addr, conn) in conns.iter_mut() {
-                        // Skip connections that have not issued STARTDT — sending
-                        // I-frames in the STOPPED state desyncs the master's N(S).
                         if !conn.started.load(std::sync::atomic::Ordering::SeqCst) { continue; }
                         for station in stations_read.values() {
                             if !station.cyclic_config.enabled { continue; }
@@ -639,10 +640,16 @@ impl SlaveServer {
                                     if last == &value_str { continue; }
                                 }
                                 let ca_bytes = station.common_address.to_le_bytes();
-                                let ioa_bytes = point.ioa.to_le_bytes();
                                 let asdu = {
                                     let mut s = conn.seq.lock().await;
-                                    encode_point_frame(&point.value, 3, &ca_bytes, &ioa_bytes[..3], &mut *s)
+                                    let mut bytes = encode_point_frame_ex(point, 3, &ca_bytes, &mut *s, None);
+                                    if ops_snapshot.sp_sync_with_tb
+                                        && point.asdu_type.timestamped_variant().is_some()
+                                        && !point.asdu_type.is_timestamped()
+                                    {
+                                        bytes.extend(encode_point_frame_ex(point, 3, &ca_bytes, &mut *s, Some(true)));
+                                    }
+                                    bytes
                                 };
                                 conn.queue.lock().await.extend(asdu);
                                 conn.last_sent.insert(point.ioa, value_str);
@@ -685,6 +692,7 @@ impl SlaveServer {
                         let flag = shutdown_flag.clone();
                         let tls_acceptor = tls_acceptor.clone();
                         let connections = connections.clone();
+                        let conn_remote_ops = remote_ops.clone();
 
                         if tls_acceptor.is_some() {
                             // TLS: blocking I/O via spawn_blocking.
@@ -730,7 +738,7 @@ impl SlaveServer {
                                         format!("TLS 握手成功: {}", peer_str),
                                     ));
                                 }
-                                handle_client_blocking(&mut tls_stream, stations, lc, flag, tls_queue, tls_seq, tls_started, tls_connections, peer_addr);
+                                handle_client_blocking(&mut tls_stream, stations, lc, flag, tls_queue, tls_seq, tls_started, tls_connections, peer_addr, conn_remote_ops);
                             });
                         } else {
                             // Plain TCP: async with queue-based cyclic writes.
@@ -788,7 +796,7 @@ impl SlaveServer {
 
                             // Spawn read task (owns ReadHalf + queue for enqueueing responses).
                             tokio::spawn(async move {
-                                handle_client_read_loop(rh, stations_for_reader, lc_for_reader, flag, connections, queue_for_reader, seq_for_reader, started_for_reader, addr_for_read).await;
+                                handle_client_read_loop(rh, stations_for_reader, lc_for_reader, flag, connections, queue_for_reader, seq_for_reader, started_for_reader, addr_for_read, conn_remote_ops).await;
                             });
                         }
                     }
@@ -846,6 +854,7 @@ async fn handle_client_read_loop(
     seq: SharedSeq,
     started: Arc<std::sync::atomic::AtomicBool>,
     peer_addr: SocketAddr,
+    remote_ops: SharedRemoteOps,
 ) {
     let mut buf = [0u8; 8192];
     let mut reassembly_buf: Vec<u8> = Vec::with_capacity(65536);
@@ -921,69 +930,93 @@ async fn handle_client_read_loop(
                 let cause = data[8];
                 let ca = u16::from_le_bytes([data[10], data[11]]);
 
+                let ops_snapshot = remote_ops.read().await.clone();
                 match asdu_type {
                     100 => {
-                        let mut batch: Vec<u8> = Vec::new();
-                        {
-                            let mut s = seq.lock().await;
-                            batch.extend_from_slice(&build_response_frame(&data[..n], 7, &mut s));
-                            let stations_read = stations.read().await;
-                            if let Some(station) = stations_read.get(&ca) {
-                                if let Some(ref lc) = log_collector {
-                                    lc.try_add(LogEntry::new(
-                                        Direction::Tx, FrameLabel::GeneralInterrogation,
-                                        format!("GI 激活确认 CA={}", ca),
-                                    ));
-                                }
-                                let ca_bytes = station.common_address.to_le_bytes();
-                                for point in station.data_points.all_sorted() {
-                                    let ioa_bytes = point.ioa.to_le_bytes();
-                                    batch.extend_from_slice(&encode_point_frame(&point.value, 20, &ca_bytes, &ioa_bytes[..3], &mut s));
-                                }
+                        if !ops_snapshot.answer_general_interrogation {
+                            if let Some(ref lc) = log_collector {
+                                lc.try_add(LogEntry::new(
+                                    Direction::Tx, FrameLabel::GeneralInterrogation,
+                                    format!("GI 已抑制响应(answer_general_interrogation=false) CA={}", ca),
+                                ));
                             }
-                            batch.extend_from_slice(&build_response_frame(&data[..n], 10, &mut s));
-                        }
-                        queue.lock().await.extend_from_slice(&batch);
-                        if let Some(ref lc) = log_collector {
-                            lc.try_add(LogEntry::new(
-                                Direction::Tx, FrameLabel::GeneralInterrogation,
-                                format!("GI 激活终止 CA={}", ca),
-                            ));
+                        } else {
+                            let mut batch: Vec<u8> = Vec::new();
+                            {
+                                let mut s = seq.lock().await;
+                                batch.extend_from_slice(&build_response_frame(&data[..n], 7, &mut s));
+                                let stations_read = stations.read().await;
+                                if let Some(station) = stations_read.get(&ca) {
+                                    if let Some(ref lc) = log_collector {
+                                        lc.try_add(LogEntry::new(
+                                            Direction::Tx, FrameLabel::GeneralInterrogation,
+                                            format!("GI 激活确认 CA={}", ca),
+                                        ));
+                                    }
+                                    let ca_bytes = station.common_address.to_le_bytes();
+                                    for point in station.data_points.all_sorted() {
+                                        batch.extend_from_slice(&encode_point_frame_ex(point, 20, &ca_bytes, &mut s, None));
+                                        if ops_snapshot.gi_include_timestamped
+                                            && point.asdu_type.timestamped_variant().is_some()
+                                            && !point.asdu_type.is_timestamped()
+                                        {
+                                            batch.extend_from_slice(&encode_point_frame_ex(point, 20, &ca_bytes, &mut s, Some(true)));
+                                        }
+                                    }
+                                }
+                                batch.extend_from_slice(&build_response_frame(&data[..n], 10, &mut s));
+                            }
+                            queue.lock().await.extend_from_slice(&batch);
+                            if let Some(ref lc) = log_collector {
+                                lc.try_add(LogEntry::new(
+                                    Direction::Tx, FrameLabel::GeneralInterrogation,
+                                    format!("GI 激活终止 CA={}", ca),
+                                ));
+                            }
                         }
                     }
                     101 => {
-                        // Counter Interrogation (C_CI_NA_1, Type 101)
-                        let mut batch: Vec<u8> = Vec::new();
-                        {
-                            let mut s = seq.lock().await;
-                            batch.extend_from_slice(&build_response_frame(&data[..n], 7, &mut s));
-                            let stations_read = stations.read().await;
-                            if let Some(station) = stations_read.get(&ca) {
-                                if let Some(ref lc) = log_collector {
-                                    lc.try_add(LogEntry::new(
-                                        Direction::Tx, FrameLabel::CounterInterrogation,
-                                        format!("累计量召唤 激活确认 CA={}", ca),
-                                    ));
-                                }
-                                let ca_bytes = station.common_address.to_le_bytes();
-                                for point in station.data_points.all_sorted() {
-                                    let ioa_bytes = point.ioa.to_le_bytes();
-                                    if let DataPointValue::IntegratedTotal { value, carry, sequence } = &point.value {
-                                        let b = value.to_le_bytes();
-                                        let mut bcr = *sequence & 0x1F;
-                                        if *carry { bcr |= 0x20; }
-                                        batch.extend_from_slice(&build_i_frame(15, 37, &ca_bytes, &ioa_bytes[..3], &[b[0], b[1], b[2], b[3], bcr], &mut s));
+                        if !ops_snapshot.answer_counter_interrogation {
+                            if let Some(ref lc) = log_collector {
+                                lc.try_add(LogEntry::new(
+                                    Direction::Tx, FrameLabel::CounterInterrogation,
+                                    format!("累计量召唤已抑制响应(answer_counter_interrogation=false) CA={}", ca),
+                                ));
+                            }
+                        } else {
+                            let mut batch: Vec<u8> = Vec::new();
+                            {
+                                let mut s = seq.lock().await;
+                                batch.extend_from_slice(&build_response_frame(&data[..n], 7, &mut s));
+                                let stations_read = stations.read().await;
+                                if let Some(station) = stations_read.get(&ca) {
+                                    if let Some(ref lc) = log_collector {
+                                        lc.try_add(LogEntry::new(
+                                            Direction::Tx, FrameLabel::CounterInterrogation,
+                                            format!("累计量召唤 激活确认 CA={}", ca),
+                                        ));
+                                    }
+                                    let ca_bytes = station.common_address.to_le_bytes();
+                                    for point in station.data_points.all_sorted() {
+                                        if !matches!(point.value, DataPointValue::IntegratedTotal { .. }) { continue; }
+                                        batch.extend_from_slice(&encode_point_frame_ex(point, 37, &ca_bytes, &mut s, Some(false)));
+                                        if ops_snapshot.gi_include_timestamped
+                                            && point.asdu_type.timestamped_variant().is_some()
+                                            && !point.asdu_type.is_timestamped()
+                                        {
+                                            batch.extend_from_slice(&encode_point_frame_ex(point, 37, &ca_bytes, &mut s, Some(true)));
+                                        }
                                     }
                                 }
+                                batch.extend_from_slice(&build_response_frame(&data[..n], 10, &mut s));
                             }
-                            batch.extend_from_slice(&build_response_frame(&data[..n], 10, &mut s));
-                        }
-                        queue.lock().await.extend_from_slice(&batch);
-                        if let Some(ref lc) = log_collector {
-                            lc.try_add(LogEntry::new(
-                                Direction::Tx, FrameLabel::CounterInterrogation,
-                                format!("累计量召唤 激活终止 CA={}", ca),
-                            ));
+                            queue.lock().await.extend_from_slice(&batch);
+                            if let Some(ref lc) = log_collector {
+                                lc.try_add(LogEntry::new(
+                                    Direction::Tx, FrameLabel::CounterInterrogation,
+                                    format!("累计量召唤 激活终止 CA={}", ca),
+                                ));
+                            }
                         }
                     }
                     103 => {
@@ -1010,24 +1043,27 @@ async fn handle_client_read_loop(
                                     st.data_points.mark_changed_by_category(ioa, DataCategory::SinglePoint);
                                 }
                             }
-                            let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], 7, &mut s) };
+                            if ops_snapshot.answer_commands {
+                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { ops_snapshot.execute_ack_cot.as_u8() };
+                            let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) };
                             queue.lock().await.extend_from_slice(&ack);
                             if !is_select {
-                                let term = { let mut s = seq.lock().await; build_response_frame(&data[..n], 10, &mut s) };
+                                let term = { let mut s = seq.lock().await; build_response_frame(&data[..n], ops_snapshot.execute_ack_cot.as_u8(), &mut s) };
                                 queue.lock().await.extend_from_slice(&term);
                                 // Send spontaneous update (COT=3) after control execution
                                 let sr = stations.read().await;
                                 if let Some(st) = sr.get(&ca) {
                                     if let Some(point) = st.data_points.get_by_category(ioa, DataCategory::SinglePoint) {
                                         let ca_b = ca.to_le_bytes();
-                                        let ioa_b = ioa.to_le_bytes();
+                                        let _ioa_b = ioa.to_le_bytes();
                                         let spont = {
                                             let mut s = seq.lock().await;
-                                            encode_point_frame(&point.value, 3, &ca_b, &ioa_b[..3], &mut *s)
+                                            encode_point_frame_ex(point, 3, &ca_b, &mut *s, None)
                                         };
                                         queue.lock().await.extend_from_slice(&spont);
                                     }
                                 }
+                            }
                             }
                             if let Some(ref lc) = log_collector {
                                 let mode = if is_select { "Select" } else { "Execute" };
@@ -1052,23 +1088,26 @@ async fn handle_client_read_loop(
                                     st.data_points.mark_changed_by_category(ioa, DataCategory::DoublePoint);
                                 }
                             }
-                            let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], 7, &mut s) };
+                            if ops_snapshot.answer_commands {
+                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { ops_snapshot.execute_ack_cot.as_u8() };
+                            let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) };
                             queue.lock().await.extend_from_slice(&ack);
                             if !is_select {
-                                let term = { let mut s = seq.lock().await; build_response_frame(&data[..n], 10, &mut s) };
+                                let term = { let mut s = seq.lock().await; build_response_frame(&data[..n], ops_snapshot.execute_ack_cot.as_u8(), &mut s) };
                                 queue.lock().await.extend_from_slice(&term);
                                 let sr = stations.read().await;
                                 if let Some(st) = sr.get(&ca) {
                                     if let Some(point) = st.data_points.get_by_category(ioa, DataCategory::DoublePoint) {
                                         let ca_b = ca.to_le_bytes();
-                                        let ioa_b = ioa.to_le_bytes();
+                                        let _ioa_b = ioa.to_le_bytes();
                                         let spont = {
                                             let mut s = seq.lock().await;
-                                            encode_point_frame(&point.value, 3, &ca_b, &ioa_b[..3], &mut *s)
+                                            encode_point_frame_ex(point, 3, &ca_b, &mut *s, None)
                                         };
                                         queue.lock().await.extend_from_slice(&spont);
                                     }
                                 }
+                            }
                             }
                             if let Some(ref lc) = log_collector {
                                 let mode = if is_select { "Select" } else { "Execute" };
@@ -1095,23 +1134,26 @@ async fn handle_client_read_loop(
                                     st.data_points.mark_changed_by_category(ioa, DataCategory::StepPosition);
                                 }
                             }
-                            let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], 7, &mut s) };
+                            if ops_snapshot.answer_commands {
+                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { ops_snapshot.execute_ack_cot.as_u8() };
+                            let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) };
                             queue.lock().await.extend_from_slice(&ack);
                             if !is_select {
-                                let term = { let mut s = seq.lock().await; build_response_frame(&data[..n], 10, &mut s) };
+                                let term = { let mut s = seq.lock().await; build_response_frame(&data[..n], ops_snapshot.execute_ack_cot.as_u8(), &mut s) };
                                 queue.lock().await.extend_from_slice(&term);
                                 let sr = stations.read().await;
                                 if let Some(st) = sr.get(&ca) {
                                     if let Some(point) = st.data_points.get_by_category(ioa, DataCategory::StepPosition) {
                                         let ca_b = ca.to_le_bytes();
-                                        let ioa_b = ioa.to_le_bytes();
+                                        let _ioa_b = ioa.to_le_bytes();
                                         let spont = {
                                             let mut s = seq.lock().await;
-                                            encode_point_frame(&point.value, 3, &ca_b, &ioa_b[..3], &mut *s)
+                                            encode_point_frame_ex(point, 3, &ca_b, &mut *s, None)
                                         };
                                         queue.lock().await.extend_from_slice(&spont);
                                     }
                                 }
+                            }
                             }
                             if let Some(ref lc) = log_collector {
                                 let mode = if is_select { "Select" } else { "Execute" };
@@ -1139,23 +1181,26 @@ async fn handle_client_read_loop(
                                     st.data_points.mark_changed_by_category(ioa, DataCategory::NormalizedMeasured);
                                 }
                             }
-                            let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], 7, &mut s) };
+                            if ops_snapshot.answer_commands {
+                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { ops_snapshot.execute_ack_cot.as_u8() };
+                            let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) };
                             queue.lock().await.extend_from_slice(&ack);
                             if !is_select {
-                                let term = { let mut s = seq.lock().await; build_response_frame(&data[..n], 10, &mut s) };
+                                let term = { let mut s = seq.lock().await; build_response_frame(&data[..n], ops_snapshot.execute_ack_cot.as_u8(), &mut s) };
                                 queue.lock().await.extend_from_slice(&term);
                                 let sr = stations.read().await;
                                 if let Some(st) = sr.get(&ca) {
                                     if let Some(point) = st.data_points.get_by_category(ioa, DataCategory::NormalizedMeasured) {
                                         let ca_b = ca.to_le_bytes();
-                                        let ioa_b = ioa.to_le_bytes();
+                                        let _ioa_b = ioa.to_le_bytes();
                                         let spont = {
                                             let mut s = seq.lock().await;
-                                            encode_point_frame(&point.value, 3, &ca_b, &ioa_b[..3], &mut *s)
+                                            encode_point_frame_ex(point, 3, &ca_b, &mut *s, None)
                                         };
                                         queue.lock().await.extend_from_slice(&spont);
                                     }
                                 }
+                            }
                             }
                             if let Some(ref lc) = log_collector {
                                 let mode = if is_select { "Select" } else { "Execute" };
@@ -1181,23 +1226,26 @@ async fn handle_client_read_loop(
                                     st.data_points.mark_changed_by_category(ioa, DataCategory::ScaledMeasured);
                                 }
                             }
-                            let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], 7, &mut s) };
+                            if ops_snapshot.answer_commands {
+                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { ops_snapshot.execute_ack_cot.as_u8() };
+                            let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) };
                             queue.lock().await.extend_from_slice(&ack);
                             if !is_select {
-                                let term = { let mut s = seq.lock().await; build_response_frame(&data[..n], 10, &mut s) };
+                                let term = { let mut s = seq.lock().await; build_response_frame(&data[..n], ops_snapshot.execute_ack_cot.as_u8(), &mut s) };
                                 queue.lock().await.extend_from_slice(&term);
                                 let sr = stations.read().await;
                                 if let Some(st) = sr.get(&ca) {
                                     if let Some(point) = st.data_points.get_by_category(ioa, DataCategory::ScaledMeasured) {
                                         let ca_b = ca.to_le_bytes();
-                                        let ioa_b = ioa.to_le_bytes();
+                                        let _ioa_b = ioa.to_le_bytes();
                                         let spont = {
                                             let mut s = seq.lock().await;
-                                            encode_point_frame(&point.value, 3, &ca_b, &ioa_b[..3], &mut *s)
+                                            encode_point_frame_ex(point, 3, &ca_b, &mut *s, None)
                                         };
                                         queue.lock().await.extend_from_slice(&spont);
                                     }
                                 }
+                            }
                             }
                             if let Some(ref lc) = log_collector {
                                 let mode = if is_select { "Select" } else { "Execute" };
@@ -1223,23 +1271,26 @@ async fn handle_client_read_loop(
                                     st.data_points.mark_changed_by_category(ioa, DataCategory::FloatMeasured);
                                 }
                             }
-                            let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], 7, &mut s) };
+                            if ops_snapshot.answer_commands {
+                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { ops_snapshot.execute_ack_cot.as_u8() };
+                            let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) };
                             queue.lock().await.extend_from_slice(&ack);
                             if !is_select {
-                                let term = { let mut s = seq.lock().await; build_response_frame(&data[..n], 10, &mut s) };
+                                let term = { let mut s = seq.lock().await; build_response_frame(&data[..n], ops_snapshot.execute_ack_cot.as_u8(), &mut s) };
                                 queue.lock().await.extend_from_slice(&term);
                                 let sr = stations.read().await;
                                 if let Some(st) = sr.get(&ca) {
                                     if let Some(point) = st.data_points.get_by_category(ioa, DataCategory::FloatMeasured) {
                                         let ca_b = ca.to_le_bytes();
-                                        let ioa_b = ioa.to_le_bytes();
+                                        let _ioa_b = ioa.to_le_bytes();
                                         let spont = {
                                             let mut s = seq.lock().await;
-                                            encode_point_frame(&point.value, 3, &ca_b, &ioa_b[..3], &mut *s)
+                                            encode_point_frame_ex(point, 3, &ca_b, &mut *s, None)
                                         };
                                         queue.lock().await.extend_from_slice(&spont);
                                     }
                                 }
+                            }
                             }
                             if let Some(ref lc) = log_collector {
                                 let mode = if is_select { "Select" } else { "Execute" };
@@ -1287,6 +1338,7 @@ fn handle_client_blocking(
     started: Arc<std::sync::atomic::AtomicBool>,
     connections: SharedConnections,
     peer_addr: SocketAddr,
+    remote_ops: SharedRemoteOps,
 ) {
     use std::io::{Read, Write};
     let mut buf = [0u8; 512];
@@ -1368,13 +1420,23 @@ fn handle_client_blocking(
                 let cause = data[8];
                 let ca = u16::from_le_bytes([data[10], data[11]]);
 
+                let ops_snapshot = rt.block_on(async { remote_ops.read().await.clone() });
                 match asdu_type {
                     100 => {
+                        if !ops_snapshot.answer_general_interrogation {
+                            if let Some(ref lc) = log_collector {
+                                lc.try_add(LogEntry::new(
+                                    Direction::Tx, FrameLabel::GeneralInterrogation,
+                                    format!("GI 已抑制响应(answer_general_interrogation=false) CA={}", ca),
+                                ));
+                            }
+                        } else {
                         let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], 7, &mut s) });
                         let _ = stream.write_all(&ack);
                         let stations_cl = stations.clone();
                         let lc = log_collector.clone();
                         let seq_cl = seq.clone();
+                        let ops_for_send = ops_snapshot.clone();
                         rt.block_on(async {
                             let stations_read = stations_cl.read().await;
                             if let Some(station) = stations_read.get(&ca) {
@@ -1384,7 +1446,7 @@ fn handle_client_blocking(
                                         format!("GI 激活确认 CA={}", ca),
                                     ));
                                 }
-                                send_gi_response_blocking(stream, station, &seq_cl).await;
+                                send_gi_response_blocking(stream, station, &seq_cl, &ops_for_send).await;
                             }
                             drop(stations_read);
                             let term = { let mut s = seq_cl.lock().await; build_response_frame(&data[..n], 10, &mut s) };
@@ -1396,12 +1458,22 @@ fn handle_client_blocking(
                                 ));
                             }
                         });
+                        }
                     }
                     101 => {
                         // Counter Interrogation (C_CI_NA_1, Type 101)
+                        if !ops_snapshot.answer_counter_interrogation {
+                            if let Some(ref lc) = log_collector {
+                                lc.try_add(LogEntry::new(
+                                    Direction::Tx, FrameLabel::CounterInterrogation,
+                                    format!("累计量召唤已抑制响应(answer_counter_interrogation=false) CA={}", ca),
+                                ));
+                            }
+                        } else {
                         let stations_cl = stations.clone();
                         let lc = log_collector.clone();
                         let seq_cl = seq.clone();
+                        let ops_for_batch = ops_snapshot.clone();
                         let batch = rt.block_on(async {
                             let mut batch: Vec<u8> = Vec::new();
                             let mut s = seq_cl.lock().await;
@@ -1416,12 +1488,13 @@ fn handle_client_blocking(
                                 }
                                 let ca_bytes = station.common_address.to_le_bytes();
                                 for point in station.data_points.all_sorted() {
-                                    let ioa_bytes = point.ioa.to_le_bytes();
-                                    if let DataPointValue::IntegratedTotal { value, carry, sequence } = &point.value {
-                                        let b = value.to_le_bytes();
-                                        let mut bcr = *sequence & 0x1F;
-                                        if *carry { bcr |= 0x20; }
-                                        batch.extend_from_slice(&build_i_frame(15, 37, &ca_bytes, &ioa_bytes[..3], &[b[0], b[1], b[2], b[3], bcr], &mut s));
+                                    if !matches!(point.value, DataPointValue::IntegratedTotal { .. }) { continue; }
+                                    batch.extend_from_slice(&encode_point_frame_ex(point, 37, &ca_bytes, &mut s, Some(false)));
+                                    if ops_for_batch.gi_include_timestamped
+                                        && point.asdu_type.timestamped_variant().is_some()
+                                        && !point.asdu_type.is_timestamped()
+                                    {
+                                        batch.extend_from_slice(&encode_point_frame_ex(point, 37, &ca_bytes, &mut s, Some(true)));
                                     }
                                 }
                             }
@@ -1435,6 +1508,7 @@ fn handle_client_blocking(
                             batch
                         });
                         let _ = stream.write_all(&batch);
+                        }
                     }
                     103 => {
                         let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], 7, &mut s) });
@@ -1466,10 +1540,12 @@ fn handle_client_blocking(
                                     });
                                 }
                             }
-                            let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], 7, &mut s) });
+                            if ops_snapshot.answer_commands {
+                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { ops_snapshot.execute_ack_cot.as_u8() };
+                            let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) });
                             let _ = stream.write_all(&ack);
                             if !is_select {
-                                let term = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], 10, &mut s) });
+                                let term = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ops_snapshot.execute_ack_cot.as_u8(), &mut s) });
                                 let _ = stream.write_all(&term);
                                 if let Ok(handle) = tokio::runtime::Handle::try_current() {
                                     let stations = stations.clone();
@@ -1478,16 +1554,17 @@ fn handle_client_blocking(
                                         if let Some(st) = sr.get(&ca) {
                                             if let Some(point) = st.data_points.get_by_category(ioa, DataCategory::SinglePoint) {
                                                 let ca_b = ca.to_le_bytes();
-                                                let ioa_b = ioa.to_le_bytes();
+                                                let _ioa_b = ioa.to_le_bytes();
                                                 let spont = {
                                                     let mut s = seq.lock().await;
-                                                    encode_point_frame(&point.value, 3, &ca_b, &ioa_b[..3], &mut *s)
+                                                    encode_point_frame_ex(point, 3, &ca_b, &mut *s, None)
                                                 };
                                                 let _ = stream.write_all(&spont);
                                             }
                                         }
                                     });
                                 }
+                            }
                             }
                             if let Some(ref lc) = log_collector {
                                 let mode = if is_select { "Select" } else { "Execute" };
@@ -1518,10 +1595,12 @@ fn handle_client_blocking(
                                     });
                                 }
                             }
-                            let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], 7, &mut s) });
+                            if ops_snapshot.answer_commands {
+                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { ops_snapshot.execute_ack_cot.as_u8() };
+                            let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) });
                             let _ = stream.write_all(&ack);
                             if !is_select {
-                                let term = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], 10, &mut s) });
+                                let term = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ops_snapshot.execute_ack_cot.as_u8(), &mut s) });
                                 let _ = stream.write_all(&term);
                                 if let Ok(handle) = tokio::runtime::Handle::try_current() {
                                     let stations = stations.clone();
@@ -1530,16 +1609,17 @@ fn handle_client_blocking(
                                         if let Some(st) = sr.get(&ca) {
                                             if let Some(point) = st.data_points.get_by_category(ioa, DataCategory::DoublePoint) {
                                                 let ca_b = ca.to_le_bytes();
-                                                let ioa_b = ioa.to_le_bytes();
+                                                let _ioa_b = ioa.to_le_bytes();
                                                 let spont = {
                                                     let mut s = seq.lock().await;
-                                                    encode_point_frame(&point.value, 3, &ca_b, &ioa_b[..3], &mut *s)
+                                                    encode_point_frame_ex(point, 3, &ca_b, &mut *s, None)
                                                 };
                                                 let _ = stream.write_all(&spont);
                                             }
                                         }
                                     });
                                 }
+                            }
                             }
                             if let Some(ref lc) = log_collector {
                                 let mode = if is_select { "Select" } else { "Execute" };
@@ -1572,10 +1652,12 @@ fn handle_client_blocking(
                                     });
                                 }
                             }
-                            let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], 7, &mut s) });
+                            if ops_snapshot.answer_commands {
+                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { ops_snapshot.execute_ack_cot.as_u8() };
+                            let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) });
                             let _ = stream.write_all(&ack);
                             if !is_select {
-                                let term = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], 10, &mut s) });
+                                let term = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ops_snapshot.execute_ack_cot.as_u8(), &mut s) });
                                 let _ = stream.write_all(&term);
                                 if let Ok(handle) = tokio::runtime::Handle::try_current() {
                                     let stations = stations.clone();
@@ -1584,16 +1666,17 @@ fn handle_client_blocking(
                                         if let Some(st) = sr.get(&ca) {
                                             if let Some(point) = st.data_points.get_by_category(ioa, DataCategory::StepPosition) {
                                                 let ca_b = ca.to_le_bytes();
-                                                let ioa_b = ioa.to_le_bytes();
+                                                let _ioa_b = ioa.to_le_bytes();
                                                 let spont = {
                                                     let mut s = seq.lock().await;
-                                                    encode_point_frame(&point.value, 3, &ca_b, &ioa_b[..3], &mut *s)
+                                                    encode_point_frame_ex(point, 3, &ca_b, &mut *s, None)
                                                 };
                                                 let _ = stream.write_all(&spont);
                                             }
                                         }
                                     });
                                 }
+                            }
                             }
                             if let Some(ref lc) = log_collector {
                                 let mode = if is_select { "Select" } else { "Execute" };
@@ -1627,10 +1710,12 @@ fn handle_client_blocking(
                                     });
                                 }
                             }
-                            let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], 7, &mut s) });
+                            if ops_snapshot.answer_commands {
+                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { ops_snapshot.execute_ack_cot.as_u8() };
+                            let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) });
                             let _ = stream.write_all(&ack);
                             if !is_select {
-                                let term = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], 10, &mut s) });
+                                let term = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ops_snapshot.execute_ack_cot.as_u8(), &mut s) });
                                 let _ = stream.write_all(&term);
                                 if let Ok(handle) = tokio::runtime::Handle::try_current() {
                                     let stations = stations.clone();
@@ -1639,16 +1724,17 @@ fn handle_client_blocking(
                                         if let Some(st) = sr.get(&ca) {
                                             if let Some(point) = st.data_points.get_by_category(ioa, DataCategory::NormalizedMeasured) {
                                                 let ca_b = ca.to_le_bytes();
-                                                let ioa_b = ioa.to_le_bytes();
+                                                let _ioa_b = ioa.to_le_bytes();
                                                 let spont = {
                                                     let mut s = seq.lock().await;
-                                                    encode_point_frame(&point.value, 3, &ca_b, &ioa_b[..3], &mut *s)
+                                                    encode_point_frame_ex(point, 3, &ca_b, &mut *s, None)
                                                 };
                                                 let _ = stream.write_all(&spont);
                                             }
                                         }
                                     });
                                 }
+                            }
                             }
                             if let Some(ref lc) = log_collector {
                                 let mode = if is_select { "Select" } else { "Execute" };
@@ -1680,10 +1766,12 @@ fn handle_client_blocking(
                                     });
                                 }
                             }
-                            let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], 7, &mut s) });
+                            if ops_snapshot.answer_commands {
+                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { ops_snapshot.execute_ack_cot.as_u8() };
+                            let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) });
                             let _ = stream.write_all(&ack);
                             if !is_select {
-                                let term = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], 10, &mut s) });
+                                let term = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ops_snapshot.execute_ack_cot.as_u8(), &mut s) });
                                 let _ = stream.write_all(&term);
                                 if let Ok(handle) = tokio::runtime::Handle::try_current() {
                                     let stations = stations.clone();
@@ -1692,16 +1780,17 @@ fn handle_client_blocking(
                                         if let Some(st) = sr.get(&ca) {
                                             if let Some(point) = st.data_points.get_by_category(ioa, DataCategory::ScaledMeasured) {
                                                 let ca_b = ca.to_le_bytes();
-                                                let ioa_b = ioa.to_le_bytes();
+                                                let _ioa_b = ioa.to_le_bytes();
                                                 let spont = {
                                                     let mut s = seq.lock().await;
-                                                    encode_point_frame(&point.value, 3, &ca_b, &ioa_b[..3], &mut *s)
+                                                    encode_point_frame_ex(point, 3, &ca_b, &mut *s, None)
                                                 };
                                                 let _ = stream.write_all(&spont);
                                             }
                                         }
                                     });
                                 }
+                            }
                             }
                             if let Some(ref lc) = log_collector {
                                 let mode = if is_select { "Select" } else { "Execute" };
@@ -1733,10 +1822,12 @@ fn handle_client_blocking(
                                     });
                                 }
                             }
-                            let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], 7, &mut s) });
+                            if ops_snapshot.answer_commands {
+                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { ops_snapshot.execute_ack_cot.as_u8() };
+                            let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) });
                             let _ = stream.write_all(&ack);
                             if !is_select {
-                                let term = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], 10, &mut s) });
+                                let term = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ops_snapshot.execute_ack_cot.as_u8(), &mut s) });
                                 let _ = stream.write_all(&term);
                                 if let Ok(handle) = tokio::runtime::Handle::try_current() {
                                     let stations = stations.clone();
@@ -1745,16 +1836,17 @@ fn handle_client_blocking(
                                         if let Some(st) = sr.get(&ca) {
                                             if let Some(point) = st.data_points.get_by_category(ioa, DataCategory::FloatMeasured) {
                                                 let ca_b = ca.to_le_bytes();
-                                                let ioa_b = ioa.to_le_bytes();
+                                                let _ioa_b = ioa.to_le_bytes();
                                                 let spont = {
                                                     let mut s = seq.lock().await;
-                                                    encode_point_frame(&point.value, 3, &ca_b, &ioa_b[..3], &mut *s)
+                                                    encode_point_frame_ex(point, 3, &ca_b, &mut *s, None)
                                                 };
                                                 let _ = stream.write_all(&spont);
                                             }
                                         }
                                     });
                                 }
+                            }
                             }
                             if let Some(ref lc) = log_collector {
                                 let mode = if is_select { "Select" } else { "Execute" };
@@ -1785,6 +1877,7 @@ async fn send_gi_response_blocking(
     stream: &mut native_tls::TlsStream<TcpStream>,
     station: &Station,
     seq: &SharedSeq,
+    ops: &RemoteOperationConfig,
 ) {
     use std::io::Write;
     let ca_bytes = station.common_address.to_le_bytes();
@@ -1792,8 +1885,13 @@ async fn send_gi_response_blocking(
     {
         let mut s = seq.lock().await;
         for point in station.data_points.all_sorted() {
-            let ioa_bytes = point.ioa.to_le_bytes();
-            batch.extend_from_slice(&encode_point_frame(&point.value, 20, &ca_bytes, &ioa_bytes[..3], &mut s));
+            batch.extend_from_slice(&encode_point_frame_ex(point, 20, &ca_bytes, &mut s, None));
+            if ops.gi_include_timestamped
+                && point.asdu_type.timestamped_variant().is_some()
+                && !point.asdu_type.is_timestamped()
+            {
+                batch.extend_from_slice(&encode_point_frame_ex(point, 20, &ca_bytes, &mut s, Some(true)));
+            }
         }
     }
     let _ = stream.write_all(&batch);
