@@ -31,3 +31,20 @@ export function lowerBound(xs: readonly number[], target: number): number {
   }
   return l
 }
+
+// Smallest s ≥ 0 such that [s, s+count-1] is disjoint from xs.
+// xs must be sorted ascending. Returns null if result would exceed IOA_MAX.
+export function findNextFreeGap(xs: readonly number[], count: number): number | null {
+  if (count <= 0) return 0
+  let s = 0
+  for (const x of xs) {
+    if (x < s) continue
+    if (x <= s + count - 1) {
+      s = x + 1
+      continue
+    }
+    break
+  }
+  if (s + count - 1 > IOA_MAX) return null
+  return s
+}
