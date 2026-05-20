@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 无头测试 GitHub 反代是否能正确透传 Tauri updater 所需的 manifest 与 bundle。
 # 用途:更换 endpoint 名单前先跑一遍验证。手动执行,不接入 CI。
-# 退出码:0 = 至少一个 proxy 可用;1 = 基线获取失败。
+# 退出码:0 = 至少一个 proxy 同时通过 manifest+bundle 透传;1 = 基线失败或无可用 proxy。
 set -u
 
 REPO="Karl-Dai/IEC60870-5-104-Simulator"
@@ -68,6 +68,7 @@ done
 
 echo
 if [ $OK_COUNT -eq 0 ]; then
-  echo "::warning:: 没有任何 proxy 同时通过 manifest+bundle 透传测试"
+  echo "::error:: 没有任何 proxy 同时通过 manifest+bundle 透传测试"
+  exit 1
 fi
 exit 0
