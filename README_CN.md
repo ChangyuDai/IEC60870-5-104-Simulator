@@ -99,6 +99,14 @@
 
 两个应用自 v1.0.9 起均支持从 GitHub Releases **自动更新**。macOS 用户首次启动需要[多做一步](#macos-首次启动)。
 
+### 国内镜像 (China mirror)
+
+中国大陆用户访问 GitHub Releases 可能不稳定,推荐通过镜像直接下载安装包:
+
+- <https://ghfast.top/https://github.com/Karl-Dai/IEC60870-5-104-Simulator/releases/latest>
+
+应用内更新功能从 v1.x.x(即包含本次改动的发布版本)起会自动通过多个反代回退,无需手动处理。但**首次从旧版升级**时,旧版二进制中编译进的 endpoint 仍是 github.com,如果检查更新失败,请按上面镜像链接手动下载新版安装一次,后续更新即可自动通过 proxy。
+
 ## 从源码构建
 
 ### 环境要求

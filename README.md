@@ -99,6 +99,14 @@ Pre-built installers for every platform are on the **[Releases page](https://git
 
 Both apps **auto-update** from GitHub Releases since v1.0.9. macOS users need [one extra step on first launch](#macos-first-launch).
 
+### China mirror
+
+Users in mainland China may have unstable access to GitHub Releases. Recommended mirror for direct installer downloads:
+
+- <https://ghfast.top/https://github.com/Karl-Dai/IEC60870-5-104-Simulator/releases/latest>
+
+Starting from the version that includes this change, the in-app updater automatically falls back through multiple proxies — no manual action needed. However, **the very first upgrade from an older version** uses the endpoint compiled into the old binary (github.com only); if the in-app update check fails, please download and install the new version once via the mirror above, after which the updater will route through proxies automatically.
+
 ## Build from Source
 
 ### Prerequisites
