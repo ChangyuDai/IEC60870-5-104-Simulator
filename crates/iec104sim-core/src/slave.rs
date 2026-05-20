@@ -2269,6 +2269,53 @@ mod tests {
     }
 
     #[test]
+    fn encode_point_frame_ex_emits_na_by_default() {
+        let mut point = DataPoint::new(100, AsduTypeId::MSpNa1);
+        point.value = DataPointValue::SinglePoint { value: true };
+        let ca = 1u16.to_le_bytes();
+        let mut seq = SeqState::default();
+        let frame = encode_point_frame_ex(&point, 20, &ca, &mut seq, None);
+        assert_eq!(frame[6], 1, "type=1 (NA)");
+        assert_eq!(frame[15], 0x01, "SIQ ON");
+    }
+
+    #[test]
+    fn encode_point_frame_ex_force_timestamped_emits_tb() {
+        let mut point = DataPoint::new(100, AsduTypeId::MSpNa1);
+        point.value = DataPointValue::SinglePoint { value: true };
+        let ca = 1u16.to_le_bytes();
+        let mut seq = SeqState::default();
+        let frame = encode_point_frame_ex(&point, 3, &ca, &mut seq, Some(true));
+        assert_eq!(frame[6], 30);
+        assert_eq!(frame.len(), 23);
+    }
+
+    #[test]
+    fn encode_points_grouped_emits_sq1() {
+        let pts: Vec<DataPoint> = (100..105u32)
+            .map(|ioa| {
+                let mut p = DataPoint::new(ioa, AsduTypeId::MSpNa1);
+                p.value = DataPointValue::SinglePoint { value: ioa % 2 == 0 };
+                p
+            })
+            .collect();
+        let refs: Vec<&DataPoint> = pts.iter().collect();
+        let ca = 1u16.to_le_bytes();
+        let mut seq = SeqState::default();
+        let frame = encode_points_grouped(&refs, 20, &ca, &mut seq, false).unwrap();
+        assert_eq!(frame[6], 1);
+        assert_eq!(frame[7], 0x85);
+        assert_eq!(&frame[12..15], &[100, 0, 0]);
+    }
+
+    #[test]
+    fn command_ack_cot_values() {
+        assert_eq!(CommandAckCot::ActivationCon.as_u8(), 7);
+        assert_eq!(CommandAckCot::DeactivationCon.as_u8(), 9);
+        assert_eq!(CommandAckCot::ActivationTermination.as_u8(), 10);
+    }
+
+    #[test]
     fn test_batch_add_points() {
         let mut station = Station::new(1, "Test");
         let added = station.batch_add_points(100, 50, AsduTypeId::MSpNa1, "SP").unwrap();
