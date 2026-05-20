@@ -415,7 +415,7 @@ const dict: DictShape = {
     nextGapBtn: '↦ 跳到能放下的空隙',
     nextIoaTooltipEmpty: '当前类型无现有点',
     capacityFullTooltip: 'IOA 容量不足',
-    conflictDetail: '冲突 IOA {ranges}（将覆盖 {count} 个点）',
+    conflictDetail: '冲突 IOA {ranges}（{count} 个点将被跳过）',
   },
   valuePanel: {
     title: '数据点详情',

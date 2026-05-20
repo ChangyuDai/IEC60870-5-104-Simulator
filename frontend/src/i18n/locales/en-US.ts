@@ -172,7 +172,7 @@ const dict: DictShape = {
     nextGapBtn: '↦ Next fitting gap',
     nextIoaTooltipEmpty: 'No existing points to skip past',
     capacityFullTooltip: 'IOA capacity exhausted',
-    conflictDetail: 'Conflicting IOA {ranges} (overwrites {count} points)',
+    conflictDetail: 'Conflicting IOA {ranges} ({count} point(s) will be skipped)',
   },
   valuePanel: {
     title: 'Point Details',
