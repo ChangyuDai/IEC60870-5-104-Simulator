@@ -6,6 +6,12 @@ import type { showAlert as ShowAlert } from '@shared/composables/useDialog'
 import { useI18n } from '@shared/i18n'
 import { ASDU_TYPE_OPTIONS } from '../constants/asduTypes'
 import type { DataPointInfo } from '../types'
+import {
+  IOA_MAX,
+  compressRanges,
+  lowerBound,
+  findNextFreeGap,
+} from './batchAdd/ioaRanges'
 
 const { t } = useI18n()
 const { showAlert } = inject<{ showAlert: typeof ShowAlert }>(dialogKey)!
@@ -51,36 +57,69 @@ const existingSameTypeIoas = computed<number[]>(() =>
     .map(p => p.ioa),
 )
 
-// [0,1,2,5,7,8] → "0–2, 5, 7–8"
-const existingRangesText = computed<string>(() => {
-  const xs = existingSameTypeIoas.value
-  if (xs.length === 0) return ''
-  const fmt = (s: number, e: number) => s === e ? String(s) : `${s}–${e}`
-  const parts: string[] = []
-  let s = xs[0], e = xs[0]
-  for (let i = 1; i < xs.length; i++) {
-    if (xs[i] === e + 1) { e = xs[i]; continue }
-    parts.push(fmt(s, e))
-    s = e = xs[i]
-  }
-  parts.push(fmt(s, e))
-  return parts.join(', ')
-})
+const existingRangesText = computed<string>(() =>
+  compressRanges(existingSameTypeIoas.value),
+)
 
-// Binary search the sorted IOA list for the count of entries in
-// [startIoa, startIoa+count-1]. O(log k) instead of O(count) — count can
-// reach 100000.
 const conflictCount = computed<number>(() => {
   const xs = existingSameTypeIoas.value
   if (xs.length === 0 || count.value <= 0 || startIoa.value < 0) return 0
   const lo = startIoa.value
   const hi = lo + count.value - 1
-  const lowerBound = (target: number) => {
-    let l = 0, r = xs.length
-    while (l < r) { const m = (l + r) >>> 1; if (xs[m] < target) l = m + 1; else r = m }
-    return l
-  }
-  return lowerBound(hi + 1) - lowerBound(lo)
+  return lowerBound(xs, hi + 1) - lowerBound(xs, lo)
+})
+
+const conflictRanges = computed<string>(() => {
+  const xs = existingSameTypeIoas.value
+  if (xs.length === 0 || conflictCount.value === 0) return ''
+  const lo = startIoa.value
+  const hi = lo + count.value - 1
+  const start = lowerBound(xs, lo)
+  const end = lowerBound(xs, hi + 1)
+  return compressRanges(xs.slice(start, end))
+})
+
+const nextAvailableIoa = computed<number | null>(() => {
+  const xs = existingSameTypeIoas.value
+  if (xs.length === 0) return null
+  const next = xs[xs.length - 1] + 1
+  return next > IOA_MAX ? null : next
+})
+
+const nextFreeGapStart = computed<number | null>(() =>
+  findNextFreeGap(existingSameTypeIoas.value, count.value),
+)
+
+const canApplyNextIoa = computed(() => nextAvailableIoa.value !== null)
+const canApplyNextGap = computed(() => nextFreeGapStart.value !== null)
+
+const nextIoaDisabledTooltip = computed(() => {
+  if (existingSameTypeIoas.value.length === 0) return t('batchModal.nextIoaTooltipEmpty')
+  if (nextAvailableIoa.value === null) return t('batchModal.capacityFullTooltip')
+  return ''
+})
+
+const nextGapDisabledTooltip = computed(() =>
+  nextFreeGapStart.value === null ? t('batchModal.capacityFullTooltip') : '',
+)
+
+function applyNextAvailableIoa() {
+  if (nextAvailableIoa.value !== null) startIoa.value = nextAvailableIoa.value
+}
+
+function applyNextFreeGap() {
+  if (nextFreeGapStart.value !== null) startIoa.value = nextFreeGapStart.value
+}
+
+// Task-5 template will consume these — suppress noUnusedLocals until then.
+defineExpose({
+  conflictRanges,
+  canApplyNextIoa,
+  canApplyNextGap,
+  nextIoaDisabledTooltip,
+  nextGapDisabledTooltip,
+  applyNextAvailableIoa,
+  applyNextFreeGap,
 })
 
 watch(() => props.visible, (visible) => {
