@@ -4,6 +4,31 @@
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-05-20
+
+### Highlights / 亮点
+
+- 🎛️ **远动运行参数面板重设计** / Runtime-ops panel redesigned — 把原"协议时序 / 远动运行参数 / 固定变位"三段大杂烩拆成四块卡片(链路参数、召唤与应答、数据上送方式、变位仿真),每块加编号 + 副标题 + 分组小标签,字段按职责而非视觉就近原则归位;`t0..w` 改为 2×3 紧凑卡片,每格带用途 hint(建立超时 / 测试超时 / S 帧响应 / TestFR 触发 / 未确认 I 帧上限 / 累计后回送) / The right-hand runtime-ops panel was reorganised from three mixed sections into four labelled cards (Link, Interrogation & Ack, Upload Strategy, Mutation), with `t0..w` rendered as a 2×3 grid where each cell carries an inline purpose hint.
+- 💾 **统一"保存全部"按钮 + dirty 检测** / Unified "Save all" with dirty tracking — 顶部 sticky 头取代每段独立"应用";有改动时按钮变蓝 + 圆点 + 露出"放弃"附按钮;保存中文案切换、保存成功短暂变绿"已保存";dirty 基线忽略 `fixed_mutation.enabled`(启停由独立按钮即时生效) / Top sticky header replaces the per-section "Apply"; the button turns blue with a status dot when dirty and exposes a "Discard" companion, swaps copy during save and flashes green "Saved" on success. Dirty diffing ignores `fixed_mutation.enabled` because start/stop is an immediate-effect action.
+- ♿ **Modal 启停 toggle 可键盘操作** / Modal start/stop toggle keyboard-accessible — Modal 内固定变位段新增"保存后运行/停止"绿色滑块 toggle;底层 `<input>` 改为 visually-hidden + `:focus-within` 焦点环,从 `display:none` 修回,Tab 可达、Space 可切、屏幕阅读器可读 / The Modal now exposes a green slide toggle for "Run/Stop after save"; the underlying checkbox uses visually-hidden positioning plus a `:focus-within` outline (replacing the broken `display:none`), so it remains Tab-able, Space-toggleable and screen-reader-visible.
+
+### Changed 改进
+
+- 字段重组:`random_pacing.{batch_size, delay_ms}` 与 `fixed_mutation.{ioa, asdu_type, period_ms}` 合并进同一"变位仿真"卡;`sp_sync_with_tb` 与 `auto_packing` 归入"组包策略"子组;COT 选择/执行/取消三选改为压缩标签 `ACT_CON · 7` / `ACT_TERM · 10` / `DEACT_CON · 9` / Fields regrouped: `random_pacing` + `fixed_mutation` share the "Mutation" card; `sp_sync_with_tb` + `auto_packing` sit under "Packing"; the three command-ack COT selects use the compact `ACT_CON · 7` / `ACT_TERM · 10` / `DEACT_CON · 9` shorthand.
+- 固定变位"启动/停止"按钮加 hover 语义色(启动→绿,停止→红);新增运行状态 mono 字 + 脉冲点(空闲灰、运行中绿色脉冲) / Start/Stop buttons now adopt hover semantic colours (green for start, red for stop), with a mono-font state label and pulsing dot indicating idle vs running.
+- 顶部 sticky 头与脚注用 `backdrop-filter`、`color-mix`、左竖线 callout 等细节,贴近工业 dev-tool 视觉而非通用 admin 样式 / Sticky header and footnote use `backdrop-filter`, `color-mix` accents and a left-rule callout to lean toward industrial dev-tool aesthetics over generic admin chrome.
+
+### Fixed 修复
+
+- Modal 中固定变位 toggle 的 `<input>` 此前用 `display:none`,导致整个开关无法 Tab 聚焦、Space 切换且屏幕阅读器读不到;改为 visually-hidden(`position:absolute; clip:rect(0,0,0,0); width:1px; height:1px`)恢复键盘可达性与 a11y 树可见性 / The Modal's fixed-mutation toggle previously used `display:none` on its `<input>`, blocking keyboard focus and screen readers. It now uses visually-hidden positioning so the control stays accessible.
+- 删除 `RemoteParamsPanel.vue` 中重复的 `watch([timing, ops], { immediate: true, deep: true })` —— immediate 命中时 `loading=true` 直接跳过,之后 baseline 已建条件永远不再满足,实为死代码,每次字段微调还会触发一次 deep 遍历浪费 / Removed a duplicate `watch([timing, ops], { immediate: true, deep: true })` in `RemoteParamsPanel.vue` — the immediate path was unreachable while `loading=true`, the conditional path was unreachable after baseline was set, and every keystroke triggered a wasteful deep traversal.
+- `savedFlash` 的 `setTimeout` 现在在组件卸载与新一次保存触发时主动 `clearTimeout`,避免卸载后写 ref 与多个 timer 叠加引起的视觉抖动 / `savedFlash`'s `setTimeout` is now cleared on unmount and on each new save, preventing post-unmount ref writes and the flicker caused by stacked timers.
+
+### Internal 内部
+
+- `saveLabel` 提为 `computed` 替代模板内三元嵌套 `saving ? '保存中…' : savedFlash ? '已保存' : '保存全部'` / Extracted `saveLabel` `computed` to replace the nested template ternary in `RemoteParamsPanel.vue`.
+- 删除两行 WHAT 注释("与 App.vue 中 provide..." / "加载完成后建立基线"),保留 `snapshot()` 上方的 WHY 注释(解释为何 baseline 忽略 `fixed_mutation.enabled`) / Removed two WHAT comments while keeping the WHY note above `snapshot()` that explains the `fixed_mutation.enabled` exclusion from the dirty baseline.
+
 ## [1.4.0] - 2026-05-20
 
 ### Highlights / 亮点
