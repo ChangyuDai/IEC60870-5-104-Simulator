@@ -37,6 +37,7 @@ const dict: DictShape = {
     checkingUpdate: 'Checking…',
     alreadyLatest: 'You are on the latest version',
     updateCheckFailed: 'Update check failed',
+    updateCheckFailedMirrorPrompt: 'Update check failed, possibly because GitHub is unreachable. Open the mainland China mirror download page?',
     parseFrame: 'Parse Frame',
     parseFrameInLog: 'Parse this frame',
     saveConfig: 'Save Config',

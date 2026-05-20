@@ -2,8 +2,9 @@
 import { ref, inject, type Ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { save, open } from '@tauri-apps/plugin-dialog'
+import { openUrl } from '@tauri-apps/plugin-opener'
 import { dialogKey } from '@shared/composables/useDialog'
-import type { showAlert as ShowAlert, showPrompt as ShowPrompt } from '@shared/composables/useDialog'
+import type { showAlert as ShowAlert, showPrompt as ShowPrompt, showConfirm as ShowConfirm } from '@shared/composables/useDialog'
 import AboutDialog from '@shared/components/AboutDialog.vue'
 import LangSwitch from '@shared/components/LangSwitch.vue'
 import VersionBadge from '@shared/components/VersionBadge.vue'
@@ -19,9 +20,10 @@ const selectedServerId = inject<Ref<string | null>>('selectedServerId')!
 const selectedServerState = inject<Ref<string>>('selectedServerState')!
 const selectedCA = inject<Ref<number | null>>('selectedCA')!
 const refreshTree = inject<() => void>('refreshTree')!
-const { showAlert, showPrompt } = inject<{
+const { showAlert, showPrompt, showConfirm } = inject<{
   showAlert: typeof ShowAlert
   showPrompt: typeof ShowPrompt
+  showConfirm: typeof ShowConfirm
 }>(dialogKey)!
 const openParseFrame = inject<(prefill?: string) => void>('openParseFrame')!
 
@@ -31,6 +33,8 @@ const { active: cyclicActive, intervalMs: cyclicInterval, toggle: toggleCyclic }
 type UpdateMeta = { version: string; notes: string; pub_date?: string | null }
 const checkUpdate = inject<(force?: boolean) => Promise<UpdateMeta | null>>('checkUpdate')!
 const updateChecking = ref(false)
+const MIRROR_RELEASE_URL = 'https://ghfast.top/https://github.com/Karl-Dai/IEC60870-5-104-Simulator/releases/latest'
+
 async function manualCheckUpdate() {
   if (updateChecking.value) return
   updateChecking.value = true
@@ -38,7 +42,15 @@ async function manualCheckUpdate() {
     const meta = await checkUpdate(true)
     if (!meta) await showAlert(t('toolbar.alreadyLatest'))
   } catch (e) {
-    await showAlert(`${t('toolbar.updateCheckFailed')}: ${e}`)
+    console.warn('update check failed', e)
+    const wantMirror = await showConfirm(t('toolbar.updateCheckFailedMirrorPrompt'))
+    if (wantMirror) {
+      try {
+        await openUrl(MIRROR_RELEASE_URL)
+      } catch (err) {
+        await showAlert(`${t('toolbar.updateCheckFailed')}: ${err}`)
+      }
+    }
   } finally {
     updateChecking.value = false
   }

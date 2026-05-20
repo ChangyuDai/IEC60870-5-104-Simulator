@@ -2,8 +2,9 @@
 import { inject, ref, type Ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { save, open } from '@tauri-apps/plugin-dialog'
+import { openUrl } from '@tauri-apps/plugin-opener'
 import { dialogKey } from '@shared/composables/useDialog'
-import type { showAlert as ShowAlert } from '@shared/composables/useDialog'
+import type { showAlert as ShowAlert, showConfirm as ShowConfirm } from '@shared/composables/useDialog'
 import AboutDialog from '@shared/components/AboutDialog.vue'
 import ControlDialog from './ControlDialog.vue'
 import NewConnectionModal from './NewConnectionModal.vue'
@@ -13,7 +14,10 @@ import { useI18n } from '@shared/i18n'
 
 const { t } = useI18n()
 
-const { showAlert } = inject<{ showAlert: typeof ShowAlert }>(dialogKey)!
+const { showAlert, showConfirm } = inject<{
+  showAlert: typeof ShowAlert
+  showConfirm: typeof ShowConfirm
+}>(dialogKey)!
 const openParseFrame = inject<(prefill?: string) => void>('openParseFrame')!
 const selectedConnectionId = inject<Ref<string | null>>('selectedConnectionId')!
 const selectedConnectionState = inject<Ref<string>>('selectedConnectionState')!
@@ -22,6 +26,8 @@ const refreshData = inject<() => void>('refreshData')!
 type UpdateMeta = { version: string; notes: string; pub_date?: string | null }
 const checkUpdate = inject<(force?: boolean) => Promise<UpdateMeta | null>>('checkUpdate')!
 const updateChecking = ref(false)
+const MIRROR_RELEASE_URL = 'https://ghfast.top/https://github.com/Karl-Dai/IEC60870-5-104-Simulator/releases/latest'
+
 async function manualCheckUpdate() {
   if (updateChecking.value) return
   updateChecking.value = true
@@ -29,7 +35,15 @@ async function manualCheckUpdate() {
     const meta = await checkUpdate(true)
     if (!meta) await showAlert(t('toolbar.alreadyLatest'))
   } catch (e) {
-    await showAlert(`${t('toolbar.updateCheckFailed')}: ${e}`)
+    console.warn('update check failed', e)
+    const wantMirror = await showConfirm(t('toolbar.updateCheckFailedMirrorPrompt'))
+    if (wantMirror) {
+      try {
+        await openUrl(MIRROR_RELEASE_URL)
+      } catch (err) {
+        await showAlert(`${t('toolbar.updateCheckFailed')}: ${err}`)
+      }
+    }
   } finally {
     updateChecking.value = false
   }

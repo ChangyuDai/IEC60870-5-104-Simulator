@@ -35,6 +35,7 @@ export type DictShape = {
     checkingUpdate: string
     alreadyLatest: string
     updateCheckFailed: string
+    updateCheckFailedMirrorPrompt: string
     parseFrame: string
     parseFrameInLog: string
     saveConfig: string
@@ -265,6 +266,7 @@ const dict: DictShape = {
     checkingUpdate: '检查中…',
     alreadyLatest: '已是最新版本',
     updateCheckFailed: '更新检查失败',
+    updateCheckFailedMirrorPrompt: '更新检查失败,可能无法访问 GitHub。是否打开国内镜像下载页面?',
     parseFrame: '报文解析',
     parseFrameInLog: '解析此报文',
     saveConfig: '保存配置',
