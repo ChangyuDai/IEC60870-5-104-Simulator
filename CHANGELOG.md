@@ -2,6 +2,12 @@
 
 本项目的所有重要变更记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### Changed
+
+- **Updater**: 应用内更新增加中国大陆 proxy fallback(ghfast.top / gh-proxy.com / gh.idayer.com),并在检查失败时引导用户打开镜像下载页。首次从旧版升级仍需走 github.com,失败时请用 README 中的镜像 URL 手动下载一次。
+
 ## [1.3.13] - 2026-05-19
 
 ### Highlights / 亮点
