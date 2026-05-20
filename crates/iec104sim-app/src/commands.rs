@@ -2,7 +2,10 @@ use crate::state::{AppState, DataPointInfo, IncrementalDataResponse, ServerInfo,
 use iec104sim_core::data_point::{DataPoint, DataPointValue, InformationObjectDef};
 use iec104sim_core::log_collector::LogCollector;
 use iec104sim_core::log_entry::LogEntry;
-use iec104sim_core::slave::{SlaveServer, SlaveTransportConfig, Station};
+use iec104sim_core::slave::{
+    FixedMutationConfig, ProtocolTimingConfig, RemoteOperationConfig, SlaveServer,
+    SlaveTransportConfig, Station,
+};
 use iec104sim_core::types::AsduTypeId;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -37,6 +40,12 @@ pub struct CreateServerRequest {
     pub key_file: Option<String>,
     pub ca_file: Option<String>,
     pub require_client_cert: Option<bool>,
+    /// 可选:创建时直接附带协议时序参数。缺省时使用 SlaveServer 默认值。
+    #[serde(default)]
+    pub protocol_timing: Option<ProtocolTimingConfig>,
+    /// 可选:创建时直接附带远动运行参数。缺省时使用默认值。
+    #[serde(default)]
+    pub remote_ops: Option<RemoteOperationConfig>,
 }
 
 #[tauri::command]
@@ -67,6 +76,14 @@ pub async fn create_server(
 
     let log_collector = Arc::new(LogCollector::new());
     let server = SlaveServer::new(transport).with_log_collector(log_collector.clone());
+
+    // 在加站点之前应用服务器级配置,以便首次 set 后的任何上送都按目标参数发送。
+    if let Some(t) = request.protocol_timing {
+        server.set_protocol_timing(t).await;
+    }
+    if let Some(ops) = request.remote_ops {
+        server.set_remote_ops(ops).await;
+    }
 
     // Auto-create default station (CA=1) with pre-filled data points
     let n = request.count_per_category.unwrap_or(10);
@@ -694,7 +711,21 @@ pub async fn random_mutate_data_points(
     }
 
     drop(stations);
-    srv.server.queue_spontaneous(request.common_address, &changed_ioas).await;
+
+    // 按 RemoteOperationConfig.random_pacing 分批 queue_spontaneous,
+    // 每发 batch_size 个 IOA 后 sleep delay_ms。batch_size=0 视为一次性发送。
+    let pacing = srv.server.get_remote_ops().await.random_pacing;
+    let batch_size = pacing.batch_size.max(1) as usize;
+    let delay = std::time::Duration::from_millis(pacing.delay_ms as u64);
+    let mut idx = 0;
+    while idx < changed_ioas.len() {
+        let end = (idx + batch_size).min(changed_ioas.len());
+        srv.server.queue_spontaneous(request.common_address, &changed_ioas[idx..end]).await;
+        idx = end;
+        if idx < changed_ioas.len() && pacing.delay_ms > 0 {
+            tokio::time::sleep(delay).await;
+        }
+    }
 
     Ok(mutated)
 }
@@ -728,6 +759,94 @@ pub async fn set_cyclic_config(
 }
 
 // ---------------------------------------------------------------------------
+// Remote Operation Configuration Commands (远动运行参数)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct ProtocolTimingRequest {
+    pub server_id: String,
+    pub timing: ProtocolTimingConfig,
+}
+
+#[tauri::command]
+pub async fn set_protocol_timing(
+    state: State<'_, AppState>,
+    request: ProtocolTimingRequest,
+) -> Result<(), String> {
+    let servers = state.servers.read().await;
+    let srv = servers
+        .get(&request.server_id)
+        .ok_or_else(|| format!("server {} not found", request.server_id))?;
+    srv.server.set_protocol_timing(request.timing).await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_protocol_timing(
+    state: State<'_, AppState>,
+    server_id: String,
+) -> Result<ProtocolTimingConfig, String> {
+    let servers = state.servers.read().await;
+    let srv = servers
+        .get(&server_id)
+        .ok_or_else(|| format!("server {} not found", server_id))?;
+    Ok(srv.server.get_protocol_timing().await)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct RemoteOpsRequest {
+    pub server_id: String,
+    pub ops: RemoteOperationConfig,
+}
+
+#[tauri::command]
+pub async fn set_remote_operation_config(
+    state: State<'_, AppState>,
+    request: RemoteOpsRequest,
+) -> Result<(), String> {
+    let servers = state.servers.read().await;
+    let srv = servers
+        .get(&request.server_id)
+        .ok_or_else(|| format!("server {} not found", request.server_id))?;
+    srv.server.set_remote_ops(request.ops).await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_remote_operation_config(
+    state: State<'_, AppState>,
+    server_id: String,
+) -> Result<RemoteOperationConfig, String> {
+    let servers = state.servers.read().await;
+    let srv = servers
+        .get(&server_id)
+        .ok_or_else(|| format!("server {} not found", server_id))?;
+    Ok(srv.server.get_remote_ops().await)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct FixedMutationRequest {
+    pub server_id: String,
+    pub config: FixedMutationConfig,
+}
+
+#[tauri::command]
+pub async fn set_fixed_mutation(
+    state: State<'_, AppState>,
+    request: FixedMutationRequest,
+) -> Result<(), String> {
+    let servers = state.servers.read().await;
+    let srv = servers
+        .get(&request.server_id)
+        .ok_or_else(|| format!("server {} not found", request.server_id))?;
+    srv.server.set_fixed_mutation(request.config).await;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // State Persistence Commands
 // ---------------------------------------------------------------------------
 
@@ -755,6 +874,8 @@ pub async fn save_config(
                 bind_address: srv_state.server.transport.bind_address.clone(),
                 port: srv_state.server.transport.port,
                 stations: st,
+                protocol_timing: srv_state.server.get_protocol_timing().await,
+                remote_ops: srv_state.server.get_remote_ops().await,
             });
         }
         SlaveConfigFile::new(out).to_json()?
@@ -788,6 +909,9 @@ pub async fn load_config(
         };
         let log_collector = Arc::new(LogCollector::new());
         let server = SlaveServer::new(transport).with_log_collector(log_collector.clone());
+        // 加站点前先恢复服务器级配置,确保后续突发上送按目标参数走。
+        server.set_protocol_timing(srv.protocol_timing).await;
+        server.set_remote_ops(srv.remote_ops).await;
         for st in srv.stations {
             let mut station = Station::new(st.common_address, st.name);
             for def in st.object_defs {

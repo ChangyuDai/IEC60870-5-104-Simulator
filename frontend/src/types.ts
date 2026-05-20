@@ -45,3 +45,70 @@ export interface LogEntry {
 // Frame parser types now live in @shared/types/frame to avoid duplicate
 // definitions between slave and master frontends.
 export * from '@shared/types/frame'
+
+// ---------------------------------------------------------------------------
+// Remote operation configuration (远动运行参数)
+// 对应 Rust 端 `iec104sim_core::slave::ProtocolTimingConfig` 等结构。
+// ---------------------------------------------------------------------------
+
+export interface ProtocolTimingConfig {
+  t0: number
+  t1: number
+  t2: number
+  t3: number
+  k: number
+  w: number
+}
+
+export type UploadMode = 'continuous' | 'discrete'
+
+export type CommandAckCot = 'activation_con' | 'deactivation_con' | 'activation_termination'
+
+export interface RandomMutationPacing {
+  batch_size: number
+  delay_ms: number
+}
+
+export interface FixedMutationConfig {
+  enabled: boolean
+  ioa: number
+  /** snake_case ASDU type identifier matching Rust serde enum, e.g. "m_sp_na_1". */
+  asdu_type: string
+  period_ms: number
+}
+
+export interface RemoteOperationConfig {
+  sp_sync_with_tb: boolean
+  answer_general_interrogation: boolean
+  answer_counter_interrogation: boolean
+  answer_commands: boolean
+  gi_include_timestamped: boolean
+  upload_mode_untimestamped: UploadMode
+  upload_mode_timestamped: UploadMode
+  select_ack_cot: CommandAckCot
+  execute_ack_cot: CommandAckCot
+  cancel_ack_cot: CommandAckCot
+  random_pacing: RandomMutationPacing
+  auto_packing: boolean
+  fixed_mutation: FixedMutationConfig
+}
+
+export const DEFAULT_PROTOCOL_TIMING: ProtocolTimingConfig = {
+  t0: 30, t1: 15, t2: 10, t3: 20, k: 12, w: 8,
+}
+
+export const DEFAULT_REMOTE_OPS: RemoteOperationConfig = {
+  sp_sync_with_tb: false,
+  answer_general_interrogation: true,
+  answer_counter_interrogation: true,
+  answer_commands: true,
+  gi_include_timestamped: false,
+  upload_mode_untimestamped: 'discrete',
+  upload_mode_timestamped: 'discrete',
+  select_ack_cot: 'activation_con',
+  execute_ack_cot: 'activation_termination',
+  cancel_ack_cot: 'deactivation_con',
+  random_pacing: { batch_size: 2000, delay_ms: 50 },
+  auto_packing: false,
+  fixed_mutation: { enabled: false, ioa: 1, asdu_type: 'm_sp_na_1', period_ms: 1000 },
+}

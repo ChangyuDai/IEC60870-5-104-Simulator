@@ -38,6 +38,12 @@ pub fn run() {
             // Simulation commands
             commands::random_mutate_data_points,
             commands::set_cyclic_config,
+            // Remote operation configuration (远动运行参数)
+            commands::set_protocol_timing,
+            commands::get_protocol_timing,
+            commands::set_remote_operation_config,
+            commands::get_remote_operation_config,
+            commands::set_fixed_mutation,
             // Config file save/open
             commands::save_config,
             commands::load_config,
