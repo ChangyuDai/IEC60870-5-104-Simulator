@@ -87,7 +87,7 @@ const nextAvailableIoa = computed<number | null>(() => {
 })
 
 const nextFreeGapStart = computed<number | null>(() =>
-  findNextFreeGap(existingSameTypeIoas.value, count.value),
+  count.value > 0 ? findNextFreeGap(existingSameTypeIoas.value, count.value) : null,
 )
 
 const canApplyNextIoa = computed(() => nextAvailableIoa.value !== null)
@@ -112,15 +112,13 @@ function applyNextFreeGap() {
 }
 
 // Task-5 template will consume these — suppress noUnusedLocals until then.
-defineExpose({
-  conflictRanges,
-  canApplyNextIoa,
-  canApplyNextGap,
-  nextIoaDisabledTooltip,
-  nextGapDisabledTooltip,
-  applyNextAvailableIoa,
-  applyNextFreeGap,
-})
+void conflictRanges
+void canApplyNextIoa
+void canApplyNextGap
+void nextIoaDisabledTooltip
+void nextGapDisabledTooltip
+void applyNextAvailableIoa
+void applyNextFreeGap
 
 watch(() => props.visible, (visible) => {
   if (visible) {
