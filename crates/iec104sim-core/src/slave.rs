@@ -360,10 +360,31 @@ impl Default for SlaveTransportConfig {
 
 /// Per-connection IEC 60870-5-104 sequence state.
 /// `ssn` is N(S)<<1 (own send count), `rsn` is N(R)<<1 (next expected peer N(S)).
-#[derive(Default)]
 struct SeqState {
+    /// 我方下一个发送 I 帧的 N(S)（以 << 1 形式存储，每帧 += 2）。
     ssn: u16,
+    /// 我方下一个发送帧（I/S）的 N(R) = 期望对方下一个 N(S)（同样 << 1）。
     rsn: u16,
+    /// 对方最近一次 N(R)（同样 << 1）。代表对方已确认收到 N(S) < ack_ssn 的所有 I 帧。
+    /// in_flight = (ssn - ack_ssn) / 2 用于 k 窗口流控。
+    ack_ssn: u16,
+    /// 自上次发出 S 帧以来累计的对端 I 帧数（每收到 1 个 I 帧 += 2，与 N(S) 步长一致）。
+    /// 达到 2*w 时主动回 S 帧确认。
+    unacked_recv: u16,
+    /// 最后一次发 S 帧确认对端的时间，用于 t2 兜底（无数据可发时主动确认）。
+    last_s_ack_at: tokio::time::Instant,
+}
+
+impl Default for SeqState {
+    fn default() -> Self {
+        Self {
+            ssn: 0,
+            rsn: 0,
+            ack_ssn: 0,
+            unacked_recv: 0,
+            last_s_ack_at: tokio::time::Instant::now(),
+        }
+    }
 }
 
 type SharedSeq = Arc<tokio::sync::Mutex<SeqState>>;
@@ -390,12 +411,24 @@ struct ConnectionWrite {
 type SharedConnections = Arc<RwLock<HashMap<SocketAddr, ConnectionWrite>>>;
 
 /// Update local N(R) from a just-received I-frame so that subsequent outgoing
-/// frames acknowledge the master's send sequence.
+/// frames acknowledge the master's send sequence. Also picks up the peer's
+/// N(R) to advance our ack_ssn (sender-side k window) and increments
+/// `unacked_recv` so the read loop can decide when to emit an S-frame.
 fn observe_recv_iframe(seq: &mut SeqState, frame: &[u8]) {
-    if frame.len() >= 4 {
-        let peer_ns_shifted = u16::from_le_bytes([frame[2], frame[3]]);
-        seq.rsn = peer_ns_shifted.wrapping_add(2);
-    }
+    if frame.len() < 6 { return; }
+    let peer_ns_shifted = u16::from_le_bytes([frame[2], frame[3]]);
+    let peer_nr_shifted = u16::from_le_bytes([frame[4], frame[5]]);
+    seq.rsn = peer_ns_shifted.wrapping_add(2);
+    seq.ack_ssn = peer_nr_shifted;
+    seq.unacked_recv = seq.unacked_recv.wrapping_add(2);
+}
+
+/// Pick up an S-frame: it only advances our sender-side ack_ssn (no I-frame
+/// counter increment). Caller must verify ctrl1 & 0x03 == 0x01 before calling.
+fn observe_recv_sframe(seq: &mut SeqState, frame: &[u8]) {
+    if frame.len() < 6 { return; }
+    let peer_nr_shifted = u16::from_le_bytes([frame[4], frame[5]]);
+    seq.ack_ssn = peer_nr_shifted;
 }
 
 /// Echo a received I-frame back with our own APCI control bytes and an
@@ -597,6 +630,7 @@ impl SlaveServer {
         let connections = self.connections.clone();
         let cyclic_connections = connections.clone();
         let remote_ops = self.remote_ops.clone();
+        let protocol_timing = self.protocol_timing.clone();
 
         // Start cyclic background task.
         let cyclic_stations = self.stations.clone();
@@ -693,6 +727,7 @@ impl SlaveServer {
                         let tls_acceptor = tls_acceptor.clone();
                         let connections = connections.clone();
                         let conn_remote_ops = remote_ops.clone();
+                        let conn_protocol_timing = protocol_timing.clone();
 
                         if tls_acceptor.is_some() {
                             // TLS: blocking I/O via spawn_blocking.
@@ -738,7 +773,7 @@ impl SlaveServer {
                                         format!("TLS 握手成功: {}", peer_str),
                                     ));
                                 }
-                                handle_client_blocking(&mut tls_stream, stations, lc, flag, tls_queue, tls_seq, tls_started, tls_connections, peer_addr, conn_remote_ops);
+                                handle_client_blocking(&mut tls_stream, stations, lc, flag, tls_queue, tls_seq, tls_started, tls_connections, peer_addr, conn_remote_ops, conn_protocol_timing);
                             });
                         } else {
                             // Plain TCP: async with queue-based cyclic writes.
@@ -796,7 +831,7 @@ impl SlaveServer {
 
                             // Spawn read task (owns ReadHalf + queue for enqueueing responses).
                             tokio::spawn(async move {
-                                handle_client_read_loop(rh, stations_for_reader, lc_for_reader, flag, connections, queue_for_reader, seq_for_reader, started_for_reader, addr_for_read, conn_remote_ops).await;
+                                handle_client_read_loop(rh, stations_for_reader, lc_for_reader, flag, connections, queue_for_reader, seq_for_reader, started_for_reader, addr_for_read, conn_remote_ops, conn_protocol_timing).await;
                             });
                         }
                     }
@@ -855,6 +890,7 @@ async fn handle_client_read_loop(
     started: Arc<std::sync::atomic::AtomicBool>,
     peer_addr: SocketAddr,
     remote_ops: SharedRemoteOps,
+    protocol_timing: SharedProtocolTiming,
 ) {
     let mut buf = [0u8; 8192];
     let mut reassembly_buf: Vec<u8> = Vec::with_capacity(65536);
@@ -924,8 +960,39 @@ async fn handle_client_read_loop(
                     }
                     _ => {}
                 }
+            } else if ctrl1 & 0x03 == 0x01 && data.len() >= 6 {
+                // S 帧：仅承载 N(R)，推进我方 ack_ssn（k 窗口 sender 端）。
+                { let mut s = seq.lock().await; observe_recv_sframe(&mut s, &data); }
+                if let Some(ref lc) = log_collector {
+                    let nr = u16::from_le_bytes([data[4], data[5]]) >> 1;
+                    lc.try_add(LogEntry::with_raw_bytes(
+                        Direction::Rx, FrameLabel::SFrame,
+                        format!("S frame N(R)={}", nr), data.to_vec(),
+                    ));
+                }
             } else if ctrl1 & 0x01 == 0 && data.len() >= 12 {
                 { let mut s = seq.lock().await; observe_recv_iframe(&mut s, &data); }
+                // w 窗口：累计未确认接收 I 帧数达到 w 时主动回 S 帧。
+                let w = protocol_timing.read().await.w;
+                let maybe_sframe = {
+                    let mut s = seq.lock().await;
+                    if w > 0 && s.unacked_recv >= 2u16.saturating_mul(w) {
+                        let rsn_now = s.rsn;
+                        s.unacked_recv = 0;
+                        s.last_s_ack_at = tokio::time::Instant::now();
+                        Some([0x68u8, 0x04, 0x01, 0x00,
+                              (rsn_now & 0xFF) as u8, ((rsn_now >> 8) & 0xFF) as u8])
+                    } else { None }
+                };
+                if let Some(sframe) = maybe_sframe {
+                    queue.lock().await.extend_from_slice(&sframe);
+                    if let Some(ref lc) = log_collector {
+                        lc.try_add(LogEntry::with_raw_bytes(
+                            Direction::Tx, FrameLabel::SFrame,
+                            "S frame (w window)".to_string(), sframe.to_vec(),
+                        ));
+                    }
+                }
                 let asdu_type = data[6];
                 let cause = data[8];
                 let ca = u16::from_le_bytes([data[10], data[11]]);
@@ -1339,6 +1406,7 @@ fn handle_client_blocking(
     connections: SharedConnections,
     peer_addr: SocketAddr,
     remote_ops: SharedRemoteOps,
+    _protocol_timing: SharedProtocolTiming,
 ) {
     use std::io::{Read, Write};
     let mut buf = [0u8; 512];
@@ -2057,6 +2125,127 @@ fn encode_points_grouped(
     frame.extend_from_slice(&ioa_bytes[..3]);
     frame.extend_from_slice(&value_section);
     Some(frame)
+}
+
+/// k 窗口流控：未确认 I 帧数 (in_flight) 达到 k 时阻塞等待对方 ACK。
+/// `k = 0` 时直接放行（兼容关闭流控的配置）。
+async fn wait_window(seq: &SharedSeq, k: u16) {
+    if k == 0 { return; }
+    loop {
+        let in_flight = {
+            let s = seq.lock().await;
+            s.ssn.wrapping_sub(s.ack_ssn) / 2
+        };
+        if in_flight < k { return; }
+        tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+    }
+}
+
+/// 把"同 NA 类型 + IOA 连续"的一段点切成 ≤253B 的 SQ=1 大帧，
+/// 每帧前做 k 窗口阻塞；失败（含 total_len 超限）回退到逐点 `encode_point_frame_ex`。
+/// `seg` 必须已经满足类型相同 + IOA 连续，否则会回退到逐点路径。
+async fn encode_segment_and_enqueue(
+    seg: &[DataPoint], cot: u8, ca: &[u8; 2],
+    seq: &SharedSeq, queue: &SharedQueue, k: u16, timestamped: bool,
+) -> usize {
+    let mut i = 0;
+    let mut frames_emitted = 0usize;
+    while i < seg.len() {
+        let mut chunk_size = (seg.len() - i).min(120);
+        let mut packed = false;
+        while chunk_size >= 2 {
+            let refs: Vec<&DataPoint> = seg[i..i + chunk_size].iter().collect();
+            wait_window(seq, k).await;
+            let frame_opt = {
+                let mut s = seq.lock().await;
+                encode_points_grouped(&refs, cot, &ca[..], &mut *s, timestamped)
+            };
+            if let Some(frame) = frame_opt {
+                queue.lock().await.extend_from_slice(&frame);
+                frames_emitted += 1;
+                i += chunk_size;
+                packed = true;
+                break;
+            }
+            chunk_size /= 2;
+        }
+        if !packed {
+            // chunk_size < 2 仍未成功，或单点无法 grouped 表达，逐点回退。
+            wait_window(seq, k).await;
+            let frame = {
+                let mut s = seq.lock().await;
+                encode_point_frame_ex(
+                    &seg[i], cot, &ca[..], &mut *s,
+                    if timestamped { Some(true) } else { Some(false) },
+                )
+            };
+            queue.lock().await.extend_from_slice(&frame);
+            frames_emitted += 1;
+            i += 1;
+        }
+        if frames_emitted % 16 == 0 {
+            tokio::task::yield_now().await;
+        }
+    }
+    frames_emitted
+}
+
+/// GI/CI 的独立 task 执行体：把点位按 (NA 类型, 连续 IOA) 切段，
+/// 每段调 `encode_segment_and_enqueue`，最后入队 ACT_TERM。
+/// `points` 必须已经按 IOA 升序排好；调用方应在 read loop 内只持锁拷贝一份。
+async fn run_interrogation(
+    points: Vec<DataPoint>,
+    ca_bytes: [u8; 2],
+    cot_data: u8,
+    act_term_frame_template: Vec<u8>,
+    include_timestamped: bool,
+    queue: SharedQueue,
+    seq: SharedSeq,
+    k: u16,
+    log_collector: Option<Arc<LogCollector>>,
+    label: FrameLabel,
+    ca_label: u16,
+) {
+    let mut i = 0;
+    while i < points.len() {
+        let (type0, _) = encode_na_value(&points[i].value);
+        let ioa0 = points[i].ioa;
+        let mut j = i + 1;
+        while j < points.len() {
+            let (tj, _) = encode_na_value(&points[j].value);
+            if tj != type0 || points[j].ioa != ioa0 + (j - i) as u32 { break; }
+            j += 1;
+        }
+        let seg = &points[i..j];
+        encode_segment_and_enqueue(seg, cot_data, &ca_bytes, &seq, &queue, k, false).await;
+        if include_timestamped {
+            // 只有当 NA 类型有对应 TB 变体时才发时标副本。
+            if let Some(na_id) = AsduTypeId::from_u8(type0) {
+                if na_id.timestamped_variant().is_some() {
+                    encode_segment_and_enqueue(seg, cot_data, &ca_bytes, &seq, &queue, k, true).await;
+                }
+            }
+        }
+        i = j;
+    }
+    // ACT_TERM：复用收到的 ACT 帧模板，仅改 N(S)/N(R)/COT。
+    wait_window(&seq, k).await;
+    let term = {
+        let mut s = seq.lock().await;
+        build_response_frame(&act_term_frame_template, 10, &mut *s)
+    };
+    queue.lock().await.extend_from_slice(&term);
+    if let Some(lc) = log_collector {
+        let kind = match cot_data {
+            20 => "GI",
+            37 => "累计量召唤",
+            _ => "Interrogation",
+        };
+        lc.try_add(LogEntry::new(
+            Direction::Tx, label,
+            format!("{} 激活终止 CA={}", kind, ca_label),
+        ));
+    }
 }
 
 /// 翻转一个数据点的值,用于固定变位的周期性扰动。
