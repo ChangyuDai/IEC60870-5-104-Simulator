@@ -1,5 +1,6 @@
 pub mod types;
 pub mod data_point;
+pub mod asdu_encode;
 pub mod slave;
 pub mod master;
 pub mod frame;

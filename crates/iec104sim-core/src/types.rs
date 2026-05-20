@@ -137,6 +137,54 @@ impl AsduTypeId {
         }
     }
 
+    /// Whether this ASDU type carries a CP56Time2a timestamp.
+    pub fn is_timestamped(&self) -> bool {
+        matches!(
+            self,
+            Self::MSpTb1
+                | Self::MDpTb1
+                | Self::MStTb1
+                | Self::MBoTb1
+                | Self::MMeTd1
+                | Self::MMeTe1
+                | Self::MMeTf1
+                | Self::MItTb1
+        )
+    }
+
+    /// Map a monitor-direction NA (no timestamp) type to its CP56Time2a-bearing
+    /// counterpart. Returns `None` for control / system types and for types that
+    /// are already timestamped.
+    pub fn timestamped_variant(&self) -> Option<AsduTypeId> {
+        match self {
+            Self::MSpNa1 => Some(Self::MSpTb1),
+            Self::MDpNa1 => Some(Self::MDpTb1),
+            Self::MStNa1 => Some(Self::MStTb1),
+            Self::MBoNa1 => Some(Self::MBoTb1),
+            Self::MMeNa1 => Some(Self::MMeTd1),
+            Self::MMeNb1 => Some(Self::MMeTe1),
+            Self::MMeNc1 => Some(Self::MMeTf1),
+            Self::MItNa1 => Some(Self::MItTb1),
+            _ => None,
+        }
+    }
+
+    /// Inverse of [`Self::timestamped_variant`]: strip the timestamp from a TB
+    /// type back to its NA peer. Identity for already-untimestamped types.
+    pub fn untimestamped_variant(&self) -> AsduTypeId {
+        match self {
+            Self::MSpTb1 => Self::MSpNa1,
+            Self::MDpTb1 => Self::MDpNa1,
+            Self::MStTb1 => Self::MStNa1,
+            Self::MBoTb1 => Self::MBoNa1,
+            Self::MMeTd1 => Self::MMeNa1,
+            Self::MMeTe1 => Self::MMeNb1,
+            Self::MMeTf1 => Self::MMeNc1,
+            Self::MItTb1 => Self::MItNa1,
+            other => *other,
+        }
+    }
+
     /// Parse from type ID integer.
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
@@ -335,5 +383,31 @@ mod tests {
     fn test_asdu_type_name() {
         assert_eq!(AsduTypeId::MSpNa1.name(), "M_SP_NA_1");
         assert_eq!(AsduTypeId::CIcNa1.name(), "C_IC_NA_1");
+    }
+
+    #[test]
+    fn test_timestamped_variant_round_trip() {
+        let na_types = [
+            AsduTypeId::MSpNa1,
+            AsduTypeId::MDpNa1,
+            AsduTypeId::MStNa1,
+            AsduTypeId::MBoNa1,
+            AsduTypeId::MMeNa1,
+            AsduTypeId::MMeNb1,
+            AsduTypeId::MMeNc1,
+            AsduTypeId::MItNa1,
+        ];
+        for na in na_types {
+            let tb = na.timestamped_variant().expect("NA → TB");
+            assert!(tb.is_timestamped(), "{:?} should be timestamped", tb);
+            assert_eq!(tb.untimestamped_variant(), na);
+        }
+    }
+
+    #[test]
+    fn test_timestamped_variant_none_for_control() {
+        assert_eq!(AsduTypeId::CScNa1.timestamped_variant(), None);
+        assert_eq!(AsduTypeId::CIcNa1.timestamped_variant(), None);
+        assert_eq!(AsduTypeId::MSpTb1.timestamped_variant(), None);
     }
 }
