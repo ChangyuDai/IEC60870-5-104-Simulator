@@ -505,51 +505,56 @@ impl SlaveServer {
 
     /// Queue spontaneous I-frames (COT=3) for the given (IOA, type) pairs to all connected clients.
     pub async fn queue_spontaneous(&self, common_address: u16, changed: &[(u32, AsduTypeId)]) {
-        if changed.is_empty() { return; }
-        let stations = self.stations.read().await;
-        let station = match stations.get(&common_address) {
-            Some(s) => s,
-            None => return,
-        };
-        let ca_bytes = station.common_address.to_le_bytes();
-        let mut conns = self.connections.write().await;
-        let mut total_sent = 0usize;
-        for (_addr, conn) in conns.iter_mut() {
-            // Only send to connections in the STARTED data-transfer state.
-            if !conn.started.load(std::sync::atomic::Ordering::SeqCst) { continue; }
-            let mut batch = Vec::new();
-            {
-                let mut s = conn.seq.lock().await;
-                for &(ioa, asdu_type) in changed {
-                    let point = match station.data_points.get(ioa, asdu_type) {
-                        Some(p) => p,
-                        None => continue,
-                    };
-                    let ioa_bytes = point.ioa.to_le_bytes();
-                    batch.extend(encode_point_frame(&point.value, 3, &ca_bytes, &ioa_bytes[..3], &mut *s));
-                    conn.last_sent.insert(ioa, point.value.display());
+        do_queue_spontaneous(
+            &self.stations,
+            &self.connections,
+            &self.remote_ops,
+            &self.log_collector,
+            common_address,
+            changed,
+        ).await;
+    }
+
+    /// 启停固定变位后台任务。enabled=true 时启动周期翻转任务;enabled=false 时
+    /// 仅 abort 旧任务。再次调用 enabled=true 会先 abort 旧任务再启新的。
+    pub async fn set_fixed_mutation(&self, config: FixedMutationConfig) {
+        let mut guard = self.fixed_mutation_handle.lock().await;
+        if let Some(h) = guard.take() { h.abort(); }
+        {
+            let mut ops = self.remote_ops.write().await;
+            ops.fixed_mutation = config;
+        }
+        if !config.enabled { return; }
+        let stations = self.stations.clone();
+        let connections = self.connections.clone();
+        let remote_ops = self.remote_ops.clone();
+        let log_collector = self.log_collector.clone();
+        let shutdown_flag = self.shutdown_flag.clone();
+        let handle = tokio::spawn(async move {
+            let period = std::time::Duration::from_millis(config.period_ms.max(50) as u64);
+            let mut interval = tokio::time::interval(period);
+            interval.tick().await; // 跳过 immediate first tick
+            loop {
+                interval.tick().await;
+                if shutdown_flag.load(std::sync::atomic::Ordering::SeqCst) { break; }
+                let mut changed_per_ca: Vec<(u16, u32, AsduTypeId)> = Vec::new();
+                {
+                    let mut st_guard = stations.write().await;
+                    for (ca, station) in st_guard.iter_mut() {
+                        if let Some(p) = station.data_points.get_mut(config.ioa, config.asdu_type) {
+                            p.value = flip_value(&p.value);
+                            p.timestamp = Some(chrono::Utc::now());
+                            station.data_points.mark_changed(config.ioa, config.asdu_type);
+                            changed_per_ca.push((*ca, config.ioa, config.asdu_type));
+                        }
+                    }
+                }
+                for (ca, ioa, t) in changed_per_ca {
+                    do_queue_spontaneous(&stations, &connections, &remote_ops, &log_collector, ca, &[(ioa, t)]).await;
                 }
             }
-            if !batch.is_empty() {
-                total_sent += 1;
-                conn.queue.lock().await.extend(batch);
-            }
-        }
-        if total_sent > 0 {
-            if let Some(ref lc) = self.log_collector {
-                let detail = if changed.len() == 1 {
-                    let (ioa, asdu_type) = changed[0];
-                    format!("突发上送 (COT=3) IOA={} {} CA={} → {} 个客户端", ioa, asdu_type.name(), common_address, total_sent)
-                } else {
-                    format!("突发上送 (COT=3) {} 个 IOA CA={} → {} 个客户端", changed.len(), common_address, total_sent)
-                };
-                let label = changed
-                    .first()
-                    .map(|(_, t)| FrameLabel::IFrame(t.name().to_string()))
-                    .unwrap_or_else(|| FrameLabel::IFrame(String::new()));
-                lc.try_add(LogEntry::new(Direction::Tx, label, detail));
-            }
-        }
+        });
+        *guard = Some(handle);
     }
 
     pub async fn start(&mut self) -> Result<(), SlaveError> {
@@ -1824,45 +1829,261 @@ fn build_i_frame(
     frame
 }
 
-/// Encode a data point value into an I-frame with the given COT.
-fn encode_point_frame(
-    value: &DataPointValue, cot: u8, ca: &[u8], ioa: &[u8],
-    seq: &mut SeqState,
-) -> Vec<u8> {
+/// 把 `DataPointValue` 编码为 IEC 60870-5-101 中 NA 类型(无时标)的值字节。
+fn encode_na_value(value: &DataPointValue) -> (u8, Vec<u8>) {
     match value {
         DataPointValue::SinglePoint { value } => {
             let siq = if *value { 0x01 } else { 0x00 };
-            build_i_frame(1, cot, ca, ioa, &[siq], seq)
+            (1, vec![siq])
         }
         DataPointValue::DoublePoint { value } => {
             let diq = *value & 0x03;
-            build_i_frame(3, cot, ca, ioa, &[diq], seq)
+            (3, vec![diq])
         }
         DataPointValue::StepPosition { value, transient } => {
             let vti = ((*value as u8) & 0x7F) | (if *transient { 0x80 } else { 0 });
-            build_i_frame(5, cot, ca, ioa, &[vti, 0], seq)
+            (5, vec![vti, 0])
         }
         DataPointValue::Bitstring { value } => {
             let b = value.to_le_bytes();
-            build_i_frame(7, cot, ca, ioa, &[b[0], b[1], b[2], b[3], 0], seq)
+            (7, vec![b[0], b[1], b[2], b[3], 0])
         }
         DataPointValue::Normalized { value } => {
-            let nva = (*value * 32767.0) as i16; let b = nva.to_le_bytes();
-            build_i_frame(9, cot, ca, ioa, &[b[0], b[1], 0u8], seq)
+            let nva = (*value * 32767.0) as i16;
+            let b = nva.to_le_bytes();
+            (9, vec![b[0], b[1], 0u8])
         }
         DataPointValue::Scaled { value } => {
             let b = value.to_le_bytes();
-            build_i_frame(11, cot, ca, ioa, &[b[0], b[1], 0u8], seq)
+            (11, vec![b[0], b[1], 0u8])
         }
         DataPointValue::ShortFloat { value } => {
             let b = value.to_le_bytes();
-            build_i_frame(13, cot, ca, ioa, &[b[0], b[1], b[2], b[3], 0u8], seq)
+            (13, vec![b[0], b[1], b[2], b[3], 0u8])
         }
         DataPointValue::IntegratedTotal { value, carry, sequence } => {
             let b = value.to_le_bytes();
             let mut bcr = *sequence & 0x1F;
             if *carry { bcr |= 0x20; }
-            build_i_frame(15, cot, ca, ioa, &[b[0], b[1], b[2], b[3], bcr], seq)
+            (15, vec![b[0], b[1], b[2], b[3], bcr])
+        }
+    }
+}
+
+/// 旧 NA-only 路径,保留作为备用入口(目前没人调用,已被 `encode_point_frame_ex` 取代)。
+#[allow(dead_code)]
+fn encode_point_frame(
+    value: &DataPointValue, cot: u8, ca: &[u8], ioa: &[u8],
+    seq: &mut SeqState,
+) -> Vec<u8> {
+    let (type_id, value_bytes) = encode_na_value(value);
+    build_i_frame(type_id, cot, ca, ioa, &value_bytes, seq)
+}
+
+/// 编码单个数据点为 I-frame,可选输出带 CP56Time2a 时标的 TB 版本。
+///
+/// `force_timestamped`:
+/// - `Some(true)`  → 强制输出 TB 类型(若没有 TB 对应类型则回退到 NA)
+/// - `Some(false)` → 强制输出 NA 类型
+/// - `None`        → 按 `point.asdu_type` 自身决定(本身是 TB 的发 TB)
+fn encode_point_frame_ex(
+    point: &DataPoint, cot: u8, ca: &[u8],
+    seq: &mut SeqState, force_timestamped: Option<bool>,
+) -> Vec<u8> {
+    let (na_type, mut value_bytes) = encode_na_value(&point.value);
+    let want_tb = match force_timestamped {
+        Some(b) => b,
+        None => point.asdu_type.is_timestamped(),
+    };
+    let ioa_bytes = point.ioa.to_le_bytes();
+    if want_tb {
+        let na_id = AsduTypeId::from_u8(na_type).unwrap_or(point.asdu_type);
+        if let Some(tb) = na_id.timestamped_variant() {
+            let ts = point.timestamp.unwrap_or_else(chrono::Utc::now);
+            let ts_bytes = crate::asdu_encode::encode_cp56time2a(ts, point.quality.iv);
+            value_bytes.extend_from_slice(&ts_bytes);
+            return build_i_frame(tb as u8, cot, ca, &ioa_bytes[..3], &value_bytes, seq);
+        }
+    }
+    build_i_frame(na_type, cot, ca, &ioa_bytes[..3], &value_bytes, seq)
+}
+
+/// 把一组**连续 IOA 且同 NA 类型**的点合并到单个 ASDU 帧 (VSQ.SQ=1)。
+/// 返回 None 表示无法打包,调用方应回退到逐点路径。
+fn encode_points_grouped(
+    points: &[&DataPoint], cot: u8, ca: &[u8],
+    seq: &mut SeqState, timestamped: bool,
+) -> Option<Vec<u8>> {
+    if points.is_empty() { return None; }
+    let (first_type, _) = encode_na_value(&points[0].value);
+    for w in points.windows(2) {
+        if w[1].ioa != w[0].ioa + 1 { return None; }
+        let (t, _) = encode_na_value(&w[1].value);
+        if t != first_type { return None; }
+    }
+    let final_type = if timestamped {
+        let na = AsduTypeId::from_u8(first_type)?;
+        na.timestamped_variant()? as u8
+    } else {
+        first_type
+    };
+    let n = points.len() as u8;
+    if n > 0x7F { return None; }
+    let mut value_section: Vec<u8> = Vec::new();
+    for p in points {
+        let (_, bytes) = encode_na_value(&p.value);
+        value_section.extend_from_slice(&bytes);
+        if timestamped {
+            let ts = p.timestamp.unwrap_or_else(chrono::Utc::now);
+            let ts_bytes = crate::asdu_encode::encode_cp56time2a(ts, p.quality.iv);
+            value_section.extend_from_slice(&ts_bytes);
+        }
+    }
+    let ioa_bytes = points[0].ioa.to_le_bytes();
+    let asdu_len = 6 + 3 + value_section.len();
+    let total_len = 4 + asdu_len;
+    if total_len > 253 { return None; }
+    let mut frame = Vec::with_capacity(2 + total_len);
+    frame.push(0x68);
+    frame.push(total_len as u8);
+    frame.push((seq.ssn & 0xFF) as u8);
+    frame.push(((seq.ssn >> 8) & 0xFF) as u8);
+    frame.push((seq.rsn & 0xFF) as u8);
+    frame.push(((seq.rsn >> 8) & 0xFF) as u8);
+    seq.ssn = seq.ssn.wrapping_add(2);
+    frame.push(final_type);
+    frame.push(0x80 | (n & 0x7F)); // VSQ.SQ=1
+    frame.push(cot);
+    frame.push(0x00);
+    frame.extend_from_slice(&ca[..2]);
+    frame.extend_from_slice(&ioa_bytes[..3]);
+    frame.extend_from_slice(&value_section);
+    Some(frame)
+}
+
+/// 翻转一个数据点的值,用于固定变位的周期性扰动。
+fn flip_value(value: &DataPointValue) -> DataPointValue {
+    match value {
+        DataPointValue::SinglePoint { value } => DataPointValue::SinglePoint { value: !value },
+        DataPointValue::DoublePoint { value } => {
+            DataPointValue::DoublePoint { value: if *value == 1 { 2 } else { 1 } }
+        }
+        DataPointValue::StepPosition { value, transient } => {
+            let next = match *value { -1 => 0, 0 => 1, _ => -1 };
+            DataPointValue::StepPosition { value: next, transient: *transient }
+        }
+        DataPointValue::Bitstring { value } => DataPointValue::Bitstring { value: !value },
+        DataPointValue::Normalized { value } => DataPointValue::Normalized { value: -value },
+        DataPointValue::Scaled { value } => DataPointValue::Scaled { value: -*value },
+        DataPointValue::ShortFloat { value } => DataPointValue::ShortFloat { value: -value },
+        DataPointValue::IntegratedTotal { value, carry, sequence } => DataPointValue::IntegratedTotal {
+            value: value + 1,
+            carry: *carry,
+            sequence: sequence.wrapping_add(1) & 0x1F,
+        },
+    }
+}
+
+/// 模块级 `queue_spontaneous` 实现,供 `SlaveServer.queue_spontaneous` 和
+/// `set_fixed_mutation` 后台任务共用。
+async fn do_queue_spontaneous(
+    stations: &SharedStations,
+    connections: &SharedConnections,
+    remote_ops: &SharedRemoteOps,
+    log_collector: &Option<Arc<LogCollector>>,
+    common_address: u16,
+    changed: &[(u32, AsduTypeId)],
+) {
+    if changed.is_empty() { return; }
+    let ops = remote_ops.read().await.clone();
+    let stations_guard = stations.read().await;
+    let station = match stations_guard.get(&common_address) {
+        Some(s) => s,
+        None => return,
+    };
+    let ca_bytes = station.common_address.to_le_bytes();
+    let mut conns = connections.write().await;
+    let mut total_sent = 0usize;
+    for (_addr, conn) in conns.iter_mut() {
+        if !conn.started.load(std::sync::atomic::Ordering::SeqCst) { continue; }
+        let mut batch = Vec::new();
+        {
+            let mut s = conn.seq.lock().await;
+            let mut points: Vec<&DataPoint> = Vec::new();
+            for &(ioa, asdu_type) in changed {
+                if let Some(p) = station.data_points.get(ioa, asdu_type) {
+                    points.push(p);
+                }
+            }
+            if ops.auto_packing && !points.is_empty() {
+                points.sort_by_key(|p| (p.asdu_type as u8, p.ioa));
+                let mut start = 0usize;
+                while start < points.len() {
+                    let mut end = start + 1;
+                    while end < points.len()
+                        && points[end].asdu_type == points[start].asdu_type
+                        && points[end].ioa == points[end - 1].ioa + 1
+                    { end += 1; }
+                    let segment = &points[start..end];
+                    let want_tb_mode = ops.upload_mode_timestamped == UploadMode::Continuous
+                        && segment[0].asdu_type.is_timestamped();
+                    let want_na_mode = ops.upload_mode_untimestamped == UploadMode::Continuous
+                        && !segment[0].asdu_type.is_timestamped();
+                    if want_tb_mode || want_na_mode {
+                        if let Some(frame) = encode_points_grouped(segment, 3, &ca_bytes, &mut *s, segment[0].asdu_type.is_timestamped()) {
+                            batch.extend(frame);
+                            for p in segment { conn.last_sent.insert(p.ioa, p.value.display()); }
+                            start = end;
+                            continue;
+                        }
+                    }
+                    for p in segment {
+                        batch.extend(encode_point_frame_ex(p, 3, &ca_bytes, &mut *s, None));
+                        if ops.sp_sync_with_tb
+                            && p.asdu_type.timestamped_variant().is_some()
+                            && !p.asdu_type.is_timestamped()
+                        {
+                            batch.extend(encode_point_frame_ex(p, 3, &ca_bytes, &mut *s, Some(true)));
+                        }
+                        conn.last_sent.insert(p.ioa, p.value.display());
+                    }
+                    start = end;
+                }
+            } else {
+                for &(ioa, asdu_type) in changed {
+                    let point = match station.data_points.get(ioa, asdu_type) {
+                        Some(p) => p,
+                        None => continue,
+                    };
+                    batch.extend(encode_point_frame_ex(point, 3, &ca_bytes, &mut *s, None));
+                    if ops.sp_sync_with_tb
+                        && asdu_type.timestamped_variant().is_some()
+                        && !asdu_type.is_timestamped()
+                    {
+                        batch.extend(encode_point_frame_ex(point, 3, &ca_bytes, &mut *s, Some(true)));
+                    }
+                    conn.last_sent.insert(ioa, point.value.display());
+                }
+            }
+        }
+        if !batch.is_empty() {
+            total_sent += 1;
+            conn.queue.lock().await.extend(batch);
+        }
+    }
+    if total_sent > 0 {
+        if let Some(ref lc) = log_collector {
+            let detail = if changed.len() == 1 {
+                let (ioa, asdu_type) = changed[0];
+                format!("突发上送 (COT=3) IOA={} {} CA={} → {} 个客户端", ioa, asdu_type.name(), common_address, total_sent)
+            } else {
+                format!("突发上送 (COT=3) {} 个 IOA CA={} → {} 个客户端", changed.len(), common_address, total_sent)
+            };
+            let label = changed
+                .first()
+                .map(|(_, t)| FrameLabel::IFrame(t.name().to_string()))
+                .unwrap_or_else(|| FrameLabel::IFrame(String::new()));
+            lc.try_add(LogEntry::new(Direction::Tx, label, detail));
         }
     }
 }
