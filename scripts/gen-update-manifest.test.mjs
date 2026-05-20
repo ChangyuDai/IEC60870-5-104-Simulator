@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { groupAssetsByRole, extractChangelogSection } from './gen-update-manifest.mjs'
+import { groupAssetsByRole, extractChangelogSection, buildManifest, MANIFEST_VARIANTS } from './gen-update-manifest.mjs'
 
 // Filenames mirror what Tauri 2 + tauri-action upload to GitHub Releases.
 // macOS .app.tar.gz has no version in the filename; Linux uses .AppImage
@@ -60,5 +60,42 @@ describe('extractChangelogSection', () => {
     const md3 = `## [1.2.3] - 2026-04-28\n- new\n\n## [1.2.2] - 2026-04-27\n- old\n`
     expect(extractChangelogSection(md3, '1.2.3')).toBe('- new')
     expect(extractChangelogSection(md3, '1.2.2')).toBe('- old')
+  })
+})
+
+describe('MANIFEST_VARIANTS', () => {
+  it('declares 4 variants in proxy-first / github-last order', () => {
+    expect(MANIFEST_VARIANTS).toEqual([
+      { suffix: '-cn1', prefix: 'https://ghfast.top/' },
+      { suffix: '-cn2', prefix: 'https://gh-proxy.com/' },
+      { suffix: '-cn3', prefix: 'https://gh.idayer.com/' },
+      { suffix: '',     prefix: null },
+    ])
+  })
+})
+
+describe('buildManifest', () => {
+  const platforms = {
+    'windows-x86_64': { signature: 'SIG', url: 'https://github.com/u/r/releases/download/v1/a.exe' },
+    'darwin-aarch64': { signature: 'SIG2', url: 'https://github.com/u/r/releases/download/v1/b.tar.gz' },
+  }
+  const base = { version: '1.0.0', notes: 'n', pub_date: '2026-01-01T00:00:00Z', platforms }
+
+  it('returns the original manifest unchanged when prefix is null', () => {
+    expect(buildManifest(base, null)).toEqual(base)
+  })
+
+  it('prepends the prefix to every platform url, leaving signature untouched', () => {
+    const got = buildManifest(base, 'https://ghfast.top/')
+    expect(got.platforms['windows-x86_64'].url).toBe('https://ghfast.top/https://github.com/u/r/releases/download/v1/a.exe')
+    expect(got.platforms['darwin-aarch64'].url).toBe('https://ghfast.top/https://github.com/u/r/releases/download/v1/b.tar.gz')
+    expect(got.platforms['windows-x86_64'].signature).toBe('SIG')
+    expect(got.platforms['darwin-aarch64'].signature).toBe('SIG2')
+  })
+
+  it('does not mutate the input manifest', () => {
+    const snapshot = JSON.parse(JSON.stringify(base))
+    buildManifest(base, 'https://ghfast.top/')
+    expect(base).toEqual(snapshot)
   })
 })

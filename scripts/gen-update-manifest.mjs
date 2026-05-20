@@ -17,6 +17,24 @@ const PLATFORM_PATTERNS = [
   { key: 'linux-x86_64',   re: /_amd64\.AppImage$/ },
 ]
 
+// 与 `crates/*/tauri.conf.json` 的 `updater.endpoints` 顺序保持一致(proxy 在前,
+// github 兜底)。修改顺序请同步两个 tauri.conf.json。
+export const MANIFEST_VARIANTS = [
+  { suffix: '-cn1', prefix: 'https://ghfast.top/' },
+  { suffix: '-cn2', prefix: 'https://gh-proxy.com/' },
+  { suffix: '-cn3', prefix: 'https://gh.idayer.com/' },
+  { suffix: '',     prefix: null },
+]
+
+export function buildManifest(manifest, urlPrefix) {
+  if (!urlPrefix) return manifest
+  const platforms = {}
+  for (const [k, v] of Object.entries(manifest.platforms)) {
+    platforms[k] = { signature: v.signature, url: `${urlPrefix}${v.url}` }
+  }
+  return { ...manifest, platforms }
+}
+
 export function groupAssetsByRole(assets) {
   const groups = { slave: {}, master: {} }
   const sigByUrl = new Map()
@@ -106,9 +124,12 @@ async function main() {
       throw new Error(`no platforms found for role ${role}`)
     }
     const manifest = { version, notes, pub_date: pubDate, platforms }
-    const out = resolve(process.cwd(), `latest-${role}.json`)
-    writeFileSync(out, JSON.stringify(manifest, null, 2))
-    console.log(`wrote ${out}`)
+    for (const { suffix, prefix } of MANIFEST_VARIANTS) {
+      const variant = buildManifest(manifest, prefix)
+      const out = resolve(process.cwd(), `latest-${role}${suffix}.json`)
+      writeFileSync(out, JSON.stringify(variant, null, 2))
+      console.log(`wrote ${out}`)
+    }
   }
 }
 
