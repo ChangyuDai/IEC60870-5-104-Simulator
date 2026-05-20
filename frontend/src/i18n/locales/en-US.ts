@@ -167,6 +167,12 @@ const dict: DictShape = {
     saving: 'Adding...',
     add: 'Confirm',
     failedPrefix: 'Batch add failed: {err}',
+    summaryEmpty: 'No points of this type yet',
+    nextIoaBtn: '↓ Next free IOA',
+    nextGapBtn: '↦ Next fitting gap',
+    nextIoaTooltipEmpty: 'No existing points to skip past',
+    capacityFullTooltip: 'IOA capacity exhausted',
+    conflictDetail: 'Conflicting IOA {ranges} (overwrites {count} points)',
   },
   valuePanel: {
     title: 'Point Details',
