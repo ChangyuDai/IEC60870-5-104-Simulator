@@ -7,6 +7,7 @@ import DataPointTable from './components/DataPointTable.vue'
 import ValuePanel from './components/ValuePanel.vue'
 import LogPanel from './components/LogPanel.vue'
 import RemoteParamsPanel from './components/RemoteParamsPanel.vue'
+import RemoteParamsModal from './components/RemoteParamsModal.vue'
 import AppDialog from '@shared/components/AppDialog.vue'
 import UpdateDialog from '@shared/components/UpdateDialog.vue'
 import ParseFrameDialog from '@shared/components/ParseFrameDialog.vue'
@@ -160,6 +161,19 @@ function snoozeUpdate() {
     invoke('snooze_update', { version: updateMeta.value.version }).catch(() => {})
   }
 }
+
+// Runtime params modal — opened from ConnectionTree right-click menu
+const runtimeParamsModalVisible = ref(false)
+const runtimeParamsModalServerId = ref<string | null>(null)
+const runtimeParamsModalLabel = ref<string>('')
+function openRuntimeParamsModal(serverId: string, label: string) {
+  runtimeParamsModalServerId.value = serverId
+  runtimeParamsModalLabel.value = label
+  runtimeParamsModalVisible.value = true
+}
+function closeRuntimeParamsModal() {
+  runtimeParamsModalVisible.value = false
+}
 </script>
 
 <template>
@@ -179,6 +193,7 @@ function snoozeUpdate() {
         @server-select="handleServerSelect"
         @station-select="handleStationSelect"
         @category-select="handleCategorySelect"
+        @edit-runtime-params="openRuntimeParamsModal"
       />
     </aside>
     <Splitter
@@ -225,6 +240,12 @@ function snoozeUpdate() {
       :notes="updateMeta?.notes ?? ''"
       @close="updateVisible = false"
       @snooze="snoozeUpdate"
+    />
+    <RemoteParamsModal
+      :visible="runtimeParamsModalVisible"
+      :server-id="runtimeParamsModalServerId"
+      :server-label="runtimeParamsModalLabel"
+      @close="closeRuntimeParamsModal"
     />
   </div>
 </template>

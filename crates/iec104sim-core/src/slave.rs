@@ -824,8 +824,12 @@ impl SlaveServer {
                                                 return;
                                             }
                                         }
+                                        // 立即回到队列检查,避免大量帧时被 50ms 节流。
+                                        tokio::task::yield_now().await;
+                                    } else {
+                                        // 空队列时短 sleep 避免忙轮询。
+                                        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
                                     }
-                                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                                 }
                             });
 
@@ -897,7 +901,8 @@ async fn handle_client_read_loop(
 
     loop {
         if shutdown_flag.load(std::sync::atomic::Ordering::SeqCst) { break; }
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        // stream.read 本身是异步阻塞,会在数据到达或对端关闭时立即唤醒。
+        // 多余的 sleep(50) 会把 k 窗口的 ACK 反馈周期拉到 ≥50ms,严重拖慢大批量回送。
         let n = match stream.read(&mut buf).await {
             Ok(0) => break,
             Ok(n) => n,
@@ -2142,6 +2147,7 @@ fn encode_points_grouped(
 
 /// k 窗口流控：未确认 I 帧数 (in_flight) 达到 k 时阻塞等待对方 ACK。
 /// `k = 0` 时直接放行（兼容关闭流控的配置）。
+/// 等待粒度采用极短 sleep (200μs)：太长会拖慢吞吐，太短会忙轮询。
 async fn wait_window(seq: &SharedSeq, k: u16) {
     if k == 0 { return; }
     loop {
@@ -2150,7 +2156,7 @@ async fn wait_window(seq: &SharedSeq, k: u16) {
             s.ssn.wrapping_sub(s.ack_ssn) / 2
         };
         if in_flight < k { return; }
-        tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+        tokio::time::sleep(std::time::Duration::from_micros(200)).await;
     }
 }
 
@@ -2206,9 +2212,10 @@ async fn encode_segment_and_enqueue(
 /// GI/CI 的独立 task 执行体：按 (point.asdu_type, 连续 IOA) 切段，
 /// 每段调 `encode_segment_and_enqueue`；TB 类型段自然带时标，
 /// NA 类型段若开启 `include_timestamped` 且存在 TB 变体则额外再发一份时标副本。
-/// `points` 必须已经按 IOA 升序排好；调用方应在 read loop 内只持锁拷贝一份。
+/// 调用方传入的 `points` 不要求特定顺序；本函数会按 (asdu_type, ioa) 二次排序，
+/// 把同类型 + 连续 IOA 的点位重新聚到一起，最大化 SQ=1 打包收益。
 async fn run_interrogation(
-    points: Vec<DataPoint>,
+    mut points: Vec<DataPoint>,
     ca_bytes: [u8; 2],
     cot_data: u8,
     act_term_frame_template: Vec<u8>,
@@ -2220,6 +2227,9 @@ async fn run_interrogation(
     label: FrameLabel,
     ca_label: u16,
 ) {
+    // 按 (asdu_type 数值, ioa) 排序。同类型连续段可被 encode_points_grouped 合并为
+    // 一个 VSQ.SQ=1 ASDU；不同 type 之间的边界天然断开。
+    points.sort_by_key(|p| (p.asdu_type as u8, p.ioa));
     let mut i = 0;
     while i < points.len() {
         let kind0 = points[i].asdu_type;

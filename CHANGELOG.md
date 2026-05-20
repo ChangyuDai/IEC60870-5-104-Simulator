@@ -4,9 +4,48 @@
 
 ## [Unreleased]
 
-### Changed
+## [1.4.0] - 2026-05-20
 
-- **Updater**: 应用内更新增加中国大陆 proxy fallback(ghfast.top / gh-proxy.com / gh.idayer.com),并在检查失败时引导用户打开镜像下载页。首次从旧版升级仍需走 github.com,失败时请用 README 中的镜像 URL 手动下载一次。
+### Highlights / 亮点
+
+- 🚀 **8 万点位总召唤不再超时** / 80k-point general interrogation no longer times out — 子站 GI/CI 改为 spawn 独立 task,启用 SQ=1 连续打包(IOA 连续 + 同 ASDU 类型自动合并成单帧),并把 read loop/writer 的 50ms 节流去掉。结果:8 万点 GI 由超出 t1=15s 必超时,降到 dev 模式 ~2.6s / release 模式 ~2.5s,主站收到的 I 帧数从 80,000 压到 ~3,500(SQ=1 压缩约 23×) / The slave GI/CI path now spawns an isolated generator task, encodes consecutive same-type IOAs into SQ=1 grouped ASDUs, and removes the 50ms throttling in both the read loop and writer task. An 80k-point GI used to overflow t1=15s; it now finishes in ~2.6s dev / ~2.5s release, and the master receives ~3,500 I-frames instead of 80,000 (≈23× SQ=1 compression).
+- 🚦 **IEC 60870-5-104 k/w 窗口流控落地** / IEC 60870-5-104 k/w window flow control now enforced — 子站 `SeqState` 扩展 `ack_ssn` / `unacked_recv` 字段;sender 在 in_flight ≥ k 时阻塞等 ACK(200μs 轮询);receiver 累计 w 个未确认 I 帧时主动回 S 帧;read loop 同级新增 S 帧解析分支推进 sender 端 ack_ssn / `SeqState` gains `ack_ssn` and `unacked_recv` fields; the sender blocks once `in_flight ≥ k` (200μs poll) and the receiver returns an S-frame whenever `w` I-frames stack up unacked. The read loop now parses S-frames alongside U/I frames to advance the sender's ack window.
+- 🎛️ **远动运行参数体系全栈接通** / Full-stack remote-operation parameters — 新增 `RemoteOperationConfig`(13 项,如 `answer_general_interrogation` / `gi_include_timestamped` / `select_ack_cot` / `random_pacing` / `auto_packing` / `fixed_mutation`)和 `ProtocolTimingConfig`(t0/t1/t2/t3/k/w)。GI/CI/控制命令分支按运行时配置决定是否应答、ack COT、是否补发时标变体;UI 新增侧边可折叠面板与 `RemoteParamsModal`,Tauri 命令完整接通 / Added `RemoteOperationConfig` (13 toggles) and `ProtocolTimingConfig` (t0..k/w); GI/CI/command handling now reads runtime ops to decide answering, ack COT and timestamped variants; new collapsible side panel and `RemoteParamsModal` ship with full Tauri command wiring.
+- ⏰ **CP56Time2a / CP24Time2a 编码 + NA↔TB 互转 + 固定变位** / CP56Time2a/CP24Time2a encoders, NA↔TB conversion, and fixed mutation task — `crate::asdu_encode::encode_cp56time2a` 输出标准 7 字节时标;`AsduTypeId::timestamped_variant()` 在 NA/TB 之间互转,使 `gi_include_timestamped` 能正确补发同一 IOA 的时标版本;新增固定变位后台任务,按 `FixedMutationConfig.period_ms` 周期翻转指定 IOA / TB 7-byte CP56Time2a/3-byte CP24Time2a encoders, an `AsduTypeId::timestamped_variant()` round-trip helper for `gi_include_timestamped`, and a background task that flips a designated IOA on `FixedMutationConfig.period_ms`.
+- 🧪 **无头集成测试 harness + 11 个场景套件** / Headless integration harness + 11 scenario suites — 新增 `tests/common/harness.rs` (`Pair::spawn(ops)` 一行起一对主子站) + `helpers.rs` (`wait_for_ioa_count` / `master_point_value` 等事件驱动等待);新建 5 个测试文件覆盖远动参数 8 场景、时标编码、SQ=1 自动打包、变位节奏、8 万点 GI 吞吐 / New `tests/common/harness.rs` exposes `Pair::spawn(ops)` for one-line master/slave pairs and event-driven waits like `wait_for_ioa_count`; 5 new test files cover the 13 remote-op toggles, timestamping, SQ=1 auto-packing, mutation pacing and the 80k GI throughput.
+- 🌐 **Updater 中国大陆 proxy fallback** / Updater China-mainland proxy fallback — Tauri updater endpoints 增加 `ghfast.top` / `gh-proxy.com` / `gh.idayer.com` 三层 fallback,检查失败时弹窗引导用户打开镜像下载页;CI 同步生成多变体 `latest-{slave,master}-cn.json` 清单;首次从旧版升级仍需走 github.com,失败时请用 README 中的镜像 URL 手动下载一次 / Updater endpoints now include three mirror fallbacks and the dialog routes failures to the China mirror download page; CI uploads matching `latest-{slave,master}-cn.json` manifests. The first upgrade from an old version still talks to github.com — fall back to the README's mirror URL if it fails.
+
+### Added 新增
+
+- `iec104sim-core::slave::RemoteOperationConfig`(13 字段)+ `ProtocolTimingConfig`(t0/t1/t2/t3/k/w)+ `SharedRemoteOps` / `SharedProtocolTiming` 类型别名,通过 `SlaveServer::set_remote_ops` / `set_protocol_timing` 在运行时热更新 / `RemoteOperationConfig` (13 fields) + `ProtocolTimingConfig` (t0/t1/t2/t3/k/w) and `Shared*` aliases, hot-swappable via `SlaveServer::set_remote_ops` / `set_protocol_timing`.
+- `asdu_encode` 模块新增 CP56Time2a(7B)与 CP24Time2a(3B)编码;`AsduTypeId::is_timestamped()` / `timestamped_variant()` / `untimestamped_variant()` 三方法 / `asdu_encode` module with CP56Time2a (7B) and CP24Time2a (3B) encoders; three new `AsduTypeId` helpers.
+- `encode_points_grouped` SQ=1 连续打包(同 NA 类型 + 连续 IOA 合并)+ `run_interrogation` generator + `wait_window(k)` / `encode_segment_and_enqueue` 流控 helper / `encode_points_grouped` for SQ=1 packing, plus the `run_interrogation` generator and `wait_window(k)` / `encode_segment_and_enqueue` flow-control helpers.
+- 固定变位后台任务:`SlaveServer::set_fixed_mutation` 启停 + `FixedMutationConfig { enabled, ioa, asdu_type, period_ms }` / Fixed-mutation background task with `set_fixed_mutation` start/stop and `FixedMutationConfig`.
+- 子站 UI:`RemoteParamsPanel.vue` 侧边可折叠面板 + `RemoteParamsModal.vue` / `RemoteParamsForm.vue` 弹窗表单,中英 i18n 全覆盖 / Slave UI: collapsible `RemoteParamsPanel.vue` plus `RemoteParamsModal.vue` / `RemoteParamsForm.vue`, fully translated.
+- 测试:`tests/common/harness.rs` + `helpers.rs`(`Pair::spawn` / `wait_for_ioa_count` / `count_iframes` 等),5 个新测试文件 `headless_remote_ops.rs` / `headless_packed_sq1.rs` / `headless_timestamps.rs` / `headless_mutation_pacing.rs` / `large_gi_throughput.rs` / Tests: shared harness + helpers and five new files exercising 13 remote-op toggles, timestamps, SQ=1 auto-packing, mutation pacing and 80k-point GI throughput.
+- Updater CN proxy:`scripts/build-release-notes.mjs` 多变体清单(`latest-{slave,master}.json` + `-cn` 后缀),CI `release.yml` 同步上传;`tauri.conf.json` 添加 `tauri-plugin-opener` 用于打开镜像下载页 / Updater CN proxy: multi-variant manifests (`-cn.json` suffix) + matching CI uploads; `tauri-plugin-opener` wired for opening the mirror page.
+
+### Changed 改进
+
+- 子站 read loop 去掉顶部 `sleep(50ms)`,纯靠 `stream.read().await` 异步阻塞唤醒;writer task 写完立即 `yield_now()` 回到队列检查,空队列才 sleep 5ms。8 万点 GI 实测从超时降到 2.6s / Slave read loop no longer prepends a 50ms sleep — pure `stream.read().await` wakeups; writer task `yield_now()`s after each drain and only sleeps 5ms on empty. 80k GI dropped from timeout to 2.6s.
+- GI/CI 分支重构:先入队 ACT_CON,再克隆点位快照,最后 `tokio::spawn(run_interrogation)`。read loop 立即回到接收,期间能及时处理对端 S 帧推进 sender ack 窗口 / GI/CI refactored: enqueue ACT_CON, snapshot points, then `tokio::spawn(run_interrogation)`. The read loop returns immediately and can drain incoming S-frames to advance the sender's ack window.
+- `SlaveServer.protocol_timing` 现通过 `handle_client_read_loop` 参数下沉到 generator,k/w 配置项真正驱动运行时(此前仅持久化) / `SlaveServer.protocol_timing` is now threaded through `handle_client_read_loop` into the generator; k/w settings finally drive runtime (they were previously persisted only).
+- `observe_recv_iframe` 同时推进 `rsn` / `ack_ssn` / `unacked_recv`,使 sender 流控与 receiver w 计数共享同一帧解析路径 / `observe_recv_iframe` now advances `rsn`, `ack_ssn` and `unacked_recv` in one pass — sender flow control and receiver w-counting share a single decode.
+- README / README_CN 增加国内镜像入口与首次升级说明,顶部加 CN 镜像横幅常量化 / README / README_CN now feature a China-mirror entry, first-upgrade guidance and a hoisted mirror banner constant.
+
+### Fixed 修复
+
+- SBO 单点命令的 execute ack COT 此前固定为 7(ActivationCon),现按 `RemoteOperationConfig.execute_ack_cot` 配置返回(默认 10 = ActivationTermination,符合 IEC 60870-5-101 5.5 节) / SBO single-command's execute ack COT was hard-coded to 7 (ActivationCon); it now honours `execute_ack_cot` (defaults to 10 = ActivationTermination, per IEC 60870-5-101 §5.5).
+- proxy 探测脚本无可用 proxy 时返回非零退出码,避免 CI 默默继续 / The proxy probe script exits non-zero when no proxy is reachable, so CI fails loud.
+
+### Tests 测试
+
+- 新增 5 个集成测试文件,合计 22 个 `#[tokio::test]`:`headless_remote_ops` 8 项、`headless_packed_sq1` 3 项、`headless_timestamps` 3 项、`headless_mutation_pacing` 3 项、`large_gi_throughput` 1 项 + 既有套件全部通过 / 5 new test files with 22 `#[tokio::test]` cases collectively cover the remote-op matrix, SQ=1 packing, timestamp variants, mutation pacing and the 80k-point GI throughput, with all pre-existing suites still passing.
+- 单元测试:`encode_points_grouped_emits_sq1`、`encode_point_frame_ex_force_timestamped_emits_tb` / `_emits_na_by_default` 等覆盖时标与打包语义 / Unit tests covering grouped SQ=1 encoding and force-timestamp semantics.
+
+### Internal 内部
+
+- `.gitignore` 新增 `crates/*/gen/schemas/`,避免本机 Tauri 生成的 ACL 清单噪音 / `.gitignore` excludes `crates/*/gen/schemas/`, suppressing per-machine Tauri ACL noise.
 
 ## [1.3.13] - 2026-05-19
 

@@ -52,6 +52,7 @@ const emit = defineEmits<{
   (e: 'server-select', id: string, state: string): void
   (e: 'station-select', serverId: string, ca: number): void
   (e: 'category-select', serverId: string, ca: number, category: string): void
+  (e: 'edit-runtime-params', serverId: string, label: string): void
 }>()
 
 const treeRefreshKey = inject<Ref<number>>('treeRefreshKey')!
@@ -193,6 +194,14 @@ async function ctxDeleteStation() {
   }
 }
 
+function ctxEditRuntimeParams() {
+  const serverId = contextMenu.value.serverId
+  const ts = treeData.value.find(t => t.server.id === serverId)
+  const serverLabel = ts ? `${ts.server.bind_address}:${ts.server.port}` : serverId
+  closeContextMenu()
+  emit('edit-runtime-params', serverId, serverLabel)
+}
+
 function isServerSelected(ts: TreeServer): boolean {
   return ts.server.id === selectedServerId.value && selectedCA.value === null
 }
@@ -288,9 +297,11 @@ function isCategorySelected(ts: TreeServer, tst: TreeStation, category: string):
           class="context-menu-item"
           @click="ctxStopServer"
         >{{ t('tree.ctxStopServer') }}</div>
+        <div class="context-menu-item" @click="ctxEditRuntimeParams">{{ t('tree.ctxEditRuntimeParams') }}</div>
         <div class="context-menu-item danger" @click="ctxDeleteServer">{{ t('tree.ctxDeleteServer') }}</div>
       </template>
       <template v-if="contextMenu.type === 'station'">
+        <div class="context-menu-item" @click="ctxEditRuntimeParams">{{ t('tree.ctxEditRuntimeParams') }}</div>
         <div class="context-menu-item danger" @click="ctxDeleteStation">{{ t('tree.ctxDeleteStation') }}</div>
       </template>
     </div>

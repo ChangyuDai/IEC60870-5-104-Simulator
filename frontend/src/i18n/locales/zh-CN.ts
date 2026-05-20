@@ -74,7 +74,15 @@ export type DictShape = {
     ctxStopServer: string
     ctxDeleteServer: string
     ctxDeleteStation: string
+    ctxEditRuntimeParams: string
     connTooltip: string
+  }
+  runtimeParams: {
+    title: string
+    save: string
+    cancel: string
+    saving: string
+    loading: string
   }
   connections: {
     title: string
@@ -305,7 +313,15 @@ const dict: DictShape = {
     ctxStopServer: '停止服务器',
     ctxDeleteServer: '删除服务器',
     ctxDeleteStation: '删除站',
+    ctxEditRuntimeParams: '修改运行参数',
     connTooltip: '已连接 {n} 个客户端',
+  },
+  runtimeParams: {
+    title: '修改运行参数',
+    save: '保存',
+    cancel: '取消',
+    saving: '保存中...',
+    loading: '加载中...',
   },
   connections: {
     title: '连接状态',

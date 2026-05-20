@@ -76,7 +76,15 @@ const dict: DictShape = {
     ctxStopServer: 'Stop Server',
     ctxDeleteServer: 'Delete Server',
     ctxDeleteStation: 'Delete Station',
+    ctxEditRuntimeParams: 'Edit Runtime Params',
     connTooltip: '{n} client(s) connected',
+  },
+  runtimeParams: {
+    title: 'Edit Runtime Params',
+    save: 'Save',
+    cancel: 'Cancel',
+    saving: 'Saving...',
+    loading: 'Loading...',
   },
   connections: {
     title: 'Connection Status',
