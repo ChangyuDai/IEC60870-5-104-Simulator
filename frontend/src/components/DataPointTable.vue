@@ -561,6 +561,7 @@ defineExpose({ loadData: loadDataPoints })
       :visible="showBatchModal"
       :server-id="selectedServerId ?? ''"
       :common-address="currentCA ?? 0"
+      :existing-points="showBatchModal ? displayPoints : []"
       @close="showBatchModal = false"
       @added="onPointAdded"
     />

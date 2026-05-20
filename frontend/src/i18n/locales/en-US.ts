@@ -153,6 +153,8 @@ const dict: DictShape = {
     namePrefixPlaceholder: 'e.g., SP → SP_0, SP_1, ...',
     countWarn: 'Range too large (max 100000)',
     rangeHint: 'IOA range: {startIoa} ~ {endIoa}, will add {count} points',
+    existingSameType: '{count} existing point(s) of this type',
+    conflictWarn: 'Conflicts with {count} existing IOA(s); they will be skipped',
     saving: 'Adding...',
     add: 'Confirm',
     failedPrefix: 'Batch add failed: {err}',

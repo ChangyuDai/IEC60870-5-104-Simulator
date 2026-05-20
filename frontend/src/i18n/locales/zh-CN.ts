@@ -151,6 +151,8 @@ export type DictShape = {
     namePrefixPlaceholder: string
     countWarn: string
     rangeHint: string
+    existingSameType: string
+    conflictWarn: string
     saving: string
     add: string
     failedPrefix: string
@@ -379,6 +381,8 @@ const dict: DictShape = {
     namePrefixPlaceholder: '如 SP → SP_0, SP_1, ...',
     countWarn: '范围过大（最多 100000）',
     rangeHint: 'IOA 范围：{startIoa} ~ {endIoa}，共将添加 {count} 个数据点',
+    existingSameType: '已有 {count} 个同类型点位',
+    conflictWarn: '与 {count} 个已存在 IOA 冲突，这些将被跳过',
     saving: '添加中...',
     add: '确认',
     failedPrefix: '批量添加失败：{err}',

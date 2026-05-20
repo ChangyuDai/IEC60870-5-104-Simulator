@@ -5,6 +5,7 @@ import { dialogKey } from '@shared/composables/useDialog'
 import type { showAlert as ShowAlert } from '@shared/composables/useDialog'
 import { useI18n } from '@shared/i18n'
 import { ASDU_TYPE_OPTIONS } from '../constants/asduTypes'
+import type { DataPointInfo } from '../types'
 
 const { t } = useI18n()
 const { showAlert } = inject<{ showAlert: typeof ShowAlert }>(dialogKey)!
@@ -13,6 +14,10 @@ interface Props {
   visible: boolean
   serverId: string
   commonAddress: number
+  // Caller passes the parent's already-IOA-sorted point list. We filter by
+  // current ASDU type — same-IOA collisions across different types are not
+  // collisions, so we never need the full DataPointInfo, just (ioa, asdu_type).
+  existingPoints: ReadonlyArray<Pick<DataPointInfo, 'ioa' | 'asdu_type'>>
 }
 
 const props = defineProps<Props>()
@@ -35,6 +40,47 @@ const endIoa = computed(() => startIoa.value + count.value - 1)
 
 const isValid = computed(() => {
   return count.value > 0 && count.value <= 100000 && startIoa.value >= 0
+})
+
+// existingPoints arrives IOA-sorted from the parent and (ioa, asdu_type) is
+// unique upstream (DataPointTable's dataMap is keyed by that pair), so
+// filter alone is enough — no Set/sort needed.
+const existingSameTypeIoas = computed<number[]>(() =>
+  props.existingPoints
+    .filter(p => p.asdu_type === formAsduType.value)
+    .map(p => p.ioa),
+)
+
+// [0,1,2,5,7,8] → "0–2, 5, 7–8"
+const existingRangesText = computed<string>(() => {
+  const xs = existingSameTypeIoas.value
+  if (xs.length === 0) return ''
+  const fmt = (s: number, e: number) => s === e ? String(s) : `${s}–${e}`
+  const parts: string[] = []
+  let s = xs[0], e = xs[0]
+  for (let i = 1; i < xs.length; i++) {
+    if (xs[i] === e + 1) { e = xs[i]; continue }
+    parts.push(fmt(s, e))
+    s = e = xs[i]
+  }
+  parts.push(fmt(s, e))
+  return parts.join(', ')
+})
+
+// Binary search the sorted IOA list for the count of entries in
+// [startIoa, startIoa+count-1]. O(log k) instead of O(count) — count can
+// reach 100000.
+const conflictCount = computed<number>(() => {
+  const xs = existingSameTypeIoas.value
+  if (xs.length === 0 || count.value <= 0 || startIoa.value < 0) return 0
+  const lo = startIoa.value
+  const hi = lo + count.value - 1
+  const lowerBound = (target: number) => {
+    let l = 0, r = xs.length
+    while (l < r) { const m = (l + r) >>> 1; if (xs[m] < target) l = m + 1; else r = m }
+    return l
+  }
+  return lowerBound(hi + 1) - lowerBound(lo)
 })
 
 watch(() => props.visible, (visible) => {
@@ -117,6 +163,10 @@ function handleBackdropClick(e: MouseEvent) {
                 {{ opt.label }} · {{ opt.typeId }}
               </option>
             </select>
+            <div v-if="existingSameTypeIoas.length > 0" class="existing-summary">
+              {{ t('batchModal.existingSameType', { count: existingSameTypeIoas.length }) }}
+              <span class="ioa-ranges">IOA: {{ existingRangesText }}</span>
+            </div>
           </div>
 
           <div class="form-group">
@@ -134,6 +184,9 @@ function handleBackdropClick(e: MouseEvent) {
             <template v-else>
               <span>{{ t('batchModal.rangeHint', { startIoa, endIoa, count }) }}</span>
             </template>
+          </div>
+          <div v-if="conflictCount > 0" class="conflict-warn">
+            {{ t('batchModal.conflictWarn', { count: conflictCount }) }}
           </div>
         </div>
 
@@ -253,6 +306,25 @@ function handleBackdropClick(e: MouseEvent) {
 
 .count-warn {
   color: var(--c-red);
+}
+
+.existing-summary {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--c-overlay1);
+}
+
+.existing-summary .ioa-ranges {
+  font-family: var(--font-mono);
+  color: var(--c-text);
+  margin-left: 6px;
+  word-break: break-all;
+}
+
+.conflict-warn {
+  color: var(--c-red);
+  font-size: 12px;
+  margin-top: 2px;
 }
 
 .modal-footer {
