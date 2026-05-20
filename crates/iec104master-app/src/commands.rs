@@ -834,35 +834,37 @@ pub async fn save_config(
 ) -> Result<(), String> {
     use iec104sim_core::config::{MasterConfigFile, MasterConnectionConfig, MasterSnapshotPoint};
 
-    let connections = state.connections.read().await;
-    let mut out = Vec::new();
-    for (_id, cs) in connections.iter() {
-        let cfg = &cs.connection.config;
-        let data = cs.connection.received_data.read().await;
-        let snapshot: Vec<MasterSnapshotPoint> = data
-            .all_sorted()
-            .into_iter()
-            .map(|(ca, p)| MasterSnapshotPoint { ca, point: p.clone() })
-            .collect();
-        out.push(MasterConnectionConfig {
-            target_address: cfg.target_address.clone(),
-            port: cfg.port,
-            common_addresses: cs.common_addresses.clone(),
-            timeout_ms: cfg.timeout_ms,
-            t0: cfg.t0,
-            t1: cfg.t1,
-            t2: cfg.t2,
-            t3: cfg.t3,
-            k: cfg.k,
-            w: cfg.w,
-            default_qoi: cfg.default_qoi,
-            default_qcc: cfg.default_qcc,
-            interrogate_period_s: cfg.interrogate_period_s,
-            counter_interrogate_period_s: cfg.counter_interrogate_period_s,
-            snapshot,
-        });
-    }
-    let json = MasterConfigFile::new(out).to_json()?;
+    let json = {
+        let connections = state.connections.read().await;
+        let mut out = Vec::new();
+        for (_id, cs) in connections.iter() {
+            let cfg = &cs.connection.config;
+            let data = cs.connection.received_data.read().await;
+            let snapshot: Vec<MasterSnapshotPoint> = data
+                .all_sorted()
+                .into_iter()
+                .map(|(ca, p)| MasterSnapshotPoint { ca, point: p.clone() })
+                .collect();
+            out.push(MasterConnectionConfig {
+                target_address: cfg.target_address.clone(),
+                port: cfg.port,
+                common_addresses: cs.common_addresses.clone(),
+                timeout_ms: cfg.timeout_ms,
+                t0: cfg.t0,
+                t1: cfg.t1,
+                t2: cfg.t2,
+                t3: cfg.t3,
+                k: cfg.k,
+                w: cfg.w,
+                default_qoi: cfg.default_qoi,
+                default_qcc: cfg.default_qcc,
+                interrogate_period_s: cfg.interrogate_period_s,
+                counter_interrogate_period_s: cfg.counter_interrogate_period_s,
+                snapshot,
+            });
+        }
+        MasterConfigFile::new(out).to_json()?
+    };
     std::fs::write(&path, json).map_err(|e| format!("写入文件失败: {e}"))
 }
 
@@ -907,11 +909,12 @@ pub async fn load_config(
 
         if !conn.snapshot.is_empty() {
             let connections = state.connections.read().await;
-            if let Some(cs) = connections.get(&info.id) {
-                let mut data = cs.connection.received_data.write().await;
-                for sp in conn.snapshot {
-                    data.insert(sp.ca, sp.point);
-                }
+            let cs = connections
+                .get(&info.id)
+                .ok_or_else(|| format!("新建连接 {} 已不存在,无法注入快照", info.id))?;
+            let mut data = cs.connection.received_data.write().await;
+            for sp in conn.snapshot {
+                data.insert(sp.ca, sp.point);
             }
         }
         imported += 1;

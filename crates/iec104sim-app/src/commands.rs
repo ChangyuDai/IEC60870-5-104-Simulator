@@ -738,25 +738,27 @@ pub async fn save_config(
 ) -> Result<(), String> {
     use iec104sim_core::config::{SlaveConfigFile, SlaveServerConfig, SlaveStationConfig};
 
-    let servers = state.servers.read().await;
-    let mut out = Vec::new();
-    for (_id, srv_state) in servers.iter() {
-        let stations = srv_state.server.stations.read().await;
-        let mut st = Vec::new();
-        for (_ca, station) in stations.iter() {
-            st.push(SlaveStationConfig {
-                common_address: station.common_address,
-                name: station.name.clone(),
-                object_defs: station.object_defs.clone(),
+    let json = {
+        let servers = state.servers.read().await;
+        let mut out = Vec::new();
+        for (_id, srv_state) in servers.iter() {
+            let stations = srv_state.server.stations.read().await;
+            let mut st = Vec::new();
+            for (_ca, station) in stations.iter() {
+                st.push(SlaveStationConfig {
+                    common_address: station.common_address,
+                    name: station.name.clone(),
+                    object_defs: station.object_defs.clone(),
+                });
+            }
+            out.push(SlaveServerConfig {
+                bind_address: srv_state.server.transport.bind_address.clone(),
+                port: srv_state.server.transport.port,
+                stations: st,
             });
         }
-        out.push(SlaveServerConfig {
-            bind_address: srv_state.server.transport.bind_address.clone(),
-            port: srv_state.server.transport.port,
-            stations: st,
-        });
-    }
-    let json = SlaveConfigFile::new(out).to_json()?;
+        SlaveConfigFile::new(out).to_json()?
+    };
     std::fs::write(&path, json).map_err(|e| format!("写入文件失败: {e}"))
 }
 
