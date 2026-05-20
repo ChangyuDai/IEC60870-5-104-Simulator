@@ -31,6 +31,9 @@ pub fn run() {
             commands::clear_communication_logs,
             commands::export_logs_csv,
             commands::set_logging_enabled,
+            // Config file save/open
+            commands::save_config,
+            commands::load_config,
             // Tool commands
             commands::parse_hex,
             commands::parse_frame_full,

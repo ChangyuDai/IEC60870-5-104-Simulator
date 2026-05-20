@@ -822,3 +822,99 @@ pub fn parse_frame_full(data: String) -> Result<iec104sim_core::decode::ParsedFr
         .map_err(|e| format!("{}", e))?;
     iec104sim_core::decode::parse_frame_full(&bytes)
 }
+
+// ---------------------------------------------------------------------------
+// Config file save/open
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn save_config(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<(), String> {
+    use iec104sim_core::config::{MasterConfigFile, MasterConnectionConfig, MasterSnapshotPoint};
+
+    let connections = state.connections.read().await;
+    let mut out = Vec::new();
+    for (_id, cs) in connections.iter() {
+        let cfg = &cs.connection.config;
+        let data = cs.connection.received_data.read().await;
+        let snapshot: Vec<MasterSnapshotPoint> = data
+            .all_sorted()
+            .into_iter()
+            .map(|(ca, p)| MasterSnapshotPoint { ca, point: p.clone() })
+            .collect();
+        out.push(MasterConnectionConfig {
+            target_address: cfg.target_address.clone(),
+            port: cfg.port,
+            common_addresses: cs.common_addresses.clone(),
+            timeout_ms: cfg.timeout_ms,
+            t0: cfg.t0,
+            t1: cfg.t1,
+            t2: cfg.t2,
+            t3: cfg.t3,
+            k: cfg.k,
+            w: cfg.w,
+            default_qoi: cfg.default_qoi,
+            default_qcc: cfg.default_qcc,
+            interrogate_period_s: cfg.interrogate_period_s,
+            counter_interrogate_period_s: cfg.counter_interrogate_period_s,
+            snapshot,
+        });
+    }
+    let json = MasterConfigFile::new(out).to_json()?;
+    std::fs::write(&path, json).map_err(|e| format!("写入文件失败: {e}"))
+}
+
+#[tauri::command]
+pub async fn load_config(
+    state: State<'_, AppState>,
+    app_handle: AppHandle,
+    path: String,
+) -> Result<usize, String> {
+    use iec104sim_core::config::MasterConfigFile;
+
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("读取文件失败: {e}"))?;
+    let file = MasterConfigFile::from_json(&content)?;
+
+    let mut imported = 0usize;
+    for conn in file.connections {
+        let request = CreateConnectionRequest {
+            target_address: conn.target_address,
+            port: conn.port,
+            common_addresses: Some(conn.common_addresses),
+            common_address: None,
+            timeout_ms: Some(conn.timeout_ms),
+            use_tls: None,
+            ca_file: None,
+            cert_file: None,
+            key_file: None,
+            accept_invalid_certs: None,
+            tls_version: None,
+            t0: Some(conn.t0),
+            t1: Some(conn.t1),
+            t2: Some(conn.t2),
+            t3: Some(conn.t3),
+            k: Some(conn.k),
+            w: Some(conn.w),
+            default_qoi: Some(conn.default_qoi),
+            default_qcc: Some(conn.default_qcc),
+            interrogate_period_s: Some(conn.interrogate_period_s),
+            counter_interrogate_period_s: Some(conn.counter_interrogate_period_s),
+        };
+        let info = create_connection(state.clone(), app_handle.clone(), request).await?;
+
+        if !conn.snapshot.is_empty() {
+            let connections = state.connections.read().await;
+            if let Some(cs) = connections.get(&info.id) {
+                let mut data = cs.connection.received_data.write().await;
+                for sp in conn.snapshot {
+                    data.insert(sp.ca, sp.point);
+                }
+            }
+        }
+        imported += 1;
+    }
+    Ok(imported)
+}
