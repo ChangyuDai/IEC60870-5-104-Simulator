@@ -53,6 +53,116 @@ impl Default for CyclicConfig {
 }
 
 // ---------------------------------------------------------------------------
+// Remote Operation Configuration (远动运行参数配置)
+// ---------------------------------------------------------------------------
+//
+// 服务器级参数,运行时取一份 RwLock 快照传递给各处理函数,避免与 stations /
+// connections 锁交叉。
+
+/// IEC 60870-5-104 协议时序参数 (t0/t1/t2/t3/k/w)。
+/// 一期仅持久化与 UI 展示;运行时计时器尚未严格驱动 t1/t2/t3。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct ProtocolTimingConfig {
+    pub t0: u32,
+    pub t1: u32,
+    pub t2: u32,
+    pub t3: u32,
+    pub k: u16,
+    pub w: u16,
+}
+
+impl Default for ProtocolTimingConfig {
+    fn default() -> Self {
+        Self { t0: 30, t1: 15, t2: 10, t3: 20, k: 12, w: 8 }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UploadMode {
+    Continuous,
+    Discrete,
+}
+
+impl Default for UploadMode {
+    fn default() -> Self { Self::Discrete }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[repr(u8)]
+pub enum CommandAckCot {
+    ActivationCon = 7,
+    DeactivationCon = 9,
+    ActivationTermination = 10,
+}
+
+impl CommandAckCot {
+    pub fn as_u8(self) -> u8 { self as u8 }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct RandomMutationPacing {
+    pub batch_size: u32,
+    pub delay_ms: u32,
+}
+
+impl Default for RandomMutationPacing {
+    fn default() -> Self { Self { batch_size: 2000, delay_ms: 50 } }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct FixedMutationConfig {
+    pub enabled: bool,
+    pub ioa: u32,
+    pub asdu_type: AsduTypeId,
+    pub period_ms: u32,
+}
+
+impl Default for FixedMutationConfig {
+    fn default() -> Self { Self { enabled: false, ioa: 1, asdu_type: AsduTypeId::MSpNa1, period_ms: 1000 } }
+}
+
+/// 远动运行参数 (13 项)。`#[serde(default)]` 保证旧配置缺字段时取默认。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RemoteOperationConfig {
+    pub sp_sync_with_tb: bool,
+    pub answer_general_interrogation: bool,
+    pub answer_counter_interrogation: bool,
+    pub answer_commands: bool,
+    pub gi_include_timestamped: bool,
+    pub upload_mode_untimestamped: UploadMode,
+    pub upload_mode_timestamped: UploadMode,
+    pub select_ack_cot: CommandAckCot,
+    pub execute_ack_cot: CommandAckCot,
+    pub cancel_ack_cot: CommandAckCot,
+    pub random_pacing: RandomMutationPacing,
+    pub auto_packing: bool,
+    pub fixed_mutation: FixedMutationConfig,
+}
+
+impl Default for RemoteOperationConfig {
+    fn default() -> Self {
+        Self {
+            sp_sync_with_tb: false,
+            answer_general_interrogation: true,
+            answer_counter_interrogation: true,
+            answer_commands: true,
+            gi_include_timestamped: false,
+            upload_mode_untimestamped: UploadMode::Discrete,
+            upload_mode_timestamped: UploadMode::Discrete,
+            select_ack_cot: CommandAckCot::ActivationCon,
+            execute_ack_cot: CommandAckCot::ActivationTermination,
+            cancel_ack_cot: CommandAckCot::DeactivationCon,
+            random_pacing: RandomMutationPacing::default(),
+            auto_packing: false,
+            fixed_mutation: FixedMutationConfig::default(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Stream Abstraction (for blocking TLS path)
 // ---------------------------------------------------------------------------
 
@@ -309,15 +419,24 @@ fn build_response_frame(recv: &[u8], cot: u8, seq: &mut SeqState) -> Vec<u8> {
 // ---------------------------------------------------------------------------
 
 pub type SharedStations = Arc<RwLock<HashMap<u16, Station>>>;
+pub type SharedRemoteOps = Arc<RwLock<RemoteOperationConfig>>;
+pub type SharedProtocolTiming = Arc<RwLock<ProtocolTimingConfig>>;
 
 pub struct SlaveServer {
     pub transport: SlaveTransportConfig,
     pub stations: SharedStations,
     pub log_collector: Option<Arc<LogCollector>>,
+    /// 远动运行参数 (服务器级)。RwLock 便于 spawn 的任务克隆引用。
+    pub remote_ops: SharedRemoteOps,
+    /// 协议时序参数 (服务器级)。一期仅持久化,运行时尚未严格驱动 t1/t2/t3。
+    pub protocol_timing: SharedProtocolTiming,
     state: ServerState,
     shutdown_flag: Arc<std::sync::atomic::AtomicBool>,
     server_handle: Option<tokio::task::JoinHandle<()>>,
     cyclic_handle: Option<tokio::task::JoinHandle<()>>,
+    /// 固定变位后台任务句柄。`set_fixed_mutation` 在 enabled 切换时 abort 旧任务。
+    #[allow(dead_code)]
+    fixed_mutation_handle: tokio::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
     connections: SharedConnections,
 }
 
@@ -327,12 +446,33 @@ impl SlaveServer {
             transport,
             stations: Arc::new(RwLock::new(HashMap::new())),
             log_collector: None,
+            remote_ops: Arc::new(RwLock::new(RemoteOperationConfig::default())),
+            protocol_timing: Arc::new(RwLock::new(ProtocolTimingConfig::default())),
             state: ServerState::Stopped,
             shutdown_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             server_handle: None,
             cyclic_handle: None,
+            fixed_mutation_handle: tokio::sync::Mutex::new(None),
             connections: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    pub async fn set_remote_ops(&self, new_ops: RemoteOperationConfig) -> RemoteOperationConfig {
+        let mut guard = self.remote_ops.write().await;
+        std::mem::replace(&mut *guard, new_ops)
+    }
+
+    pub async fn get_remote_ops(&self) -> RemoteOperationConfig {
+        self.remote_ops.read().await.clone()
+    }
+
+    pub async fn set_protocol_timing(&self, new_timing: ProtocolTimingConfig) -> ProtocolTimingConfig {
+        let mut guard = self.protocol_timing.write().await;
+        std::mem::replace(&mut *guard, new_timing)
+    }
+
+    pub async fn get_protocol_timing(&self) -> ProtocolTimingConfig {
+        *self.protocol_timing.read().await
     }
 
     pub fn with_log_collector(mut self, collector: Arc<LogCollector>) -> Self {

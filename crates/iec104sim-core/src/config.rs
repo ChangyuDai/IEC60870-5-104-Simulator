@@ -2,6 +2,7 @@
 //! 带 `app` 判别字段防止跨应用误加载。TLS 不写入文件。
 
 use crate::data_point::{DataPoint, InformationObjectDef};
+use crate::slave::{ProtocolTimingConfig, RemoteOperationConfig};
 use serde::{Deserialize, Serialize};
 
 pub const SLAVE_CONFIG_APP: &str = "iec104-slave";
@@ -24,6 +25,12 @@ pub struct SlaveServerConfig {
     pub bind_address: String,
     pub port: u16,
     pub stations: Vec<SlaveStationConfig>,
+    /// 协议时序 (t0/t1/t2/t3/k/w)。旧文件缺失时使用默认值。
+    #[serde(default)]
+    pub protocol_timing: ProtocolTimingConfig,
+    /// 远动运行参数 (应答开关、上送方式、COT 等)。
+    #[serde(default)]
+    pub remote_ops: RemoteOperationConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -136,12 +143,31 @@ mod tests {
                 name: "站1".to_string(),
                 object_defs: vec![],
             }],
+            protocol_timing: ProtocolTimingConfig::default(),
+            remote_ops: RemoteOperationConfig::default(),
         }]);
         let json = file.to_json().unwrap();
         let parsed = SlaveConfigFile::from_json(&json).unwrap();
         assert_eq!(json, parsed.to_json().unwrap());
         assert_eq!(parsed.servers.len(), 1);
         assert_eq!(parsed.servers[0].stations[0].common_address, 1);
+    }
+
+    #[test]
+    fn slave_file_loads_legacy_without_remote_ops() {
+        let legacy = r#"{
+            "app": "iec104-slave",
+            "version": 1,
+            "servers": [
+                { "bind_address": "0.0.0.0", "port": 2404,
+                  "stations": [{ "common_address": 1, "name": "站1", "object_defs": [] }]
+                }
+            ]
+        }"#;
+        let parsed = SlaveConfigFile::from_json(legacy).unwrap();
+        let s = &parsed.servers[0];
+        assert_eq!(s.protocol_timing.t0, 30);
+        assert!(s.remote_ops.answer_general_interrogation);
     }
 
     #[test]
