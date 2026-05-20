@@ -53,4 +53,16 @@ describe('buildBody', () => {
     expect(body).toContain('系统设置 → 隐私与安全性')
     expect(body).toContain('#first-launch-on-macos')
   })
+  it('places the CN mirror banner above the download table', () => {
+    const body = buildBody('v1.2.3', md)
+    const bannerIdx = body.indexOf('ghfast.top/https://github.com/Karl-Dai/IEC60870-5-104-Simulator/releases/latest')
+    const tableIdx = body.indexOf('## 下载 / Downloads')
+    expect(bannerIdx).toBeGreaterThanOrEqual(0)
+    expect(tableIdx).toBeGreaterThanOrEqual(0)
+    expect(bannerIdx).toBeLessThan(tableIdx)
+  })
+  it('mentions the one-time manual download caveat', () => {
+    const body = buildBody('v1.2.3', md)
+    expect(body).toMatch(/首次升级|first.*upgrade/i)
+  })
 })

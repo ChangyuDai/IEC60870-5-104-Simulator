@@ -58,6 +58,14 @@ export function buildBody(tag, changelog) {
   const lines = []
   lines.push(`# IEC60870-5-104 Simulator ${tag}`)
   lines.push('')
+  // 国内用户首次从旧版升级时,updater 仍指向 github.com,大概率拉不到;
+  // 引导他们直接走镜像下载安装包。新版本起 updater 已带 proxy fallback。
+  lines.push('> 🇨🇳 **中国大陆用户**:首次从旧版升级若失败,请直接从镜像下载安装包(新版本起更新检查会自动走 proxy):')
+  lines.push('>')
+  lines.push(`> <https://ghfast.top/${REPO_URL}/releases/latest>`)
+  lines.push('>')
+  lines.push('> 🌍 **Users in mainland China**: if the in-app updater fails on first upgrade from a previous version, download installers from the mirror above (later versions will auto-fallback through proxies).')
+  lines.push('')
   lines.push('## 下载 / Downloads')
   lines.push('')
   lines.push('下方资产里按平台选择 / Pick the asset for your platform below:')
