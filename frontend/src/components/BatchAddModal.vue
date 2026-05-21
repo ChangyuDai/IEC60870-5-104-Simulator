@@ -93,16 +93,6 @@ const nextFreeGapStart = computed<number | null>(() =>
 const canApplyNextIoa = computed(() => nextAvailableIoa.value !== null)
 const canApplyNextGap = computed(() => nextFreeGapStart.value !== null)
 
-const nextIoaDisabledTooltip = computed(() => {
-  if (existingSameTypeIoas.value.length === 0) return t('batchModal.nextIoaTooltipEmpty')
-  if (nextAvailableIoa.value === null) return t('batchModal.capacityFullTooltip')
-  return ''
-})
-
-const nextGapDisabledTooltip = computed(() =>
-  nextFreeGapStart.value === null ? t('batchModal.capacityFullTooltip') : '',
-)
-
 function applyNextAvailableIoa() {
   if (nextAvailableIoa.value !== null) startIoa.value = nextAvailableIoa.value
 }
@@ -192,18 +182,15 @@ function handleBackdropClick(e: MouseEvent) {
                 {{ opt.label }} · {{ opt.typeId }}
               </option>
             </select>
-            <div class="summary-card">
+            <div v-if="existingSameTypeIoas.length > 0" class="summary-card">
               <div class="summary-card__title">
                 <span class="summary-card__type">{{ formAsduType }}</span>
                 <span class="summary-card__sep">·</span>
                 <span class="summary-card__count">
-                  <template v-if="existingSameTypeIoas.length > 0">
-                    {{ t('batchModal.existingSameType', { count: existingSameTypeIoas.length }) }}
-                  </template>
-                  <template v-else>{{ t('batchModal.summaryEmpty') }}</template>
+                  {{ t('batchModal.existingSameType', { count: existingSameTypeIoas.length }) }}
                 </span>
               </div>
-              <div v-if="existingSameTypeIoas.length > 0" class="summary-card__ranges">
+              <div class="summary-card__ranges">
                 <span class="summary-card__ranges-label">IOA</span>
                 <span class="summary-card__ranges-value">{{ existingRangesText }}</span>
               </div>
@@ -212,7 +199,7 @@ function handleBackdropClick(e: MouseEvent) {
                   type="button"
                   class="summary-card__btn"
                   :disabled="!canApplyNextIoa"
-                  :title="nextIoaDisabledTooltip"
+                  :title="canApplyNextIoa ? '' : t('batchModal.capacityFullTooltip')"
                   @click="applyNextAvailableIoa"
                 >
                   {{ t('batchModal.nextIoaBtn') }}
@@ -221,7 +208,7 @@ function handleBackdropClick(e: MouseEvent) {
                   type="button"
                   class="summary-card__btn"
                   :disabled="!canApplyNextGap"
-                  :title="nextGapDisabledTooltip"
+                  :title="canApplyNextGap ? '' : t('batchModal.capacityFullTooltip')"
                   @click="applyNextFreeGap"
                 >
                   {{ t('batchModal.nextGapBtn') }}

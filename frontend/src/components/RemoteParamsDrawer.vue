@@ -4,12 +4,18 @@ import { useRemoteParams } from '../composables/useRemoteParams'
 import RemoteParamsForm from './RemoteParamsForm.vue'
 import type { ProtocolTimingConfig, RemoteOperationConfig } from '../types'
 
+const props = defineProps<{
+  visible: boolean
+}>()
+const emit = defineEmits<{
+  close: []
+}>()
+
 const selectedServerId = inject<Ref<string | null>>('selectedServerId') as Ref<string | null>
 
 const { timing, ops, loading, lastError, load, applyTiming, applyOps, setFixedMutation } =
   useRemoteParams(selectedServerId)
 
-const collapsed = ref(false)
 const saving = ref(false)
 const savedFlash = ref(false)
 let flashTimer: ReturnType<typeof setTimeout> | null = null
@@ -18,10 +24,7 @@ let flashTimer: ReturnType<typeof setTimeout> | null = null
 function snapshot(t: ProtocolTimingConfig, o: RemoteOperationConfig): string {
   return JSON.stringify({
     t,
-    o: {
-      ...o,
-      fixed_mutation: { ...o.fixed_mutation, enabled: false },
-    },
+    o: { ...o, fixed_mutation: { ...o.fixed_mutation, enabled: false } },
   })
 }
 
@@ -76,128 +79,156 @@ async function discardChanges() {
   baselineKey.value = snapshot(timing.value, ops.value)
 }
 
-function toggle() {
-  collapsed.value = !collapsed.value
-}
-
 async function startFixed() {
   await setFixedMutation({ ...ops.value.fixed_mutation, enabled: true })
 }
 async function stopFixed() {
   await setFixedMutation({ ...ops.value.fixed_mutation, enabled: false })
 }
+
+function close() {
+  if (saving.value) return
+  emit('close')
+}
+
+function handleBackdrop(e: MouseEvent) {
+  if ((e.target as HTMLElement).classList.contains('rp-drawer-backdrop')) {
+    close()
+  }
+}
+
+function handleEsc(e: KeyboardEvent) {
+  if (e.key === 'Escape' && props.visible) close()
+}
+
+watch(() => props.visible, (v) => {
+  if (v) {
+    window.addEventListener('keydown', handleEsc)
+  } else {
+    window.removeEventListener('keydown', handleEsc)
+  }
+})
 </script>
 
 <template>
-  <div :class="['remote-params', { collapsed }]">
-    <button class="rp-toggle" @click="toggle" :title="collapsed ? '展开远动参数' : '折叠'">
-      <span v-if="!collapsed">远动运行参数 ▸</span>
-      <span v-else>◂</span>
-    </button>
-
-    <div v-if="!collapsed" class="rp-body">
-      <header class="rp-head">
-        <div class="rp-head-title">
-          <span class="rp-head-eyebrow">REMOTE OPS</span>
-          <h3>远动运行参数</h3>
-        </div>
-        <div class="rp-head-actions">
-          <button
-            v-if="dirty"
-            class="rp-btn rp-btn-ghost"
-            :disabled="saving"
-            @click="discardChanges"
-            title="放弃修改 · 重新载入"
-          >放弃</button>
-          <button
-            class="rp-btn rp-btn-primary"
-            :class="{ 'is-dirty': dirty, 'is-flash': savedFlash }"
-            :disabled="saving || !dirty || !selectedServerId"
-            @click="saveAll"
-          >
-            <span class="rp-btn-dot" v-if="dirty" />
-            {{ saveLabel }}
-          </button>
-        </div>
-      </header>
-
-      <div v-if="!selectedServerId" class="rp-empty">
-        <span class="rp-empty-mark">·</span>
-        <span>请先在左侧选择一个服务器</span>
-      </div>
-
-      <template v-else>
-        <RemoteParamsForm :timing="timing" :ops="ops">
-          <template #actions-fixed="{ enabled }">
-            <div class="rp-fixed-actions">
-              <button class="rp-tag-btn rp-tag-start" @click="startFixed" :disabled="enabled">
-                <span class="rp-pulse" v-if="!enabled" /> 启动
-              </button>
-              <button class="rp-tag-btn rp-tag-stop" @click="stopFixed" :disabled="!enabled">停止</button>
-              <span class="rp-fixed-state" :class="{ on: enabled }">
-                <span class="rp-state-dot" />
-                {{ enabled ? '运行中' : '空闲' }}
-              </span>
+  <Teleport to="body">
+    <Transition name="rp-drawer">
+      <div
+        v-if="visible"
+        class="rp-drawer-backdrop"
+        @mousedown="handleBackdrop"
+      >
+        <aside
+          class="rp-drawer"
+          role="dialog"
+          aria-label="远动运行参数"
+          @mousedown.stop
+        >
+          <header class="rp-drawer-head">
+            <div class="rp-drawer-title">
+              <span class="rp-drawer-eyebrow">REMOTE OPS</span>
+              <h3>远动运行参数</h3>
             </div>
-          </template>
-        </RemoteParamsForm>
+            <div class="rp-drawer-actions">
+              <button
+                v-if="dirty"
+                class="rp-btn rp-btn-ghost"
+                :disabled="saving"
+                @click="discardChanges"
+                title="放弃修改 · 重新载入"
+              >放弃</button>
+              <button
+                class="rp-btn rp-btn-primary"
+                :class="{ 'is-dirty': dirty, 'is-flash': savedFlash }"
+                :disabled="saving || !dirty || !selectedServerId"
+                @click="saveAll"
+              >
+                <span class="rp-btn-dot" v-if="dirty" />
+                {{ saveLabel }}
+              </button>
+              <button
+                class="rp-btn-close"
+                :disabled="saving"
+                @click="close"
+                title="关闭 (Esc)"
+                aria-label="关闭"
+              >×</button>
+            </div>
+          </header>
 
-        <p v-if="lastError" class="rp-error">{{ lastError }}</p>
-        <p v-if="loading" class="rp-muted">载入中…</p>
-        <p class="rp-foot-note">t1/t2/t3 当前仅持久化，运行时计时器未完全驱动。</p>
-      </template>
-    </div>
-  </div>
+          <div class="rp-drawer-body">
+            <div v-if="!selectedServerId" class="rp-empty">
+              <span class="rp-empty-mark">·</span>
+              <span>请先在左侧选择一个服务器</span>
+            </div>
+
+            <template v-else>
+              <RemoteParamsForm :timing="timing" :ops="ops">
+                <template #actions-fixed="{ enabled }">
+                  <div class="rp-fixed-actions">
+                    <button class="rp-tag-btn rp-tag-start" @click="startFixed" :disabled="enabled">
+                      <span class="rp-pulse" v-if="!enabled" /> 启动
+                    </button>
+                    <button class="rp-tag-btn rp-tag-stop" @click="stopFixed" :disabled="!enabled">停止</button>
+                    <span class="rp-fixed-state" :class="{ on: enabled }">
+                      <span class="rp-state-dot" />
+                      {{ enabled ? '运行中' : '空闲' }}
+                    </span>
+                  </div>
+                </template>
+              </RemoteParamsForm>
+
+              <p v-if="lastError" class="rp-error">{{ lastError }}</p>
+              <p v-if="loading" class="rp-muted">载入中…</p>
+              <p class="rp-foot-note">t1/t2/t3 当前仅持久化，运行时计时器未完全驱动。</p>
+            </template>
+          </div>
+        </aside>
+      </div>
+    </Transition>
+  </Teleport>
 </template>
 
 <style scoped>
-.remote-params {
+.rp-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1500;
+  background: color-mix(in srgb, var(--c-crust) 60%, transparent);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   display: flex;
-  flex-direction: row;
-  height: 100%;
+  justify-content: flex-end;
+}
+
+.rp-drawer {
+  width: 420px;
+  max-width: 92vw;
+  height: 100vh;
   background: var(--c-mantle);
   border-left: 1px solid var(--c-surface0);
-}
-
-.remote-params.collapsed { width: 36px; }
-
-.rp-toggle {
-  width: 36px;
-  background: var(--c-surface0);
-  color: var(--c-text);
-  border: none;
-  cursor: pointer;
-  writing-mode: vertical-rl;
-  text-orientation: mixed;
-  padding: 8px 4px;
-  font: 600 11px/1 ui-monospace, "SF Mono", Menlo, monospace;
-  letter-spacing: 0.08em;
-}
-
-.rp-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 0;
+  box-shadow: -16px 0 32px -8px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
   font-size: 12px;
   color: var(--c-text);
 }
 
-.rp-head {
+.rp-drawer-head {
   position: sticky;
   top: 0;
   z-index: 2;
   display: flex;
   align-items: flex-end;
-  gap: 10px;
-  padding: 10px 12px 10px;
+  gap: 8px;
+  padding: 12px 14px 12px;
   background: linear-gradient(180deg, var(--c-mantle) 0%, var(--c-mantle) 70%, color-mix(in srgb, var(--c-mantle) 80%, transparent) 100%);
   border-bottom: 1px solid var(--c-surface0);
-  backdrop-filter: blur(6px);
 }
 
-.rp-head-title { flex: 1; min-width: 0; }
+.rp-drawer-title { flex: 1; min-width: 0; }
 
-.rp-head-eyebrow {
+.rp-drawer-eyebrow {
   display: block;
   font: 600 9.5px/1 ui-monospace, "SF Mono", Menlo, monospace;
   letter-spacing: 0.16em;
@@ -205,7 +236,7 @@ async function stopFixed() {
   margin-bottom: 4px;
 }
 
-.rp-head h3 {
+.rp-drawer-head h3 {
   margin: 0;
   font-size: 14px;
   font-weight: 600;
@@ -213,7 +244,11 @@ async function stopFixed() {
   letter-spacing: 0.01em;
 }
 
-.rp-head-actions { display: flex; align-items: center; gap: 6px; }
+.rp-drawer-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 
 .rp-btn {
   display: inline-flex;
@@ -273,11 +308,41 @@ async function stopFixed() {
   box-shadow: 0 0 6px currentColor;
 }
 
-.rp-body > :not(.rp-head):not(.rp-empty) { padding: 0 12px; }
-.rp-body > .rp-head + :not(.rp-empty) { margin-top: 10px; }
+.rp-btn-close {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--c-overlay0);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  margin-left: 2px;
+  transition: background 100ms, color 100ms;
+}
+
+.rp-btn-close:hover:not(:disabled) {
+  background: var(--c-surface0);
+  color: var(--c-text);
+}
+
+.rp-btn-close:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.rp-drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 14px 16px;
+}
 
 .rp-empty {
-  margin: 24px 12px;
+  margin: 24px 0;
   padding: 18px 14px;
   border: 1px dashed var(--c-surface0);
   border-radius: 6px;
@@ -293,6 +358,29 @@ async function stopFixed() {
   color: var(--c-overlay0);
 }
 
+.rp-muted { color: var(--c-subtext0); font-size: 11px; padding: 4px 0 8px; }
+
+.rp-error {
+  margin-top: 8px;
+  padding: 6px 8px;
+  font-size: 11.5px;
+  color: var(--c-red);
+  background: color-mix(in srgb, var(--c-red) 12%, transparent);
+  border-left: 2px solid var(--c-red);
+  border-radius: 3px;
+}
+
+.rp-foot-note {
+  margin: 12px 0 0;
+  padding: 6px 8px;
+  font-size: 10.5px;
+  color: var(--c-overlay0);
+  border-left: 2px solid var(--c-surface1);
+  background: var(--c-base);
+  border-radius: 0 3px 3px 0;
+}
+
+/* —— 固定变位启停 —— */
 .rp-fixed-actions {
   margin-top: 8px;
   display: flex;
@@ -305,7 +393,7 @@ async function stopFixed() {
   align-items: center;
   gap: 6px;
   padding: 4px 10px;
-  background: var(--c-mantle);
+  background: var(--c-base);
   color: var(--c-text);
   border: 1px solid var(--c-surface1);
   border-radius: 3px;
@@ -355,24 +443,26 @@ async function stopFixed() {
   50%      { opacity: 1;    transform: scale(1.2); }
 }
 
-.rp-muted { color: var(--c-subtext0); font-size: 11px; padding: 4px 0 8px; }
-.rp-error {
-  margin-top: 8px;
-  padding: 6px 8px;
-  font-size: 11.5px;
-  color: var(--c-red);
-  background: color-mix(in srgb, var(--c-red) 12%, transparent);
-  border-left: 2px solid var(--c-red);
-  border-radius: 3px;
+/* —— 进出场动画 —— */
+.rp-drawer-enter-active,
+.rp-drawer-leave-active {
+  transition: background-color 220ms ease, backdrop-filter 220ms ease;
+}
+.rp-drawer-enter-active .rp-drawer,
+.rp-drawer-leave-active .rp-drawer {
+  transition: transform 280ms cubic-bezier(0.32, 0.72, 0, 1),
+              opacity 200ms ease;
 }
 
-.rp-foot-note {
-  margin: 4px 0 14px;
-  padding: 6px 8px;
-  font-size: 10.5px;
-  color: var(--c-overlay0);
-  border-left: 2px solid var(--c-surface1);
-  background: var(--c-base);
-  border-radius: 0 3px 3px 0;
+.rp-drawer-enter-from,
+.rp-drawer-leave-to {
+  background: color-mix(in srgb, var(--c-crust) 0%, transparent);
+  backdrop-filter: blur(0);
+  -webkit-backdrop-filter: blur(0);
+}
+.rp-drawer-enter-from .rp-drawer,
+.rp-drawer-leave-to .rp-drawer {
+  transform: translateX(100%);
+  opacity: 0.6;
 }
 </style>

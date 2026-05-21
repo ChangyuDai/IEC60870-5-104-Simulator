@@ -25,64 +25,65 @@ const asduTypeOptions = [
   'm_me_na_1', 'm_me_nb_1', 'm_me_nc_1', 'm_it_na_1',
 ]
 
-const timingMeta: { key: 't0' | 't1' | 't2' | 't3' | 'k' | 'w'; hint: string; min: number; max: number }[] = [
-  { key: 't0', hint: '建立连接超时 (s)', min: 1, max: 255 },
-  { key: 't1', hint: '发送/测试超时 (s)', min: 1, max: 255 },
-  { key: 't2', hint: 'S 帧响应超时 (s)', min: 1, max: 255 },
-  { key: 't3', hint: 'TestFR 触发 (s)', min: 1, max: 255 },
+const timingMeta: { key: 't0' | 't1' | 't2' | 't3' | 'k' | 'w'; hint: string; unit?: string; min: number; max: number }[] = [
+  { key: 't0', hint: '建立连接超时', unit: 's', min: 1, max: 255 },
+  { key: 't1', hint: '发送/测试超时', unit: 's', min: 1, max: 255 },
+  { key: 't2', hint: 'S 帧响应超时', unit: 's', min: 1, max: 255 },
+  { key: 't3', hint: 'TestFR 触发', unit: 's', min: 1, max: 255 },
   { key: 'k', hint: '未确认 I 帧上限', min: 1, max: 32767 },
   { key: 'w', hint: '累计后回送 S 帧', min: 1, max: 32767 },
 ]
 </script>
 
 <template>
-  <!-- ① 链路参数 -->
-  <section class="rp-card">
-    <header class="rp-card-head">
-      <span class="rp-eyebrow">01</span>
+  <!-- 链路参数 -->
+  <section class="rp-sec">
+    <header class="rp-sec-head">
       <h4>链路参数</h4>
-      <span class="rp-card-sub">协议时序 · 窗口</span>
+      <span class="rp-sec-sub">协议时序与窗口</span>
     </header>
-    <div class="rp-timing">
-      <div v-for="m in timingMeta" :key="m.key" class="rp-timing-cell">
-        <span class="rp-timing-key">{{ m.key }}</span>
+    <div class="rp-rows">
+      <label v-for="m in timingMeta" :key="m.key" class="rp-row rp-row-timing">
+        <span class="rp-row-key">{{ m.key }}</span>
         <input
           type="number"
           :min="m.min"
           :max="m.max"
           v-model.number="timing[m.key]"
         />
-        <span class="rp-timing-hint">{{ m.hint }}</span>
-      </div>
+        <span class="rp-row-unit">{{ m.unit ?? '' }}</span>
+        <span class="rp-row-hint">{{ m.hint }}</span>
+      </label>
     </div>
     <slot name="actions-timing" />
   </section>
 
-  <!-- ② 召唤与应答 -->
-  <section class="rp-card">
-    <header class="rp-card-head">
-      <span class="rp-eyebrow">02</span>
+  <!-- 召唤与应答 -->
+  <section class="rp-sec">
+    <header class="rp-sec-head">
       <h4>召唤与应答</h4>
-      <span class="rp-card-sub">主站请求处理</span>
+      <span class="rp-sec-sub">主站请求处理</span>
     </header>
 
     <div class="rp-group">
       <span class="rp-group-label">应答开关</span>
       <label class="rp-switch">
         <input type="checkbox" v-model="ops.answer_general_interrogation" />
-        <span>总召唤 <code>C_IC_NA_1</code></span>
+        <span class="rp-switch-text">总召唤</span>
+        <code class="rp-tag">C_IC_NA_1</code>
       </label>
       <label class="rp-switch">
         <input type="checkbox" v-model="ops.answer_counter_interrogation" />
-        <span>累积量召唤 <code>C_CI_NA_1</code></span>
+        <span class="rp-switch-text">累积量召唤</span>
+        <code class="rp-tag">C_CI_NA_1</code>
       </label>
       <label class="rp-switch">
         <input type="checkbox" v-model="ops.answer_commands" />
-        <span>遥控、遥调</span>
+        <span class="rp-switch-text">遥控、遥调</span>
       </label>
       <label class="rp-switch">
         <input type="checkbox" v-model="ops.gi_include_timestamped" />
-        <span>召唤含带时标点</span>
+        <span class="rp-switch-text">召唤含带时标点</span>
       </label>
     </div>
 
@@ -111,12 +112,11 @@ const timingMeta: { key: 't0' | 't1' | 't2' | 't3' | 'k' | 'w'; hint: string; mi
     <slot name="actions-ops" />
   </section>
 
-  <!-- ③ 数据上送方式 -->
-  <section class="rp-card">
-    <header class="rp-card-head">
-      <span class="rp-eyebrow">03</span>
+  <!-- 数据上送方式 -->
+  <section class="rp-sec">
+    <header class="rp-sec-head">
       <h4>数据上送方式</h4>
-      <span class="rp-card-sub">ASDU 组装策略</span>
+      <span class="rp-sec-sub">ASDU 组装策略</span>
     </header>
 
     <div class="rp-group">
@@ -139,21 +139,21 @@ const timingMeta: { key: 't0' | 't1' | 't2' | 't3' | 'k' | 'w'; hint: string; mi
       <span class="rp-group-label">组包策略</span>
       <label class="rp-switch">
         <input type="checkbox" v-model="ops.auto_packing" />
-        <span>自动组包（连续 IOA 合并）</span>
+        <span class="rp-switch-text">自动组包（连续 IOA 合并）</span>
       </label>
       <label class="rp-switch">
         <input type="checkbox" v-model="ops.sp_sync_with_tb" />
-        <span><code>M_SP_NA_1</code> 变位同步上送 <code>M_SP_TB_1</code></span>
+        <span class="rp-switch-text">变位同步上送</span>
+        <code class="rp-tag">M_SP_NA_1 → M_SP_TB_1</code>
       </label>
     </div>
   </section>
 
-  <!-- ④ 变位仿真 -->
-  <section class="rp-card">
-    <header class="rp-card-head">
-      <span class="rp-eyebrow">04</span>
+  <!-- 变位仿真 -->
+  <section class="rp-sec">
+    <header class="rp-sec-head">
       <h4>变位仿真</h4>
-      <span class="rp-card-sub">随机变位 · 固定变位</span>
+      <span class="rp-sec-sub">随机变位 · 固定变位</span>
     </header>
 
     <div class="rp-group">
@@ -200,37 +200,27 @@ const timingMeta: { key: 't0' | 't1' | 't2' | 't3' | 'k' | 'w'; hint: string; mi
       <slot name="actions-fixed" :enabled="ops.fixed_mutation.enabled" />
     </div>
   </section>
+
 </template>
 
 <style scoped>
-.rp-card {
-  position: relative;
-  background: var(--c-base);
-  border: 1px solid var(--c-surface0);
-  border-radius: 6px;
-  padding: 10px 12px 12px;
-  margin-bottom: 10px;
+/* —— Section（顶层分区，无卡片边框）—— */
+.rp-sec {
+  padding: 14px 0 6px;
 }
 
-.rp-card-head {
+.rp-sec + .rp-sec {
+  border-top: 1px solid var(--c-surface0);
+}
+
+.rp-sec-head {
   display: flex;
   align-items: baseline;
   gap: 8px;
   margin-bottom: 10px;
-  padding-bottom: 6px;
-  border-bottom: 1px dashed var(--c-surface0);
 }
 
-.rp-eyebrow {
-  font: 600 10px/1 ui-monospace, "SF Mono", Menlo, monospace;
-  letter-spacing: 0.06em;
-  color: var(--c-overlay0);
-  background: var(--c-surface0);
-  padding: 2px 5px;
-  border-radius: 3px;
-}
-
-.rp-card-head h4 {
+.rp-sec-head h4 {
   margin: 0;
   font-size: 12.5px;
   font-weight: 600;
@@ -238,81 +228,91 @@ const timingMeta: { key: 't0' | 't1' | 't2' | 't3' | 'k' | 'w'; hint: string; mi
   letter-spacing: 0.02em;
 }
 
-.rp-card-sub {
-  margin-left: auto;
-  font-size: 10.5px;
+.rp-sec-sub {
+  font-size: 11px;
   color: var(--c-overlay0);
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
 }
 
-.rp-group {
-  margin-top: 8px;
+.rp-sec-sub::before {
+  content: "·";
+  margin-right: 6px;
+  color: var(--c-surface2);
 }
 
+/* —— 组（section 内的子分组）—— */
 .rp-group + .rp-group {
-  margin-top: 12px;
-  padding-top: 10px;
-  border-top: 1px dashed var(--c-surface0);
+  margin-top: 14px;
 }
 
 .rp-group-label {
   display: block;
-  font: 600 10px/1 ui-monospace, "SF Mono", Menlo, monospace;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--c-blue);
-  margin-bottom: 6px;
-  opacity: 0.85;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--c-subtext0);
+  margin-bottom: 8px;
+  letter-spacing: 0.02em;
 }
 
-/* —— 链路参数：六联紧凑卡 —— */
-.rp-timing {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 6px;
+/* —— 链路参数：单列表行 —— */
+.rp-rows {
+  display: flex;
+  flex-direction: column;
 }
 
-.rp-timing-cell {
+.rp-row-timing {
   display: grid;
-  grid-template-columns: 22px 1fr;
-  grid-template-rows: auto auto;
+  grid-template-columns: 24px 84px 14px 1fr;
   align-items: center;
-  gap: 0 8px;
-  padding: 5px 7px;
-  background: var(--c-mantle);
+  gap: 0 10px;
+  padding: 4px 0;
+  font-size: 12px;
+  cursor: text;
+}
+
+.rp-row-timing + .rp-row-timing {
+  border-top: 1px solid color-mix(in srgb, var(--c-surface0) 50%, transparent);
+}
+
+.rp-row-key {
+  font: 500 12px/1 ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--c-subtext1, var(--c-subtext0));
+  letter-spacing: 0.04em;
+}
+
+.rp-row-timing input {
+  width: 100%;
+  height: 24px;
+  padding: 0 8px;
+  background: var(--c-base);
   border: 1px solid var(--c-surface0);
   border-radius: 4px;
-}
-
-.rp-timing-key {
-  grid-row: 1 / span 2;
-  font: 600 13px/1 ui-monospace, "SF Mono", Menlo, monospace;
-  color: var(--c-peach, var(--c-yellow, #f5c2a7));
-  align-self: center;
-}
-
-.rp-timing-cell input {
-  grid-column: 2;
-  width: 100%;
-  height: 22px;
-  padding: 0 6px;
-  background: var(--c-base);
-  border: 1px solid var(--c-surface1);
-  border-radius: 3px;
   color: var(--c-text);
   font: 500 12px/1 ui-monospace, "SF Mono", Menlo, monospace;
+  text-align: right;
+  transition: border-color 80ms linear, background 80ms linear;
 }
 
-.rp-timing-cell input:focus {
+.rp-row-timing input:hover {
+  border-color: var(--c-surface1);
+}
+
+.rp-row-timing input:focus {
   outline: none;
   border-color: var(--c-blue);
+  background: color-mix(in srgb, var(--c-blue) 6%, var(--c-base));
 }
 
-.rp-timing-hint {
-  grid-column: 2;
-  font-size: 10px;
+.rp-row-unit {
+  font: 500 11px/1 ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--c-overlay0);
+  min-width: 14px;
+}
+
+.rp-row-hint {
+  font-size: 11.5px;
   color: var(--c-subtext0);
-  opacity: 0.75;
+  letter-spacing: 0.01em;
 }
 
 /* —— Switch 行 —— */
@@ -320,7 +320,7 @@ const timingMeta: { key: 't0' | 't1' | 't2' | 't3' | 'k' | 'w'; hint: string; mi
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 0;
+  padding: 5px 0;
   font-size: 12px;
   color: var(--c-text);
   cursor: pointer;
@@ -336,12 +336,18 @@ const timingMeta: { key: 't0' | 't1' | 't2' | 't3' | 'k' | 'w'; hint: string; mi
   cursor: pointer;
 }
 
-.rp-switch code {
-  font: 500 11px/1 ui-monospace, "SF Mono", Menlo, monospace;
-  background: var(--c-surface0);
-  padding: 1px 4px;
+.rp-switch-text {
+  color: var(--c-text);
+}
+
+.rp-tag {
+  font: 500 10.5px/1 ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--c-subtext0);
+  background: transparent;
+  padding: 2px 6px;
+  border: 1px solid var(--c-surface0);
   border-radius: 3px;
-  color: var(--c-mauve, var(--c-blue));
+  letter-spacing: 0.02em;
 }
 
 /* —— Field 行（label 左 + control 右）—— */
@@ -349,7 +355,7 @@ const timingMeta: { key: 't0' | 't1' | 't2' | 't3' | 'k' | 'w'; hint: string; mi
   display: grid;
   grid-template-columns: 64px 1fr;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   margin-bottom: 6px;
 }
 
@@ -362,11 +368,11 @@ const timingMeta: { key: 't0' | 't1' | 't2' | 't3' | 'k' | 'w'; hint: string; mi
 .rp-field select,
 .rp-field input[type="number"] {
   width: 100%;
-  height: 24px;
-  padding: 0 6px;
-  background: var(--c-mantle);
+  height: 26px;
+  padding: 0 8px;
+  background: var(--c-base);
   border: 1px solid var(--c-surface0);
-  border-radius: 3px;
+  border-radius: 4px;
   color: var(--c-text);
   font: 500 12px/1 ui-monospace, "SF Mono", Menlo, monospace;
   transition: border-color 80ms linear;
@@ -381,9 +387,10 @@ const timingMeta: { key: 't0' | 't1' | 't2' | 't3' | 'k' | 'w'; hint: string; mi
 .rp-field input[type="number"]:focus {
   outline: none;
   border-color: var(--c-blue);
-  background: var(--c-base);
+  background: color-mix(in srgb, var(--c-blue) 6%, var(--c-base));
 }
 
+/* —— 变位仿真：节流 / 固定变位 —— */
 .rp-inline {
   display: flex;
   align-items: center;

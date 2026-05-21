@@ -4,6 +4,39 @@
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-05-21
+
+### Highlights / 亮点
+
+- 🗂️ **批量添加点位「已有点位汇总卡片」+ 一键避让冲突** / Batch-add summary card with one-click conflict avoidance — 批量添加弹窗顶部新增汇总卡片,实时显示当前类型已有点位的 IOA 范围(压缩为 `0–2, 5, 7–8` 形式)与冲突详情;新增「↓ 下一个可用 IOA」与「↦ 跳到能放下的空隙」两个快捷按钮,一键把起始 IOA 跳到不与现有点位冲突的位置 / The batch-add modal now shows a summary card with the existing IOA ranges (compressed as `0–2, 5, 7–8`) and conflict details for the selected type, plus "next free IOA" and "next fitting gap" buttons that jump the start IOA past any collision.
+- 🧰 **子站远动参数:常驻侧栏 → 工具栏抽屉** / Slave runtime params moved from a docked sidebar to a toolbar-triggered drawer — 删除常驻的 `RemoteParamsPanel` 及其专属布局列,改为工具栏齿轮按钮(hover 旋转 45°、未选中站点时禁用)打开 `RemoteParamsDrawer` 抽屉,主区域回收一列横向空间 / Removed the always-docked `RemoteParamsPanel` and its dedicated grid column; a toolbar gear button (rotates 45° on hover, disabled when no station is selected) now opens a `RemoteParamsDrawer`, reclaiming one column of horizontal space for the main view.
+- 🧪 **无头测试扩展:后端 8 类总召唤 + 前端组件挂载测试** / Headless test expansion — 新增后端 `gi_all_categories` 验证总召唤返回全部 8 类点位(含 StepPosition/Bitstring)且累计量召唤后 IT 仍在;首次引入前端 vitest 组件挂载测试,覆盖主站分类筛选/连接选择稳定与子站变化高亮/分类计数/切换不丢数据 / New backend `gi_all_categories` asserts GI returns all 8 categories (incl. StepPosition/Bitstring) and IT survives counter interrogation; the first frontend vitest component-mount tests cover master category-filter/connection-select stability and slave change-highlight/category-counts/no-data-loss.
+- 🔁 **互联回归 compat-suite CI** / Interop regression compat-suite CI — 新增 `compat-suite.yml`,对照 `mzaniolo/iec104 v0.4.0` 做互联冒烟,push/PR/每日 02:00 触发 / New `compat-suite.yml` runs interop smoke tests against pinned `mzaniolo/iec104 v0.4.0` on push/PR and a daily 02:00 schedule.
+
+### Added 新增
+
+- 批量添加汇总卡片:`compressRanges` 压缩 IOA 区间显示 + 冲突 IOA 提示;`findNextFreeGap` 二分搜索首个能容纳 N 点的空隙,驱动「跳到能放下的空隙」按钮 / Batch-add summary card: `compressRanges` for compact IOA range display, conflict hints, and `findNextFreeGap` (binary search for the first gap fitting N points) behind the "next fitting gap" button.
+- 后端集成测试 `crates/iec104sim-core/tests/gi_all_categories.rs`:总召唤返回 8 类点位 + 累计量召唤 IntegratedTotals 留存 / Backend integration test `gi_all_categories.rs`.
+- 前端 vitest 组件测试:`master-frontend/tests/{dataTableFilter,connectionSelect}.spec.ts` 与 `frontend/tests/dataPointTable.spec.ts` / Frontend vitest component tests across both apps.
+
+### Changed 改进
+
+- `frontend/src/App.vue`:移除 `RemoteParamsPanel` 与 `params-area` 布局列,网格列从 6 段简化为 5 段;新增 `openRuntimeParamsDrawer` provide 供工具栏调用 / `App.vue` drops the `RemoteParamsPanel` column (grid 6→5 tracks) and provides `openRuntimeParamsDrawer` for the toolbar.
+- 批量添加弹窗接入 `ioaRanges` helper(`compressRanges`/`lowerBound`/`findNextFreeGap`),用 `void` 替代 `defineExpose` 暂存,空隙计算加 count 守卫 / Batch-add modal wired to the `ioaRanges` helper, with a `void`-based stash and a count guard on gap computation.
+
+### Fixed 修复
+
+- 批量添加冲突文案 `conflictDetail` 由「覆盖」改为「跳过」,与后端「跳过已存在 IOA」的实际行为一致 / Batch-add `conflictDetail` copy changed from "overwrite" to "skip" to match the backend's actual skip-existing-IOA behaviour.
+
+### Tests 测试
+
+- 抽出 `ioaRanges` 纯函数并以 `frontend/tests/batchAdd/ioaRanges.spec.ts` 覆盖区间压缩、二分下界与空隙搜索边界 / Extracted `ioaRanges` pure helpers with unit tests covering range compression, lower-bound and gap-search edge cases.
+
+### Internal 内部
+
+- 新增 `.github/workflows/compat-suite.yml` 互联回归冒烟工作流 / Added the `compat-suite.yml` interop regression workflow.
+- 重新生成两个 Tauri 应用的 `gen/schemas/*`(desktop / macOS capability schema)/ Regenerated both apps' `gen/schemas/*` (desktop / macOS capability schemas).
+
 ## [1.4.1] - 2026-05-20
 
 ### Highlights / 亮点

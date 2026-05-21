@@ -4,9 +4,9 @@ export const RELEASES_URL = 'https://github.com/Karl-Dai/IEC60870-5-104-Simulato
 
 // Keep in sync with CHANGELOG.md — see `release` skill.
 export const RELEASE_NOTES: string[] = [
-  '远动运行参数面板重设计: 拆为「链路参数 / 召唤与应答 / 数据上送方式 / 变位仿真」4 块卡片, t0..w 改为 2×3 紧凑网格并附用途 hint',
-  '统一「保存全部」按钮 + dirty 检测: 顶部 sticky 头取代每段独立「应用」, 有改动时按钮变蓝并露出「放弃」, 保存成功短暂提示「已保存」',
-  '固定变位「启动/停止」加 hover 语义色 (启动→绿, 停止→红) + 运行状态 mono 字 + 脉冲点 (空闲灰 / 运行中绿色脉冲)',
-  'Modal 启停 toggle 修复键盘可达性: 原 display:none 改为 visually-hidden + :focus-within 焦点环, Tab 可达 / Space 可切 / 屏幕阅读器可读',
-  '清理: 删除 RemoteParamsPanel.vue 中重复的死代码 watch([timing,ops]); savedFlash setTimeout 加卸载与重复保存防叠加; saveLabel 提为 computed',
+  '批量添加点位新增「已有点位汇总卡片」: 实时显示当前类型已有 IOA 范围 (压缩为 0–2, 5, 7–8 形式) 与冲突详情',
+  '批量添加新增「↓ 下一个可用 IOA」「↦ 跳到能放下的空隙」快捷按钮, 一键把起始 IOA 避让到不冲突的位置',
+  '远动运行参数从常驻侧栏改为工具栏齿轮按钮触发的抽屉 (RemoteParamsDrawer), 主区域回收一列横向空间',
+  '批量添加冲突文案改为「跳过」, 与后端「跳过已存在 IOA」实际行为一致',
+  '测试扩展: 后端总召唤 8 类点位回归 + 首次引入前端组件挂载测试 (变化高亮 / 分类计数 / 切换不丢数据)',
 ]

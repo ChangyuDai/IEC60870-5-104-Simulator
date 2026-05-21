@@ -26,6 +26,7 @@ const { showAlert, showPrompt, showConfirm } = inject<{
   showConfirm: typeof ShowConfirm
 }>(dialogKey)!
 const openParseFrame = inject<(prefill?: string) => void>('openParseFrame')!
+const openRuntimeParamsDrawer = inject<() => void>('openRuntimeParamsDrawer')!
 
 const { active: mutationActive, rateMs: mutationRate, toggle: toggleMutation } = useMutationTimer()
 const { active: cyclicActive, intervalMs: cyclicInterval, toggle: toggleCyclic } = useCyclicTransmission()
@@ -226,6 +227,18 @@ async function openConfig() {
       <button class="toolbar-btn" @click="openParseFrame()" :title="t('toolbar.parseFrame')">
         <span class="toolbar-label">{{ t('toolbar.parseFrame') }}</span>
       </button>
+      <button
+        class="toolbar-btn toolbar-btn-params"
+        :disabled="!selectedServerId"
+        @click="openRuntimeParamsDrawer()"
+        :title="t('runtimeParams.title')"
+      >
+        <svg class="toolbar-icon-svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="8" cy="8" r="2.1"/>
+          <path d="M8 1.5v1.6M8 12.9v1.6M3.4 3.4l1.13 1.13M11.47 11.47l1.13 1.13M1.5 8h1.6M12.9 8h1.6M3.4 12.6l1.13-1.13M11.47 4.53l1.13-1.13"/>
+        </svg>
+        <span class="toolbar-label">{{ t('runtimeParams.title') }}</span>
+      </button>
     </div>
     <div class="toolbar-divider"></div>
     <div class="toolbar-group">
@@ -305,6 +318,19 @@ async function openConfig() {
 .toolbar-icon {
   font-weight: bold;
   font-size: 14px;
+}
+
+.toolbar-icon-svg {
+  width: 13px;
+  height: 13px;
+  flex: none;
+  color: var(--c-subtext0);
+  transition: color 100ms linear, transform 220ms ease;
+}
+
+.toolbar-btn-params:hover:not(:disabled) .toolbar-icon-svg {
+  color: var(--c-blue);
+  transform: rotate(45deg);
 }
 
 .toolbar-btn.btn-mutation-active {

@@ -4,7 +4,7 @@ export const RELEASES_URL = 'https://github.com/Karl-Dai/IEC60870-5-104-Simulato
 
 // Keep in sync with CHANGELOG.md — see `release` skill.
 export const RELEASE_NOTES: string[] = [
-  '本版本为子站 UI 维护版本: 子站「远动运行参数」面板重设计为 4 块卡片 + 统一「保存全部」按钮 + dirty 检测',
-  '主站二进制随版本同步升级, 协议栈与功能与 v1.4.0 保持一致, 无破坏性变更',
-  '可继续连接 v1.4.x 子站, k/w 窗口流控、SQ=1 连续打包、远动运行参数体系等行为不变',
+  '本版本以子站功能为主: 子站新增批量添加「汇总卡片 + 一键避让冲突」, 远动参数改为工具栏抽屉',
+  '主站二进制随版本同步升级至 v1.4.2, 协议栈与功能与 v1.4.x 保持一致, 无破坏性变更',
+  '新增主站前端组件测试 (分类筛选 / 连接选择稳定) 与后端总召唤 8 类点位回归, 巩固既有行为',
 ]
