@@ -4,6 +4,27 @@
 
 ## [Unreleased]
 
+## [1.4.3] - 2026-05-21
+
+### Highlights / 亮点
+
+- 🗑️ **修复子站无法删除 / 批量删除点位** / Fix: slave point deletion & batch deletion — 数据点表早已支持 Ctrl/Shift 多选,但右键「删除」只删光标下那一行、完全无视选中集合,且没有批量删除通道,导致多选后无法成批删除。现在删除作用于整个选中集合,新增后端批量删除命令一次锁内删除,并支持 Delete/Backspace 键 / The data-point table already supported Ctrl/Shift multi-select, but right-click "Delete" only removed the row under the cursor and ignored the selection, with no batch path at all. Deletion now operates on the whole selection via a new single-lock backend command, and the Delete/Backspace keys work too.
+- ⚡ **删除即时生效,不再「点了没反应」** / Deletes apply instantly — 删除后乐观地立即从本地表移除并重绘,规避 2s 增量轮询的 in-flight 竞态把删除「吞掉」造成的可感知延迟 / After deletion the row is optimistically removed from the local table immediately, sidestepping the perceptible lag caused by the 2-second incremental-poll in-flight guard swallowing the refresh.
+
+### Fixed 修复
+
+- 子站数据点表右键「删除」现作用于当前选中的所有点位(单选即删一个),不再仅删右键那一行;右键未选中的行会先将其设为唯一选中项(标准右键语义),右键已在多选内的行则保留整个选择 / Right-click "Delete" now targets every selected point (one when only one is selected) instead of just the clicked row; right-clicking an unselected row first selects it, while right-clicking inside an existing multi-selection keeps the whole selection.
+
+### Added 新增
+
+- 后端 `batch_remove_data_points` Tauri 命令 + 核心 `Station::remove_points(&[(ioa, type)])`:一次写锁内批量删除,HashSet 一次性剪除 `object_defs`,不存在的键跳过(幂等),坏 ASDU 类型在删除前即报错 / New `batch_remove_data_points` Tauri command + core `Station::remove_points`: batch-removes under a single write lock, prunes `object_defs` in one HashSet pass, skips missing keys (idempotent), and rejects bad ASDU types before removing anything.
+- 数据点表支持 **Delete / Backspace** 键删除选中行;右键菜单在多选时显示数量(`删除数据点 (N)`)/ Delete/Backspace keys remove the selected rows; the context menu shows the count (`Delete Point (N)`) when multiple rows are selected.
+
+### Tests 测试
+
+- 前端 `frontend/tests/dataPointDelete.spec.ts` 3 例:右键单删、多选批量删、Delete 键删,均断言作用于 `selectedRows` 且本地即时更新 / Frontend `dataPointDelete.spec.ts` (3 cases): single right-click delete, multi-select batch delete, Delete-key delete — all asserting the action targets `selectedRows` with instant local update.
+- 核心 `test_batch_remove_points_idempotent`:验证批量删除计数、幂等(跳过不存在的键)、`object_defs` 同步剪除 / Core `test_batch_remove_points_idempotent` covers removal count, idempotency, and `object_defs` pruning.
+
 ## [1.4.2] - 2026-05-21
 
 ### Highlights / 亮点

@@ -28,6 +28,7 @@ pub fn run() {
             commands::add_data_point,
             commands::batch_add_data_points,
             commands::remove_data_point,
+            commands::batch_remove_data_points,
             commands::update_data_point,
             commands::list_data_points,
             commands::list_data_points_since,

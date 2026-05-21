@@ -422,6 +422,41 @@ pub async fn remove_data_point(
         .map_err(|e| format!("failed to remove point: {}", e))
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct RemovePointTarget {
+    pub ioa: u32,
+    pub asdu_type: String,
+}
+
+/// Remove several points in one locked write. Returns the count removed.
+/// Unknown (ioa, type) pairs are skipped, so the call is idempotent.
+#[tauri::command]
+pub async fn batch_remove_data_points(
+    state: State<'_, AppState>,
+    server_id: String,
+    common_address: u16,
+    points: Vec<RemovePointTarget>,
+) -> Result<usize, String> {
+    let servers = state.servers.read().await;
+    let srv = servers
+        .get(&server_id)
+        .ok_or_else(|| format!("server {} not found", server_id))?;
+
+    // Resolve all ASDU types up front so a bad type aborts before any removal.
+    let mut targets = Vec::with_capacity(points.len());
+    for p in &points {
+        targets.push((p.ioa, parse_asdu_type(&p.asdu_type)?));
+    }
+
+    let mut stations = srv.server.stations.write().await;
+    let station = stations
+        .get_mut(&common_address)
+        .ok_or_else(|| format!("station CA={} not found", common_address))?;
+
+    Ok(station.remove_points(&targets))
+}
+
 #[tauri::command]
 pub async fn update_data_point(
     state: State<'_, AppState>,

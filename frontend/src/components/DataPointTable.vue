@@ -309,6 +309,13 @@ function emitSelection() {
 
 function handleTableKeydown(e: KeyboardEvent) {
   if (editingCell.value) return
+
+  if ((e.key === 'Delete' || e.key === 'Backspace') && selectedRows.value.length > 0) {
+    e.preventDefault()
+    deleteSelectedPoints()
+    return
+  }
+
   const list = filteredPoints.value
   if (list.length === 0) return
 
@@ -385,33 +392,46 @@ function onPointAdded() {
   dataRefreshKey.value++
 }
 
-// Context menu for delete
-const contextMenu = ref({ show: false, x: 0, y: 0, ioa: 0, asduType: '' })
+// Context menu for delete — acts on the current selection, not just the
+// right-clicked row, so multi-select (ctrl/shift) can be batch-deleted.
+const contextMenu = ref({ show: false, x: 0, y: 0 })
 
 function showContextMenu(e: MouseEvent, point: DataPointInfo) {
   e.preventDefault()
-  contextMenu.value = { show: true, x: e.clientX, y: e.clientY, ioa: point.ioa, asduType: point.asdu_type }
+  // 标准右键行为:右键未选中的行时,先把它设为唯一选中项;
+  // 右键已在多选内的行则保留整个选择,以便批量删除。
+  if (!isSelected(point)) {
+    selectedRows.value = [point]
+    lastClickedIndex.value = filteredPoints.value.indexOf(point)
+    emitSelection()
+  }
+  contextMenu.value = { show: true, x: e.clientX, y: e.clientY }
 }
 
 function closeContextMenu() {
   contextMenu.value.show = false
 }
 
-async function deletePoint() {
-  const ioa = contextMenu.value.ioa
+const selectedCount = computed(() => selectedRows.value.length)
+
+// 删除当前选中的所有点位(单选即删一个)。改走批量命令,一次锁内删除;
+// 乐观地立即从本地 dataMap 移除并重绘,避免与 2s 轮询的 in-flight 竞态
+// 把删除"吞掉"导致看似无效。
+async function deleteSelectedPoints() {
   contextMenu.value.show = false
   if (!selectedServerId.value || currentCA === null) return
+  const targets = selectedRows.value.map(r => ({ ioa: r.ioa, asdu_type: r.asdu_type }))
+  if (targets.length === 0) return
   try {
-    await invoke('remove_data_point', {
+    await invoke('batch_remove_data_points', {
       serverId: selectedServerId.value,
       commonAddress: currentCA,
-      ioa,
-      asduType: contextMenu.value.asduType,
+      points: targets,
     })
-    if (selectedRows.value.some(r => r.ioa === ioa)) {
-      selectedRows.value = selectedRows.value.filter(r => r.ioa !== ioa)
-      emitSelection()
-    }
+    for (const t of targets) dataMap.delete(pointKey(t.ioa, t.asdu_type))
+    selectedRows.value = []
+    emitSelection()
+    updateDisplay()
     await loadDataPoints()
   } catch (e) {
     await showAlert(String(e))
@@ -544,7 +564,9 @@ defineExpose({ loadData: loadDataPoints })
       :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }"
       @click.stop
     >
-      <div class="context-menu-item danger" @click="deletePoint">{{ t('table.deletePoint') }}</div>
+      <div class="context-menu-item danger" @click="deleteSelectedPoints">
+        {{ selectedCount > 1 ? `${t('table.deletePoint')} (${selectedCount})` : t('table.deletePoint') }}
+      </div>
     </div>
 
     <!-- Add Data Point Modal -->

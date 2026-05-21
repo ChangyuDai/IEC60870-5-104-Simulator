@@ -297,6 +297,21 @@ impl Station {
         Ok(())
     }
 
+    /// Remove multiple points in one pass. Missing (ioa, type) pairs are
+    /// skipped (idempotent) rather than aborting the batch. `object_defs` is
+    /// pruned once via a HashSet lookup to avoid O(n*m) retain calls.
+    /// Returns the number of points actually removed.
+    pub fn remove_points(&mut self, targets: &[(u32, AsduTypeId)]) -> usize {
+        use std::collections::HashSet;
+        let set: HashSet<(u32, AsduTypeId)> = targets.iter().copied().collect();
+        let before = self.data_points.len();
+        for &(ioa, asdu_type) in &set {
+            self.data_points.remove(ioa, asdu_type);
+        }
+        self.object_defs.retain(|d| !set.contains(&(d.ioa, d.asdu_type)));
+        before - self.data_points.len()
+    }
+
     /// Batch-add data points with consecutive IOAs starting from `start_ioa`.
     /// Optimized: avoids O(n) linear search in object_defs per point.
     pub fn batch_add_points(

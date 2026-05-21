@@ -312,6 +312,38 @@ mod tests {
     }
 
     #[test]
+    fn test_batch_remove_points_idempotent() {
+        use crate::slave::Station;
+        let mut st = Station::new(1, "");
+        st.add_point(InformationObjectDef {
+            ioa: 10, asdu_type: AsduTypeId::MSpNa1,
+            category: DataCategory::SinglePoint, name: String::new(), comment: String::new(),
+        }).unwrap();
+        st.add_point(InformationObjectDef {
+            ioa: 11, asdu_type: AsduTypeId::MSpNa1,
+            category: DataCategory::SinglePoint, name: String::new(), comment: String::new(),
+        }).unwrap();
+        st.add_point(InformationObjectDef {
+            ioa: 12, asdu_type: AsduTypeId::MMeNc1,
+            category: DataCategory::FloatMeasured, name: String::new(), comment: String::new(),
+        }).unwrap();
+        assert_eq!(st.data_points.len(), 3);
+
+        // 删除 10 + 12, 外加一个不存在的 (99) -> 跳过, 仅删 2 个
+        let removed = st.remove_points(&[
+            (10, AsduTypeId::MSpNa1),
+            (12, AsduTypeId::MMeNc1),
+            (99, AsduTypeId::MSpNa1),
+        ]);
+        assert_eq!(removed, 2);
+        assert_eq!(st.data_points.len(), 1);
+        assert!(st.data_points.contains(11, AsduTypeId::MSpNa1));
+        // object_defs 同步剪除
+        assert_eq!(st.object_defs.len(), 1);
+        assert_eq!(st.object_defs[0].ioa, 11);
+    }
+
+    #[test]
     fn test_mark_changed_drives_incremental() {
         let mut map = DataPointMap::new();
         map.insert(DataPoint::new(1, AsduTypeId::MSpNa1));
