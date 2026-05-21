@@ -165,6 +165,12 @@ export type DictShape = {
     saving: string
     add: string
     failedPrefix: string
+    summaryEmpty: string
+    nextIoaBtn: string
+    nextGapBtn: string
+    nextIoaTooltipEmpty: string
+    capacityFullTooltip: string
+    conflictDetail: string
   }
   valuePanel: {
     title: string
@@ -404,6 +410,12 @@ const dict: DictShape = {
     saving: '添加中...',
     add: '确认',
     failedPrefix: '批量添加失败：{err}',
+    summaryEmpty: '该类型尚未添加任何点',
+    nextIoaBtn: '↓ 下一个可用 IOA',
+    nextGapBtn: '↦ 跳到能放下的空隙',
+    nextIoaTooltipEmpty: '当前类型无现有点',
+    capacityFullTooltip: 'IOA 容量不足',
+    conflictDetail: '冲突 IOA {ranges}（{count} 个点将被跳过）',
   },
   valuePanel: {
     title: '数据点详情',

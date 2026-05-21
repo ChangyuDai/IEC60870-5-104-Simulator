@@ -6,6 +6,12 @@ import type { showAlert as ShowAlert } from '@shared/composables/useDialog'
 import { useI18n } from '@shared/i18n'
 import { ASDU_TYPE_OPTIONS } from '../constants/asduTypes'
 import type { DataPointInfo } from '../types'
+import {
+  IOA_MAX,
+  compressRanges,
+  lowerBound,
+  findNextFreeGap,
+} from './batchAdd/ioaRanges'
 
 const { t } = useI18n()
 const { showAlert } = inject<{ showAlert: typeof ShowAlert }>(dialogKey)!
@@ -51,37 +57,60 @@ const existingSameTypeIoas = computed<number[]>(() =>
     .map(p => p.ioa),
 )
 
-// [0,1,2,5,7,8] → "0–2, 5, 7–8"
-const existingRangesText = computed<string>(() => {
-  const xs = existingSameTypeIoas.value
-  if (xs.length === 0) return ''
-  const fmt = (s: number, e: number) => s === e ? String(s) : `${s}–${e}`
-  const parts: string[] = []
-  let s = xs[0], e = xs[0]
-  for (let i = 1; i < xs.length; i++) {
-    if (xs[i] === e + 1) { e = xs[i]; continue }
-    parts.push(fmt(s, e))
-    s = e = xs[i]
-  }
-  parts.push(fmt(s, e))
-  return parts.join(', ')
-})
+const existingRangesText = computed<string>(() =>
+  compressRanges(existingSameTypeIoas.value),
+)
 
-// Binary search the sorted IOA list for the count of entries in
-// [startIoa, startIoa+count-1]. O(log k) instead of O(count) — count can
-// reach 100000.
 const conflictCount = computed<number>(() => {
   const xs = existingSameTypeIoas.value
   if (xs.length === 0 || count.value <= 0 || startIoa.value < 0) return 0
   const lo = startIoa.value
   const hi = lo + count.value - 1
-  const lowerBound = (target: number) => {
-    let l = 0, r = xs.length
-    while (l < r) { const m = (l + r) >>> 1; if (xs[m] < target) l = m + 1; else r = m }
-    return l
-  }
-  return lowerBound(hi + 1) - lowerBound(lo)
+  return lowerBound(xs, hi + 1) - lowerBound(xs, lo)
 })
+
+const conflictRanges = computed<string>(() => {
+  const xs = existingSameTypeIoas.value
+  if (xs.length === 0 || conflictCount.value === 0) return ''
+  const lo = startIoa.value
+  const hi = lo + count.value - 1
+  const start = lowerBound(xs, lo)
+  const end = lowerBound(xs, hi + 1)
+  return compressRanges(xs.slice(start, end))
+})
+
+const nextAvailableIoa = computed<number | null>(() => {
+  const xs = existingSameTypeIoas.value
+  if (xs.length === 0) return null
+  const next = xs[xs.length - 1] + 1
+  return next > IOA_MAX ? null : next
+})
+
+const nextFreeGapStart = computed<number | null>(() =>
+  count.value > 0 ? findNextFreeGap(existingSameTypeIoas.value, count.value) : null,
+)
+
+const canApplyNextIoa = computed(() => nextAvailableIoa.value !== null)
+const canApplyNextGap = computed(() => nextFreeGapStart.value !== null)
+
+const nextIoaDisabledTooltip = computed(() => {
+  if (existingSameTypeIoas.value.length === 0) return t('batchModal.nextIoaTooltipEmpty')
+  if (nextAvailableIoa.value === null) return t('batchModal.capacityFullTooltip')
+  return ''
+})
+
+const nextGapDisabledTooltip = computed(() =>
+  nextFreeGapStart.value === null ? t('batchModal.capacityFullTooltip') : '',
+)
+
+function applyNextAvailableIoa() {
+  if (nextAvailableIoa.value !== null) startIoa.value = nextAvailableIoa.value
+}
+
+function applyNextFreeGap() {
+  if (nextFreeGapStart.value !== null) startIoa.value = nextFreeGapStart.value
+}
+
 
 watch(() => props.visible, (visible) => {
   if (visible) {
@@ -163,9 +192,44 @@ function handleBackdropClick(e: MouseEvent) {
                 {{ opt.label }} · {{ opt.typeId }}
               </option>
             </select>
-            <div v-if="existingSameTypeIoas.length > 0" class="existing-summary">
-              {{ t('batchModal.existingSameType', { count: existingSameTypeIoas.length }) }}
-              <span class="ioa-ranges">IOA: {{ existingRangesText }}</span>
+            <div class="summary-card">
+              <div class="summary-card__title">
+                <span class="summary-card__type">{{ formAsduType }}</span>
+                <span class="summary-card__sep">·</span>
+                <span class="summary-card__count">
+                  <template v-if="existingSameTypeIoas.length > 0">
+                    {{ t('batchModal.existingSameType', { count: existingSameTypeIoas.length }) }}
+                  </template>
+                  <template v-else>{{ t('batchModal.summaryEmpty') }}</template>
+                </span>
+              </div>
+              <div v-if="existingSameTypeIoas.length > 0" class="summary-card__ranges">
+                <span class="summary-card__ranges-label">IOA</span>
+                <span class="summary-card__ranges-value">{{ existingRangesText }}</span>
+              </div>
+              <div class="summary-card__actions">
+                <button
+                  type="button"
+                  class="summary-card__btn"
+                  :disabled="!canApplyNextIoa"
+                  :title="nextIoaDisabledTooltip"
+                  @click="applyNextAvailableIoa"
+                >
+                  {{ t('batchModal.nextIoaBtn') }}
+                </button>
+                <button
+                  type="button"
+                  class="summary-card__btn"
+                  :disabled="!canApplyNextGap"
+                  :title="nextGapDisabledTooltip"
+                  @click="applyNextFreeGap"
+                >
+                  {{ t('batchModal.nextGapBtn') }}
+                </button>
+              </div>
+              <div v-if="conflictCount > 0" class="summary-card__conflict">
+                {{ t('batchModal.conflictDetail', { ranges: conflictRanges, count: conflictCount }) }}
+              </div>
             </div>
           </div>
 
@@ -185,9 +249,7 @@ function handleBackdropClick(e: MouseEvent) {
               <span>{{ t('batchModal.rangeHint', { startIoa, endIoa, count }) }}</span>
             </template>
           </div>
-          <div v-if="conflictCount > 0" class="conflict-warn">
-            {{ t('batchModal.conflictWarn', { count: conflictCount }) }}
-          </div>
+
         </div>
 
         <div class="modal-footer">
@@ -308,23 +370,86 @@ function handleBackdropClick(e: MouseEvent) {
   color: var(--c-red);
 }
 
-.existing-summary {
+.summary-card {
   margin-top: 6px;
-  font-size: 12px;
-  color: var(--c-overlay1);
+  padding: 10px 12px;
+  background: var(--c-mantle);
+  border: 1px solid var(--c-surface1);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
-.existing-summary .ioa-ranges {
+.summary-card__title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.summary-card__type {
+  font-weight: 600;
+  color: var(--c-text);
+}
+
+.summary-card__sep {
+  color: var(--c-overlay0);
+}
+
+.summary-card__count {
+  color: var(--c-subtext0);
+}
+
+.summary-card__ranges {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.summary-card__ranges-label {
+  color: var(--c-overlay0);
+}
+
+.summary-card__ranges-value {
   font-family: var(--font-mono);
   color: var(--c-text);
-  margin-left: 6px;
   word-break: break-all;
 }
 
-.conflict-warn {
+.summary-card__actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.summary-card__btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  background: var(--c-surface0);
+  border: 1px solid var(--c-surface1);
+  color: var(--c-text);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.summary-card__btn:hover:not(:disabled) {
+  background: var(--c-surface1);
+}
+
+.summary-card__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.summary-card__conflict {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--c-red);
   color: var(--c-red);
   font-size: 12px;
-  margin-top: 2px;
+  font-family: var(--font-mono);
 }
 
 .modal-footer {
