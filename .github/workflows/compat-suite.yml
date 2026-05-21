@@ -1,0 +1,50 @@
+name: compat-suite
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'crates/iec104sim-core/**'
+      - '.github/workflows/compat-suite.yml'
+  pull_request:
+    paths:
+      - 'crates/iec104sim-core/**'
+  schedule:
+    - cron: '0 18 * * *'   # 北京时间 02:00
+  workflow_dispatch: {}
+
+jobs:
+  compat-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+        with: { path: IEC60870-5-104-Simulator }
+
+      - name: Checkout mzaniolo/iec104 (pinned)
+        uses: actions/checkout@v4
+        with:
+          repository: mzaniolo/iec104
+          ref: v0.4.0
+          path: iec104-mzaniolo-ref
+
+      - name: Checkout compat suite
+        uses: actions/checkout@v4
+        with:
+          repository: <your-org>/iec104-compat-suite
+          ref: main
+          path: iec104-compat-suite
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: iec104-compat-suite
+
+      - name: Run compat tests
+        working-directory: iec104-compat-suite
+        env:
+          RUST_BACKTRACE: 1
+        run: cargo test --all -- --test-threads 2
