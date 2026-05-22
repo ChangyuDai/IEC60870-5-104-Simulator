@@ -63,6 +63,11 @@ pub struct ConnectionInfo {
     pub default_qcc: u8,
     pub interrogate_period_s: u32,
     pub counter_interrogate_period_s: u32,
+    /// Timing fields auto-corrected during creation/import so they satisfy
+    /// the IEC 104 relationship invariants. Empty ⇒ the supplied config was
+    /// already valid. The frontend surfaces these to the user.
+    #[serde(default)]
+    pub timing_corrections: Vec<iec104sim_core::timing::TimingCorrection>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

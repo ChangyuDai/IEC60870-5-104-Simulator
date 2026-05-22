@@ -77,6 +77,24 @@ impl Default for ProtocolTimingConfig {
     }
 }
 
+impl ProtocolTimingConfig {
+    /// Normalize the timing parameters in place so they satisfy the IEC 104
+    /// relationship invariants (`t2 < t1 < t3`, `w ≤ ⌊2k/3⌋`). Returns the
+    /// fields that were corrected (empty ⇒ already valid).
+    pub fn normalize(&mut self) -> Vec<crate::timing::TimingCorrection> {
+        let (out, changes) = crate::timing::correct_timing(crate::timing::TimingParams {
+            t0: self.t0, t1: self.t1, t2: self.t2, t3: self.t3, k: self.k, w: self.w,
+        });
+        self.t0 = out.t0;
+        self.t1 = out.t1;
+        self.t2 = out.t2;
+        self.t3 = out.t3;
+        self.k = out.k;
+        self.w = out.w;
+        changes
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum UploadMode {
@@ -123,11 +141,57 @@ impl Default for FixedMutationConfig {
     fn default() -> Self { Self { enabled: false, ioa: 1, asdu_type: AsduTypeId::MSpNa1, period_ms: 1000 } }
 }
 
-/// 远动运行参数 (13 项)。`#[serde(default)]` 保证旧配置缺字段时取默认。
+/// 按分类的「变位同步上送 TB」开关。变位/周期上送时,开启的分类会在 NA 帧之后
+/// 额外派生并上送对应的带时标 (TB) 帧。累计量 (IT) 靠召唤上送而非变位,不提供此开关。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SyncTbByCategory {
+    pub sp: bool,
+    pub dp: bool,
+    pub st: bool,
+    pub bo: bool,
+    pub me_na: bool,
+    pub me_nb: bool,
+    pub me_nc: bool,
+}
+
+impl SyncTbByCategory {
+    /// 该分类是否开启变位同步派生 TB。IntegratedTotals 永不派生(无开关)。
+    pub fn enabled_for(&self, category: DataCategory) -> bool {
+        match category {
+            DataCategory::SinglePoint => self.sp,
+            DataCategory::DoublePoint => self.dp,
+            DataCategory::StepPosition => self.st,
+            DataCategory::Bitstring => self.bo,
+            DataCategory::NormalizedMeasured => self.me_na,
+            DataCategory::ScaledMeasured => self.me_nb,
+            DataCategory::FloatMeasured => self.me_nc,
+            DataCategory::IntegratedTotals => false,
+            DataCategory::System => false,
+        }
+    }
+}
+
+/// R1(显式 TB 优先于派生 TB):给定一个 NA 点,是否应为其派生 TB 帧。
+/// 仅当该类型有时标变体、自身不带时标、且该 IOA 尚无显式存储的 TB 点时为真——
+/// 显式 TB 会作为独立点位自行上送,跳过派生可避免同一 IOA 重复上送 TB。
+fn should_derive_tb(map: &DataPointMap, na_type: AsduTypeId, ioa: u32) -> bool {
+    if na_type.is_timestamped() {
+        return false;
+    }
+    match na_type.timestamped_variant() {
+        Some(tb) => !map.contains(ioa, tb),
+        None => false,
+    }
+}
+
+/// 远动运行参数。`#[serde(default)]` 保证旧配置缺字段时取默认。
+/// 旧版扁平字段 `sp_sync_with_tb: bool` 在反序列化时被静默忽略(本结构无
+/// deny_unknown_fields),其语义已由 `sync_tb_by_category` 按分类取代。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RemoteOperationConfig {
-    pub sp_sync_with_tb: bool,
+    pub sync_tb_by_category: SyncTbByCategory,
     pub answer_general_interrogation: bool,
     pub answer_counter_interrogation: bool,
     pub answer_commands: bool,
@@ -145,7 +209,7 @@ pub struct RemoteOperationConfig {
 impl Default for RemoteOperationConfig {
     fn default() -> Self {
         Self {
-            sp_sync_with_tb: false,
+            sync_tb_by_category: SyncTbByCategory::default(),
             answer_general_interrogation: true,
             answer_counter_interrogation: true,
             answer_commands: true,
@@ -223,25 +287,19 @@ impl Station {
 
     pub fn with_default_points(common_address: u16, name: impl Into<String>, count_per_category: u32) -> Self {
         let mut station = Self::new(common_address, name);
-        // 16 个 ASDU 类型（8 物理分类 × NA + TB），全部共享同一段 IOA 1..=N。
-        // (ioa, asdu_type) 是数据点的复合主键，不同类型可以挂在同一 IOA 下。
-        let asdu_types: [(AsduTypeId, DataCategory); 16] = [
+        // 8 个不带时标 (NA) 类型（每物理分类一个），全部共享同一段 IOA 1..=N。
+        // 默认不预建带时标 (TB) 点——TB 是同一信号的传输格式,由「变位同步上送」
+        // 开关现场派生(见 sync_tb_by_category / gi_include_timestamped)。
+        // 用户仍可手动添加 TB 点(NA 优先、TB 可选存在)。
+        let asdu_types: [(AsduTypeId, DataCategory); 8] = [
             (AsduTypeId::MSpNa1, DataCategory::SinglePoint),
-            (AsduTypeId::MSpTb1, DataCategory::SinglePoint),
             (AsduTypeId::MDpNa1, DataCategory::DoublePoint),
-            (AsduTypeId::MDpTb1, DataCategory::DoublePoint),
             (AsduTypeId::MStNa1, DataCategory::StepPosition),
-            (AsduTypeId::MStTb1, DataCategory::StepPosition),
             (AsduTypeId::MBoNa1, DataCategory::Bitstring),
-            (AsduTypeId::MBoTb1, DataCategory::Bitstring),
             (AsduTypeId::MMeNa1, DataCategory::NormalizedMeasured),
-            (AsduTypeId::MMeTd1, DataCategory::NormalizedMeasured),
             (AsduTypeId::MMeNb1, DataCategory::ScaledMeasured),
-            (AsduTypeId::MMeTe1, DataCategory::ScaledMeasured),
             (AsduTypeId::MMeNc1, DataCategory::FloatMeasured),
-            (AsduTypeId::MMeTf1, DataCategory::FloatMeasured),
             (AsduTypeId::MItNa1, DataCategory::IntegratedTotals),
-            (AsduTypeId::MItTb1, DataCategory::IntegratedTotals),
         ];
         for (asdu_type, category) in &asdu_types {
             for i in 0..count_per_category {
@@ -692,9 +750,8 @@ impl SlaveServer {
                                 let asdu = {
                                     let mut s = conn.seq.lock().await;
                                     let mut bytes = encode_point_frame_ex(point, 3, &ca_bytes, &mut *s, None);
-                                    if ops_snapshot.sp_sync_with_tb
-                                        && point.asdu_type.timestamped_variant().is_some()
-                                        && !point.asdu_type.is_timestamped()
+                                    if ops_snapshot.sync_tb_by_category.enabled_for(point.asdu_type.category())
+                                        && should_derive_tb(&station.data_points, point.asdu_type, point.ioa)
                                     {
                                         bytes.extend(encode_point_frame_ex(point, 3, &ca_bytes, &mut *s, Some(true)));
                                     }
@@ -1592,8 +1649,7 @@ fn handle_client_blocking(
                                     if !matches!(point.value, DataPointValue::IntegratedTotal { .. }) { continue; }
                                     batch.extend_from_slice(&encode_point_frame_ex(point, 37, &ca_bytes, &mut s, Some(false)));
                                     if ops_for_batch.gi_include_timestamped
-                                        && point.asdu_type.timestamped_variant().is_some()
-                                        && !point.asdu_type.is_timestamped()
+                                        && should_derive_tb(&station.data_points, point.asdu_type, point.ioa)
                                     {
                                         batch.extend_from_slice(&encode_point_frame_ex(point, 37, &ca_bytes, &mut s, Some(true)));
                                     }
@@ -1988,8 +2044,7 @@ async fn send_gi_response_blocking(
         for point in station.data_points.all_sorted() {
             batch.extend_from_slice(&encode_point_frame_ex(point, 20, &ca_bytes, &mut s, None));
             if ops.gi_include_timestamped
-                && point.asdu_type.timestamped_variant().is_some()
-                && !point.asdu_type.is_timestamped()
+                && should_derive_tb(&station.data_points, point.asdu_type, point.ioa)
             {
                 batch.extend_from_slice(&encode_point_frame_ex(point, 20, &ca_bytes, &mut s, Some(true)));
             }
@@ -2245,6 +2300,12 @@ async fn run_interrogation(
     // 按 (asdu_type 数值, ioa) 排序。同类型连续段可被 encode_points_grouped 合并为
     // 一个 VSQ.SQ=1 ASDU；不同 type 之间的边界天然断开。
     points.sort_by_key(|p| (p.asdu_type as u8, p.ioa));
+    // R1:快照中已显式存在的 TB 点 (ioa, tb_type)——这些 IOA 不再派生,避免重复上送。
+    let explicit_tb: std::collections::HashSet<(u32, AsduTypeId)> = points
+        .iter()
+        .filter(|p| p.asdu_type.is_timestamped())
+        .map(|p| (p.ioa, p.asdu_type))
+        .collect();
     let mut i = 0;
     while i < points.len() {
         let kind0 = points[i].asdu_type;
@@ -2259,10 +2320,24 @@ async fn run_interrogation(
         encode_segment_and_enqueue(
             seg, cot_data, &ca_bytes, &seq, &queue, k, kind_is_timestamped,
         ).await;
-        if include_timestamped && !kind_is_timestamped && kind0.timestamped_variant().is_some() {
-            encode_segment_and_enqueue(
-                seg, cot_data, &ca_bytes, &seq, &queue, k, true,
-            ).await;
+        // include_timestamped 时为不带时标段派生 TB 帧;R1 让已有显式 TB 的 IOA 不再派生。
+        if let Some(tb_type) = kind0
+            .timestamped_variant()
+            .filter(|_| include_timestamped && !kind_is_timestamped)
+        {
+            let any_suppressed = !explicit_tb.is_empty()
+                && seg.iter().any(|p| explicit_tb.contains(&(p.ioa, tb_type)));
+            if !any_suppressed {
+                // 本段无 IOA 被压制,整段派生以保持 SQ=1 分组。
+                encode_segment_and_enqueue(seg, cot_data, &ca_bytes, &seq, &queue, k, true).await;
+            } else {
+                for p in seg {
+                    if explicit_tb.contains(&(p.ioa, tb_type)) { continue; }
+                    encode_segment_and_enqueue(
+                        std::slice::from_ref(p), cot_data, &ca_bytes, &seq, &queue, k, true,
+                    ).await;
+                }
+            }
         }
         i = j;
     }
@@ -2364,9 +2439,8 @@ async fn do_queue_spontaneous(
                     }
                     for p in segment {
                         batch.extend(encode_point_frame_ex(p, 3, &ca_bytes, &mut *s, None));
-                        if ops.sp_sync_with_tb
-                            && p.asdu_type.timestamped_variant().is_some()
-                            && !p.asdu_type.is_timestamped()
+                        if ops.sync_tb_by_category.enabled_for(p.asdu_type.category())
+                            && should_derive_tb(&station.data_points, p.asdu_type, p.ioa)
                         {
                             batch.extend(encode_point_frame_ex(p, 3, &ca_bytes, &mut *s, Some(true)));
                         }
@@ -2381,9 +2455,8 @@ async fn do_queue_spontaneous(
                         None => continue,
                     };
                     batch.extend(encode_point_frame_ex(point, 3, &ca_bytes, &mut *s, None));
-                    if ops.sp_sync_with_tb
-                        && asdu_type.timestamped_variant().is_some()
-                        && !asdu_type.is_timestamped()
+                    if ops.sync_tb_by_category.enabled_for(asdu_type.category())
+                        && should_derive_tb(&station.data_points, asdu_type, ioa)
                     {
                         batch.extend(encode_point_frame_ex(point, 3, &ca_bytes, &mut *s, Some(true)));
                     }
@@ -2442,18 +2515,22 @@ mod tests {
     #[test]
     fn test_station_with_default_points() {
         let s = Station::with_default_points(1, "站1", 10);
-        // 16 ASDU 类型 × 10 IOA = 160；所有类型共享 IOA 1..=10
-        assert_eq!(s.data_points.len(), 160);
-        // IOA=1 上同时挂着所有 16 种 ASDU 类型
+        // 8 个 NA 类型 × 10 IOA = 80；默认不预建 TB（TB 改为派生格式）
+        assert_eq!(s.data_points.len(), 80);
+        // IOA=1 上挂着 8 种 NA 类型
         assert!(s.data_points.get(1, AsduTypeId::MSpNa1).is_some());
-        assert!(s.data_points.get(1, AsduTypeId::MSpTb1).is_some());
         assert!(s.data_points.get(1, AsduTypeId::MDpNa1).is_some());
+        assert!(s.data_points.get(1, AsduTypeId::MStNa1).is_some());
+        assert!(s.data_points.get(1, AsduTypeId::MBoNa1).is_some());
         assert!(s.data_points.get(1, AsduTypeId::MMeNc1).is_some());
-        assert!(s.data_points.get(1, AsduTypeId::MMeTf1).is_some());
-        assert!(s.data_points.get(1, AsduTypeId::MItTb1).is_some());
-        // 边界 IOA=10 也要存在
+        assert!(s.data_points.get(1, AsduTypeId::MItNa1).is_some());
+        // 默认不应预建任何 TB 点
+        assert!(s.data_points.get(1, AsduTypeId::MSpTb1).is_none());
+        assert!(s.data_points.get(1, AsduTypeId::MMeTf1).is_none());
+        assert!(s.data_points.get(1, AsduTypeId::MItTb1).is_none());
+        // 边界 IOA=10 的 NA 点存在
         assert!(s.data_points.get(10, AsduTypeId::MSpNa1).is_some());
-        assert!(s.data_points.get(10, AsduTypeId::MItTb1).is_some());
+        assert!(s.data_points.get(10, AsduTypeId::MItNa1).is_some());
         // IOA=11 不应该存在（所有类型只到 10）
         assert!(s.data_points.get(11, AsduTypeId::MSpNa1).is_none());
     }

@@ -4,6 +4,34 @@
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-05-22
+
+### Highlights / 亮点
+
+- 🔧 **IEC 104 时序参数自动纠正** / Auto-correction for IEC 104 timing params — t1/t2/t3/k/w 现在强制满足协议关系 `t2<t1<t3`、`w≤⌊2k/3⌋`:表单以「t1/k 为锚」在失焦时即时纠正(至多动一个邻居、绝不级联),后端在所有入口(建链 / 设置 / 导入)做权威规范化,导入旧的非法配置会自动修正并弹提示。再也无法保存会误断健康连接的非法组合 / Timing params now always satisfy the protocol relations `t2<t1<t3` and `w≤⌊2k/3⌋`: forms self-correct on blur with t1/k as anchors (touching at most one neighbor, never cascading), the backend authoritatively normalizes at every entry point (create / set / import), and importing a legacy invalid config auto-fixes it with a notice. Invalid combos that would drop healthy links can no longer be saved.
+- 🔁 **变位带时标(TB)同步改为按分类逐类开关** / Per-category timestamped (TB) sync on change — 原先只有「SP 变位同步 TB」一个总开关,现扩展为 SP / DP / ST / BO / ME_NA / ME_NB / ME_NC 七类各自独立开关;开启的分类在变位与总召唤时从对应 NA 点派生 TB 帧 / The single "SP sync TB" toggle is replaced by seven independent per-category switches (SP/DP/ST/BO/ME_NA/ME_NB/ME_NC); enabled categories derive the matching TB frame from their NA point on change and during interrogation.
+- 🧪 **新增 26 个无头测试** / 26 new headless tests — 核心 timing 规范化 13 例 + 前端 C3 vitest 13 例,覆盖边界(t1=1/255、k=1)、各违规组合与 master/slave 一致性 / 13 core timing-normalization cases + 13 frontend C3 vitest cases covering rails (t1=1/255, k=1), every violation combo and master/slave parity.
+
+### Added 新增
+
+- 核心模块 `iec104sim-core::timing`:口径无关纯函数 `correct_timing` + `MasterConfig::normalize_timing()` / `ProtocolTimingConfig::normalize()`;共享前端 `shared-frontend/timing.ts` 的编辑感知 `correctTimingEdit`,master 与 slave 表单复用同一份 C3 逻辑 / New core module `iec104sim-core::timing`: orientation-agnostic `correct_timing` plus `MasterConfig::normalize_timing()` / `ProtocolTimingConfig::normalize()`; shared frontend `shared-frontend/timing.ts` exposes the edit-aware `correctTimingEdit` reused by both the master and slave forms.
+- 远动参数 `sync_tb_by_category`:按数据分类(SP/DP/ST/BO/ME_NA/ME_NB/ME_NC)分别控制变位是否同步派生带时标帧,远动参数表单提供逐类开关 / Remote-ops `sync_tb_by_category`: per-data-category control (SP/DP/ST/BO/ME_NA/ME_NB/ME_NC) over whether a change derives a timestamped frame, with per-category toggles in the remote-params form.
+- 导入纠正提示:master / slave 加载配置发生时序纠正时,后端推送 `config-timing-corrected` 事件,前端弹出改动明细 / Import-time correction notice: when loading a config triggers a timing correction, the backend emits a `config-timing-corrected` event and the frontend surfaces the change details.
+
+### Changed 改进
+
+- 所有时序配置入口(master `create_connection`、slave `create_server` / `set_protocol_timing` / `load_config`、配置导入)落地前经后端权威规范化,不可绕过;前端编辑感知纠正的产出对后端规范化恒为空操作 / Every timing entry point (master `create_connection`, slave `create_server` / `set_protocol_timing` / `load_config`, config import) is authoritatively normalized before taking effect; the frontend's edit-aware output is always a no-op for the backend pass.
+- 变位 / 总召唤的 TB 派生从 `sp_sync_with_tb` 单开关迁移到 `sync_tb_by_category` 分类开关(旧字段保留以兼容旧配置反序列化)/ TB derivation on change / interrogation migrated from the single `sp_sync_with_tb` toggle to the `sync_tb_by_category` map (the old field is kept for backward-compatible deserialization).
+
+### Tests 测试
+
+- 后端 `timing` 13 例(含 `MasterConfig::normalize_timing` / `ProtocolTimingConfig::normalize` 委托、t1=1/255 与 k=1 边界、无级联断言);前端 `master-frontend/tests/timingCorrect.spec.ts` 13 例覆盖 spec 全场景 / Core `timing` (13 cases incl. the struct-method delegations, t1=1/255 and k=1 rails, no-cascade assertions); frontend `master-frontend/tests/timingCorrect.spec.ts` (13 cases) covering all spec scenarios.
+- `headless_remote_ops.rs` / `headless_timestamps.rs` / `large_gi_throughput.rs` 迁移到分类 TB 同步 API,新增 `headless_tb_sync.rs` / The headless TB tests migrated to the per-category sync API, with a new `headless_tb_sync.rs`.
+
+### BREAKING / 破坏性变更
+
+- `set_protocol_timing` Tauri 命令返回类型由 `Result<(), String>` 改为 `Result<Vec<TimingCorrection>, String>`;slave `load_config` 新增 `app_handle` 参数;`ConnectionInfo` 新增 `timing_corrections` 字段。前端 `invoke` 忽略返回值,JS 层兼容,无 UI 回归 / The `set_protocol_timing` Tauri command return type changed from `Result<(), String>` to `Result<Vec<TimingCorrection>, String>`; slave `load_config` gained an `app_handle` parameter; `ConnectionInfo` gained a `timing_corrections` field. The frontend `invoke` ignores the return value, so it is JS-compatible with no UI regression.
+
 ## [1.4.3] - 2026-05-21
 
 ### Highlights / 亮点

@@ -14,6 +14,7 @@ import ParseFrameDialog from '@shared/components/ParseFrameDialog.vue'
 import Splitter from './components/Splitter.vue'
 import { invoke } from '@tauri-apps/api/core'
 import { showAlert, showConfirm, showPrompt, dialogKey } from '@shared/composables/useDialog'
+import { formatCorrections, type TimingCorrection } from '@shared/timing'
 
 const dataPointTableRef = ref<InstanceType<typeof DataPointTable> | null>(null)
 
@@ -138,6 +139,8 @@ provide('checkUpdate', checkUpdate)
 // toolbar buttons & tree dot drift out of sync when actions originate
 // outside the toolbar (e.g. tree context menu, error-driven auto-stop).
 let unlistenServerState: (() => void) | null = null
+// load_config 导入了违反 t2<t1<t3 / w≤⌊2k/3⌋ 的旧配置时,后端纠正后推此事件。
+let unlistenTimingCorrected: (() => void) | null = null
 
 onMounted(async () => {
   unlistenServerState = await listen<{ id: string; state: string }>('server-state-changed', (event) => {
@@ -147,6 +150,13 @@ onMounted(async () => {
     }
     refreshTree()
   })
+  unlistenTimingCorrected = await listen<Array<{ endpoint: string; corrections: TimingCorrection[] }>>(
+    'config-timing-corrected',
+    (event) => {
+      const lines = event.payload.map((e) => `${e.endpoint}: ${formatCorrections(e.corrections)}`)
+      void showAlert(`加载配置时已自动调整时序以满足约束 (t2<t1<t3, w≤⌊2k/3⌋):\n${lines.join('\n')}`)
+    },
+  )
   setTimeout(() => {
     checkUpdate(false).catch((e) => console.warn('auto update check failed', e))
   }, 2000)
@@ -154,6 +164,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   unlistenServerState?.()
+  unlistenTimingCorrected?.()
 })
 
 function snoozeUpdate() {

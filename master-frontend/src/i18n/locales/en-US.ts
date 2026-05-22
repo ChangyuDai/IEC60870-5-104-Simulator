@@ -63,6 +63,7 @@ const dict: DictShape = {
     defaultQcc: 'Default QCC (Counter qualifier)',
     interrogatePeriod: 'Auto GI period (s, 0=off)',
     counterInterrogatePeriod: 'Auto counter period (s, 0=off)',
+    timingCorrected: 'Auto-adjusted to satisfy constraints (t2<t1<t3, w≤⌊2k/3⌋): {detail}',
   },
   tree: {
     title: 'Connections',

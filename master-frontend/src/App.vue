@@ -11,6 +11,8 @@ import AppDialog from '@shared/components/AppDialog.vue'
 import UpdateDialog from '@shared/components/UpdateDialog.vue'
 import ParseFrameDialog from '@shared/components/ParseFrameDialog.vue'
 import { showAlert, showConfirm, showPrompt, dialogKey } from '@shared/composables/useDialog'
+import { useI18n } from '@shared/i18n'
+import { formatCorrections, type TimingCorrection } from '@shared/timing'
 import type { ReceivedDataPointInfo, ChangedCategoriesMap, CategoryCountsMap } from './types'
 
 // Shared state
@@ -105,6 +107,7 @@ const categoryCounts = ref<CategoryCountsMap>(new Map())
 provide('categoryCounts', categoryCounts)
 
 provide(dialogKey, { showAlert, showConfirm, showPrompt })
+const { t } = useI18n()
 
 // Frame parser dialog (opened from Toolbar button or LogPanel right-click)
 const parseFrameVisible = ref(false)
@@ -125,6 +128,8 @@ provide('openEditConnection', (id: string) => {
 
 // Listen for backend connection state events
 let unlistenConnState: (() => void) | null = null
+// load_config imported a config violating t2<t1<t3 / w≤⌊2k/3⌋; backend corrected it.
+let unlistenTimingCorrected: (() => void) | null = null
 
 onMounted(async () => {
   unlistenConnState = await listen<{ id: string; state: string }>('connection-state', (event) => {
@@ -134,6 +139,15 @@ onMounted(async () => {
     }
     refreshTree()
   })
+  unlistenTimingCorrected = await listen<Array<{ target_address: string; corrections: TimingCorrection[] }>>(
+    'config-timing-corrected',
+    (event) => {
+      const detail = event.payload
+        .map((e) => `${e.target_address}: ${formatCorrections(e.corrections)}`)
+        .join('; ')
+      void showAlert(t('newConn.timingCorrected', { detail }))
+    },
+  )
   setTimeout(() => {
     checkUpdate(false).catch((e) => console.warn('auto update check failed', e))
   }, 2000)
@@ -141,6 +155,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   unlistenConnState?.()
+  unlistenTimingCorrected?.()
   if (refreshTreePending !== null) {
     clearTimeout(refreshTreePending)
     refreshTreePending = null

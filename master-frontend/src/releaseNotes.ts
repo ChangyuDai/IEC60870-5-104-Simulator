@@ -4,6 +4,7 @@ export const RELEASES_URL = 'https://github.com/Karl-Dai/IEC60870-5-104-Simulato
 
 // Keep in sync with CHANGELOG.md — see `release` skill.
 export const RELEASE_NOTES: string[] = [
-  '本版本为子站修复版: 修复子站数据点表无法删除 / 批量删除点位, 主站本身无功能变更',
-  '主站二进制随版本同步升级至 v1.4.3, 协议栈与功能与 v1.4.x 保持一致, 无破坏性变更',
+  '新增 IEC 104 时序参数自动纠正: t1/t2/t3/k/w 强制满足 t2<t1<t3、w≤⌊2k/3⌋, 新建/编辑连接时以 t1/k 为锚即时修正非法组合并提示',
+  '导入含非法时序的旧配置会自动修正, 并弹出改动明细',
+  '后端在所有入口权威规范化, 再也无法保存会误断健康连接的非法时序组合',
 ]

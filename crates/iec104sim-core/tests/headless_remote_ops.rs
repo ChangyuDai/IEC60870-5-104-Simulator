@@ -10,7 +10,7 @@ use common::helpers::{
 
 use iec104sim_core::data_point::DataPointValue;
 use iec104sim_core::log_entry::Direction;
-use iec104sim_core::slave::{CommandAckCot, RemoteOperationConfig, UploadMode};
+use iec104sim_core::slave::{CommandAckCot, RemoteOperationConfig, SyncTbByCategory, UploadMode};
 use iec104sim_core::types::AsduTypeId;
 use tokio::time::{sleep, Duration};
 
@@ -122,8 +122,8 @@ async fn gi_includes_timestamped() {
     let pair = Pair::spawn(ops).await;
 
     pair.master.conn.send_interrogation(1).await.unwrap();
-    // 等 GI 完成。with_default_points 每类 5 点 × 8 NA + 8 TB = 80 点;
-    // 加 gi_include_timestamped 复制一份 NA 的 TB,总数会更多。
+    // 等 GI 完成。with_default_points 每类 5 点 × 8 NA = 40 点(默认不预建 TB);
+    // gi_include_timestamped 从每个 NA 派生一份 TB,master 端 IOA=1 应同时有 NA 与派生 TB。
     sleep(DEFAULT_TIMEOUT.min(Duration::from_secs(2))).await;
 
     let data = pair.master.conn.received_data.read().await;
@@ -136,10 +136,14 @@ async fn gi_includes_timestamped() {
     pair.shutdown().await;
 }
 
-/// sp_sync_with_tb=true:slave 主动改 SP 值,master 应同时收到 type=1 和 type=30 两帧。
+/// SP 分类同步开关开启:slave 主动改 SP 值,master 应同时收到 type=1 和 type=30 两帧
+/// (IOA=1 无显式 TB 点,R1 允许派生)。
 #[tokio::test]
 async fn sp_sync_with_tb_emits_both_frames() {
-    let ops = RemoteOperationConfig { sp_sync_with_tb: true, ..Default::default() };
+    let ops = RemoteOperationConfig {
+        sync_tb_by_category: SyncTbByCategory { sp: true, ..Default::default() },
+        ..Default::default()
+    };
     let pair = Pair::spawn(ops).await;
 
     // 先 GI 让 master 进入数据传输状态并清掉日志噪声。

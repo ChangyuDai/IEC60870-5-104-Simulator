@@ -77,8 +77,20 @@ export interface FixedMutationConfig {
   period_ms: number
 }
 
+/** 按分类的「变位同步上送 TB」开关。变位/周期上送时,开启的分类会额外派生 TB 帧。
+ *  累计量 (IT) 靠召唤上送,不提供此开关。字段名与后端 serde 对齐。 */
+export interface SyncTbByCategory {
+  sp: boolean
+  dp: boolean
+  st: boolean
+  bo: boolean
+  me_na: boolean
+  me_nb: boolean
+  me_nc: boolean
+}
+
 export interface RemoteOperationConfig {
-  sp_sync_with_tb: boolean
+  sync_tb_by_category: SyncTbByCategory
   answer_general_interrogation: boolean
   answer_counter_interrogation: boolean
   answer_commands: boolean
@@ -98,7 +110,7 @@ export const DEFAULT_PROTOCOL_TIMING: ProtocolTimingConfig = {
 }
 
 export const DEFAULT_REMOTE_OPS: RemoteOperationConfig = {
-  sp_sync_with_tb: false,
+  sync_tb_by_category: { sp: false, dp: false, st: false, bo: false, me_na: false, me_nb: false, me_nc: false },
   answer_general_interrogation: true,
   answer_counter_interrogation: true,
   answer_commands: true,

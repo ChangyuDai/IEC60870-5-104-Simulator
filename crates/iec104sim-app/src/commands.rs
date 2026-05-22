@@ -78,7 +78,9 @@ pub async fn create_server(
     let server = SlaveServer::new(transport).with_log_collector(log_collector.clone());
 
     // 在加站点之前应用服务器级配置,以便首次 set 后的任何上送都按目标参数发送。
-    if let Some(t) = request.protocol_timing {
+    if let Some(mut t) = request.protocol_timing {
+        // 后端权威:落地前规范化,确保 t2<t1<t3、w≤⌊2k/3⌋。
+        let _ = t.normalize();
         server.set_protocol_timing(t).await;
     }
     if let Some(ops) = request.remote_ops {
@@ -808,13 +810,17 @@ pub struct ProtocolTimingRequest {
 pub async fn set_protocol_timing(
     state: State<'_, AppState>,
     request: ProtocolTimingRequest,
-) -> Result<(), String> {
+) -> Result<Vec<iec104sim_core::timing::TimingCorrection>, String> {
     let servers = state.servers.read().await;
     let srv = servers
         .get(&request.server_id)
         .ok_or_else(|| format!("server {} not found", request.server_id))?;
-    srv.server.set_protocol_timing(request.timing).await;
-    Ok(())
+    // 后端权威规范化。前端已做编辑感知 C3,正常情况下这里返回空;
+    // 仅当调用方(脚本/旧值)绕过前端时才会产生 corrections。
+    let mut timing = request.timing;
+    let corrections = timing.normalize();
+    srv.server.set_protocol_timing(timing).await;
+    Ok(corrections)
 }
 
 #[tauri::command]
@@ -921,6 +927,7 @@ pub async fn save_config(
 #[tauri::command]
 pub async fn load_config(
     state: State<'_, AppState>,
+    app_handle: AppHandle,
     path: String,
 ) -> Result<usize, String> {
     use iec104sim_core::config::SlaveConfigFile;
@@ -930,6 +937,7 @@ pub async fn load_config(
     let file = SlaveConfigFile::from_json(&content)?;
 
     let mut imported = 0usize;
+    let mut corrected_events: Vec<TimingCorrectedEvent> = Vec::new();
     for srv in file.servers {
         let id = {
             let mut counter = state.next_server_id.write().await;
@@ -937,6 +945,7 @@ pub async fn load_config(
             *counter += 1;
             id
         };
+        let endpoint = format!("{}:{}", srv.bind_address, srv.port);
         let transport = SlaveTransportConfig {
             bind_address: srv.bind_address,
             port: srv.port,
@@ -945,7 +954,13 @@ pub async fn load_config(
         let log_collector = Arc::new(LogCollector::new());
         let server = SlaveServer::new(transport).with_log_collector(log_collector.clone());
         // 加站点前先恢复服务器级配置,确保后续突发上送按目标参数走。
-        server.set_protocol_timing(srv.protocol_timing).await;
+        // 后端权威:规范化旧配置,收集纠正以提示用户。
+        let mut timing = srv.protocol_timing;
+        let corrections = timing.normalize();
+        server.set_protocol_timing(timing).await;
+        if !corrections.is_empty() {
+            corrected_events.push(TimingCorrectedEvent { endpoint, corrections });
+        }
         server.set_remote_ops(srv.remote_ops).await;
         for st in srv.stations {
             let mut station = Station::new(st.common_address, st.name);
@@ -960,7 +975,18 @@ pub async fn load_config(
         );
         imported += 1;
     }
+    // 把导入时的时序纠正上抛,让用户知道加载的配置被调整过。
+    if !corrected_events.is_empty() {
+        let _ = app_handle.emit("config-timing-corrected", &corrected_events);
+    }
     Ok(imported)
+}
+
+/// `config-timing-corrected` 事件载荷:slave `load_config` 导入时发生的时序纠正。
+#[derive(Clone, serde::Serialize)]
+struct TimingCorrectedEvent {
+    endpoint: String,
+    corrections: Vec<iec104sim_core::timing::TimingCorrection>,
 }
 
 // ---------------------------------------------------------------------------

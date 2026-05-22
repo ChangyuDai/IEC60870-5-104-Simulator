@@ -73,7 +73,7 @@ async fn na_frame_is_7_bytes_shorter_than_tb() {
     pair.shutdown().await;
 }
 
-/// 默认 ops(sp_sync_with_tb=false) 下,(IOA=1, MSpNa1) 的变位上送只生成 type=1 帧,
+/// 默认 ops(同步开关全关) 下,(IOA=1, MSpNa1) 的变位上送只生成 type=1 帧,
 /// 不应额外追加 type=30 TB 帧。用 COT=3 过滤 spontaneous 帧,排除 GI 应答噪声。
 #[tokio::test]
 async fn default_spontaneous_emits_only_na() {
@@ -111,7 +111,7 @@ async fn default_spontaneous_emits_only_na() {
     let has_tb = spont.iter().any(|f| f[6] == 30);
     let has_na = spont.iter().any(|f| f[6] == 1);
     assert!(has_na, "默认 spontaneous 应有 NA type=1, frames={:?}", spont.len());
-    assert!(!has_tb, "默认 spontaneous 不应有 TB type=30 (sp_sync_with_tb=false)");
+    assert!(!has_tb, "默认 spontaneous 不应有 TB type=30 (同步开关全关)");
 
     pair.shutdown().await;
 }

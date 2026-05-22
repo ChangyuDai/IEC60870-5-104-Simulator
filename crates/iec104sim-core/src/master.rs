@@ -273,6 +273,24 @@ impl Default for MasterConfig {
     }
 }
 
+impl MasterConfig {
+    /// Normalize the protocol-timing parameters in place so they satisfy the
+    /// IEC 104 relationship invariants (`t2 < t1 < t3`, `w ≤ ⌊2k/3⌋`).
+    /// Returns the fields that were corrected (empty ⇒ already valid).
+    pub fn normalize_timing(&mut self) -> Vec<crate::timing::TimingCorrection> {
+        let (out, changes) = crate::timing::correct_timing(crate::timing::TimingParams {
+            t0: self.t0, t1: self.t1, t2: self.t2, t3: self.t3, k: self.k, w: self.w,
+        });
+        self.t0 = out.t0;
+        self.t1 = out.t1;
+        self.t2 = out.t2;
+        self.t3 = out.t3;
+        self.k = out.k;
+        self.w = out.w;
+        changes
+    }
+}
+
 /// Received data storage.
 ///
 /// One IEC 104 master TCP connection can talk to multiple stations

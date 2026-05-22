@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { dialogKey } from '@shared/composables/useDialog'
 import type { showAlert as ShowAlert } from '@shared/composables/useDialog'
 import { useI18n } from '@shared/i18n'
+import { correctTimingEdit, formatCorrections, isTimingField, type TimingCorrection } from '@shared/timing'
 import type { ConnectionInfo } from '../types'
 
 const { t } = useI18n()
@@ -182,7 +183,7 @@ async function createConnection() {
         selectedConnectionState.value = 'Disconnected'
       }
     }
-    await invoke('create_connection', {
+    const info = await invoke<ConnectionInfo>('create_connection', {
       request: {
         target_address: form.value.target_address,
         port: form.value.port,
@@ -205,6 +206,11 @@ async function createConnection() {
         counter_interrogate_period_s: form.value.counter_interrogate_period_s,
       }
     })
+    // Defensive: the form pre-corrects, so this is normally empty. If the
+    // backend still adjusted anything (e.g. stale persisted form), tell the user.
+    if (info?.timing_corrections && info.timing_corrections.length > 0) {
+      await showAlert(t('newConn.timingCorrected', { detail: formatCorrections(info.timing_corrections) }))
+    }
     emit('update:visible', false)
     editingConnId.value = null
     refreshTree()
@@ -233,6 +239,19 @@ const protoFields: ProtoField[] = [
 function protoLabel(f: ProtoField): string {
   const base = f.label.includes('.') ? t(f.label) : f.label
   return f.unit === 'sec' ? `${base} (${t('newConn.unitSeconds')})` : base
+}
+
+// Edit-aware C3 auto-correction. Fires on blur/change (not per keystroke) so
+// intermediate values aren't clobbered. Surfaces what was adjusted inline.
+const recentCorrections = ref<TimingCorrection[]>([])
+let correctionClearTimer: ReturnType<typeof setTimeout> | undefined
+function onProtoChange(key: ProtoFieldKey) {
+  if (!isTimingField(key)) return
+  const changes = correctTimingEdit(form.value, key)
+  if (changes.length === 0) return
+  recentCorrections.value = changes
+  if (correctionClearTimer) clearTimeout(correctionClearTimer)
+  correctionClearTimer = setTimeout(() => { recentCorrections.value = [] }, 6000)
 }
 
 defineExpose({ openEditConnection, openNew })
@@ -277,8 +296,12 @@ defineExpose({ openEditConnection, openNew })
                   type="number"
                   :min="f.min"
                   :max="f.max"
+                  @change="onProtoChange(f.key)"
                 />
               </label>
+            </div>
+            <div v-if="recentCorrections.length" class="proto-corrected">
+              {{ t('newConn.timingCorrected', { detail: formatCorrections(recentCorrections) }) }}
             </div>
             <div class="form-hint">{{ t('newConn.protocolParamsHint') }}</div>
           </details>
@@ -414,6 +437,15 @@ defineExpose({ openEditConnection, openNew })
   grid-template-columns: 1fr 1fr;
   gap: 6px 10px;
   margin-top: 6px;
+}
+.proto-corrected {
+  margin-top: 8px;
+  padding: 6px 8px;
+  font-size: 11px;
+  color: var(--c-yellow, var(--c-text));
+  background: color-mix(in srgb, var(--c-yellow, var(--c-surface1)) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--c-yellow, var(--c-surface1)) 35%, transparent);
+  border-radius: 4px;
 }
 .proto-grid .form-label {
   flex-direction: column;

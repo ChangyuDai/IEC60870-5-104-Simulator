@@ -61,6 +61,7 @@ export type DictShape = {
     defaultQcc: string
     interrogatePeriod: string
     counterInterrogatePeriod: string
+    timingCorrected: string
   }
   tree: {
     title: string
@@ -293,6 +294,7 @@ const dict: DictShape = {
     defaultQcc: '默认 QCC（计数量召唤限定词）',
     interrogatePeriod: '总召唤周期 (秒，0=关闭)',
     counterInterrogatePeriod: '计数量召唤周期 (秒，0=关闭)',
+    timingCorrected: '已自动调整以满足约束 (t2<t1<t3, w≤⌊2k/3⌋): {detail}',
   },
   tree: {
     title: '连接列表',

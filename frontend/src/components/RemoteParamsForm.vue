@@ -1,4 +1,11 @@
 <script setup lang="ts">
+import { ref } from 'vue'
+import {
+  correctTimingEdit,
+  formatCorrections,
+  isTimingField,
+  type TimingCorrection,
+} from '@shared/timing'
 import type {
   ProtocolTimingConfig,
   RemoteOperationConfig,
@@ -6,10 +13,23 @@ import type {
   UploadMode,
 } from '../types'
 
-defineProps<{
+const props = defineProps<{
   timing: ProtocolTimingConfig
   ops: RemoteOperationConfig
 }>()
+
+// 编辑感知 C3 自动纠正:在 change(失焦)时触发,t1/k 为锚,至多动一个邻居。
+// 后端会再做一次权威规范化,正常情况下对前端已纠正的值为空操作。
+const recentCorrections = ref<TimingCorrection[]>([])
+let correctionClearTimer: ReturnType<typeof setTimeout> | undefined
+function onTimingChange(key: string) {
+  if (!isTimingField(key)) return
+  const changes = correctTimingEdit(props.timing, key)
+  if (changes.length === 0) return
+  recentCorrections.value = changes
+  if (correctionClearTimer) clearTimeout(correctionClearTimer)
+  correctionClearTimer = setTimeout(() => { recentCorrections.value = [] }, 6000)
+}
 
 const cotOptions: { value: CommandAckCot; label: string }[] = [
   { value: 'activation_con', label: 'ACT_CON · 7' },
@@ -23,6 +43,18 @@ const modeOptions: { value: UploadMode; label: string }[] = [
 const asduTypeOptions = [
   'm_sp_na_1', 'm_dp_na_1', 'm_st_na_1', 'm_bo_na_1',
   'm_me_na_1', 'm_me_nb_1', 'm_me_nc_1', 'm_it_na_1',
+]
+
+// 按分类的「变位同步上送 TB」开关(IT 不在内——靠召唤而非变位)。
+type SyncTbKey = keyof RemoteOperationConfig['sync_tb_by_category']
+const syncTbCategories: { key: SyncTbKey; map: string }[] = [
+  { key: 'sp', map: 'M_SP_NA_1 → M_SP_TB_1' },
+  { key: 'dp', map: 'M_DP_NA_1 → M_DP_TB_1' },
+  { key: 'st', map: 'M_ST_NA_1 → M_ST_TB_1' },
+  { key: 'bo', map: 'M_BO_NA_1 → M_BO_TB_1' },
+  { key: 'me_na', map: 'M_ME_NA_1 → M_ME_TD_1' },
+  { key: 'me_nb', map: 'M_ME_NB_1 → M_ME_TE_1' },
+  { key: 'me_nc', map: 'M_ME_NC_1 → M_ME_TF_1' },
 ]
 
 const timingMeta: { key: 't0' | 't1' | 't2' | 't3' | 'k' | 'w'; hint: string; unit?: string; min: number; max: number }[] = [
@@ -50,10 +82,14 @@ const timingMeta: { key: 't0' | 't1' | 't2' | 't3' | 'k' | 'w'; hint: string; un
           :min="m.min"
           :max="m.max"
           v-model.number="timing[m.key]"
+          @change="onTimingChange(m.key)"
         />
         <span class="rp-row-unit">{{ m.unit ?? '' }}</span>
         <span class="rp-row-hint">{{ m.hint }}</span>
       </label>
+    </div>
+    <div v-if="recentCorrections.length" class="rp-corrected">
+      已自动调整以满足约束 (t2&lt;t1&lt;t3, w≤⌊2k/3⌋): {{ formatCorrections(recentCorrections) }}
     </div>
     <slot name="actions-timing" />
   </section>
@@ -141,11 +177,13 @@ const timingMeta: { key: 't0' | 't1' | 't2' | 't3' | 'k' | 'w'; hint: string; un
         <input type="checkbox" v-model="ops.auto_packing" />
         <span class="rp-switch-text">自动组包（连续 IOA 合并）</span>
       </label>
-      <label class="rp-switch">
-        <input type="checkbox" v-model="ops.sp_sync_with_tb" />
-        <span class="rp-switch-text">变位同步上送</span>
-        <code class="rp-tag">M_SP_NA_1 → M_SP_TB_1</code>
-      </label>
+      <div class="rp-subgroup">
+        <span class="rp-subgroup-label">变位同步上送 TB（按分类）</span>
+        <label v-for="c in syncTbCategories" :key="c.key" class="rp-switch">
+          <input type="checkbox" v-model="ops.sync_tb_by_category[c.key]" />
+          <code class="rp-tag">{{ c.map }}</code>
+        </label>
+      </div>
     </div>
   </section>
 
@@ -254,6 +292,20 @@ const timingMeta: { key: 't0' | 't1' | 't2' | 't3' | 'k' | 'w'; hint: string; un
   letter-spacing: 0.02em;
 }
 
+.rp-subgroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+.rp-subgroup-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--c-subtext0);
+  margin-bottom: 2px;
+  letter-spacing: 0.02em;
+}
+
 /* —— 链路参数：单列表行 —— */
 .rp-rows {
   display: flex;
@@ -313,6 +365,15 @@ const timingMeta: { key: 't0' | 't1' | 't2' | 't3' | 'k' | 'w'; hint: string; un
   font-size: 11.5px;
   color: var(--c-subtext0);
   letter-spacing: 0.01em;
+}
+.rp-corrected {
+  margin-top: 8px;
+  padding: 6px 8px;
+  font-size: 11.5px;
+  color: var(--c-yellow, var(--c-subtext1, var(--c-subtext0)));
+  background: color-mix(in srgb, var(--c-yellow, var(--c-surface1)) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--c-yellow, var(--c-surface1)) 35%, transparent);
+  border-radius: 4px;
 }
 
 /* —— Switch 行 —— */

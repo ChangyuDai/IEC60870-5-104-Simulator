@@ -124,6 +124,11 @@ pub async fn create_connection(
     if let Some(v) = request.interrogate_period_s { config.interrogate_period_s = v; }
     if let Some(v) = request.counter_interrogate_period_s { config.counter_interrogate_period_s = v; }
 
+    // Authoritative timing normalization: enforce t2<t1<t3 and w≤⌊2k/3⌋ before
+    // the config takes effect. Covers direct creation, load_config and import
+    // (both funnel through here). Corrections are echoed back to the frontend.
+    let timing_corrections = config.normalize_timing();
+
     let log_collector = Arc::new(LogCollector::new());
     // 默认关闭,LogPanel 展开时由前端通过 set_logging_enabled 打开。
     log_collector.set_enabled(false);
@@ -166,6 +171,7 @@ pub async fn create_connection(
         default_qcc: config.default_qcc,
         interrogate_period_s: config.interrogate_period_s,
         counter_interrogate_period_s: config.counter_interrogate_period_s,
+        timing_corrections,
     };
 
     state.connections.write().await.insert(
@@ -262,6 +268,9 @@ pub async fn list_connections(
             default_qcc: cfg.default_qcc,
             interrogate_period_s: cfg.interrogate_period_s,
             counter_interrogate_period_s: cfg.counter_interrogate_period_s,
+            // Live connections already hold normalized config; no corrections
+            // to report on a steady-state list.
+            timing_corrections: Vec::new(),
         });
     }
 
@@ -881,6 +890,7 @@ pub async fn load_config(
     let file = MasterConfigFile::from_json(&content)?;
 
     let mut imported = 0usize;
+    let mut corrected_events: Vec<TimingCorrectedEvent> = Vec::new();
     for conn in file.connections {
         let request = CreateConnectionRequest {
             target_address: conn.target_address,
@@ -907,6 +917,13 @@ pub async fn load_config(
         };
         let info = create_connection(state.clone(), app_handle.clone(), request).await?;
 
+        if !info.timing_corrections.is_empty() {
+            corrected_events.push(TimingCorrectedEvent {
+                target_address: info.target_address.clone(),
+                corrections: info.timing_corrections.clone(),
+            });
+        }
+
         if !conn.snapshot.is_empty() {
             let connections = state.connections.read().await;
             let cs = connections
@@ -919,5 +936,17 @@ pub async fn load_config(
         }
         imported += 1;
     }
+    // Surface any import-time timing corrections so the user knows the loaded
+    // config was adjusted to satisfy the IEC 104 invariants.
+    if !corrected_events.is_empty() {
+        let _ = app_handle.emit("config-timing-corrected", &corrected_events);
+    }
     Ok(imported)
+}
+
+/// Payload for the `config-timing-corrected` event emitted by `load_config`.
+#[derive(Clone, serde::Serialize)]
+struct TimingCorrectedEvent {
+    target_address: String,
+    corrections: Vec<iec104sim_core::timing::TimingCorrection>,
 }

@@ -17,9 +17,9 @@ use iec104sim_core::slave::RemoteOperationConfig;
 use common::harness::{MasterBuilder, SlaveBuilder};
 use common::helpers::{wait_for_ioa_count, wait_for_log_event};
 
-/// 每 NA/TB 类型 5000 个点 × 16 类型 = 80,000 点。
+/// 每类 5000 个点 × 8 NA 类型 = 40,000 点（默认不再预建 TB,故为 8 类而非 16）。
 const POINTS_PER_CATEGORY: u32 = 5000;
-const TOTAL_POINTS: usize = 16 * POINTS_PER_CATEGORY as usize;
+const TOTAL_POINTS: usize = 8 * POINTS_PER_CATEGORY as usize;
 
 #[tokio::test]
 async fn gi_80k_points_completes_within_window() {
@@ -50,10 +50,10 @@ async fn gi_80k_points_completes_within_window() {
         Duration::from_secs(10),
     )
     .await
-    .expect("8 万点 GI 应在 10s 内完成（远低于 t1=15s 阈值）");
+    .expect("4 万点 GI 应在 10s 内完成（远低于 t1=15s 阈值）");
     let gi_elapsed = start.elapsed();
 
-    // 等 master 收齐所有 IOA。with_default_points 把 16 类型都用 IOA=1..=POINTS_PER_CATEGORY，
+    // 等 master 收齐所有 IOA。with_default_points 把 8 NA 类型都用 IOA=1..=POINTS_PER_CATEGORY，
     // master.received_data 内每个 (ioa, type) 是独立条目，总条目数 = TOTAL_POINTS。
     let count = wait_for_ioa_count(
         &master.conn,
@@ -62,7 +62,7 @@ async fn gi_80k_points_completes_within_window() {
         Duration::from_secs(5),
     )
     .await
-    .expect("master 应收齐 80,000 个 (IOA, type) 条目");
+    .expect("master 应收齐 40,000 个 (IOA, type) 条目");
     assert!(count >= TOTAL_POINTS, "count = {} 应 >= {}", count, TOTAL_POINTS);
 
     // SQ=1 启用后实际 I 帧数应远低于点位数。8w 点理论上能压到几千帧以内。
