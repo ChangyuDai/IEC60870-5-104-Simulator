@@ -8,6 +8,7 @@ import DataPointModal from './DataPointModal.vue'
 import BatchAddModal from './BatchAddModal.vue'
 import { useI18n, localizeCategoryLabel } from '@shared/i18n'
 import EmptyState from '@shared/components/EmptyState.vue'
+import QualityIndicator from '@shared/components/QualityIndicator.vue'
 
 const { t } = useI18n()
 const { showAlert } = inject<{ showAlert: typeof ShowAlert }>(dialogKey)!
@@ -547,8 +548,12 @@ defineExpose({ loadData: loadDataPoints })
                 </template>
               </td>
               <td class="col-quality">
-                <span v-if="point.quality_iv" class="quality-dot invalid" title="Invalid">IV</span>
-                <span v-else class="quality-dot ok" title="Good"></span>
+                <QualityIndicator
+                  :quality="{ ov: point.quality_ov, bl: point.quality_bl, sb: point.quality_sb, nt: point.quality_nt, iv: point.quality_iv }"
+                  :show-ov="point.asdu_type.startsWith('M_ME')"
+                  :show-help="false"
+                  compact
+                />
               </td>
               <td class="col-timestamp">{{ point.timestamp || '-' }}</td>
             </tr>
@@ -752,30 +757,10 @@ defineExpose({ loadData: loadDataPoints })
 }
 
 .col-quality {
-  width: 40px;
+  width: 96px;
   text-align: center;
-}
-
-.quality-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-
-.quality-dot.ok {
-  background: var(--c-green);
-}
-
-.quality-dot.invalid {
-  background: var(--c-red);
-  width: auto;
-  height: auto;
-  border-radius: 3px;
-  padding: 1px 4px;
-  font-size: 10px;
   font-weight: 600;
-  color: var(--c-base);
+  font-size: 11px;
 }
 
 .col-timestamp {

@@ -109,4 +109,19 @@ describe('DataPointTable 子站数据表', () => {
     expect(vm.changedKeys.size).toBe(1)
     wrapper.unmount()
   })
+
+  it('品质列渲染多位徽章(NT 高亮 / 正常显示 OK)', async () => {
+    const ntPoint: DataPointInfo = { ...dp(1, 'M_SP_NA_1', '单点 (SP)', 'off'), quality_nt: true }
+    const goodPoint = dp(2, 'M_SP_NA_1', '单点 (SP)', 'off')
+    invokeMock.mockResolvedValue({ points: [ntPoint, goodPoint], seq: 1, total_count: 2 })
+    const { wrapper, refs } = mountTable()
+    await selectStation(refs)
+
+    // NT 点:表格行内出现高亮 NT 徽章
+    const litLetters = wrapper.findAll('.q-badge.lit').map((b) => b.text())
+    expect(litLetters).toEqual(['NT'])
+    // 正常点:紧凑模式显示 OK
+    expect(wrapper.find('.q-ok').exists()).toBe(true)
+    wrapper.unmount()
+  })
 })
