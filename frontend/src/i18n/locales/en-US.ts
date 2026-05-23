@@ -192,6 +192,9 @@ const dict: DictShape = {
     write: 'Write',
     sectionMultiSelect: 'Multi-Select',
     countLabel: 'Count',
+    applyQuality: 'Apply Quality',
+    applyValue: 'Apply Value',
+    batchValueMixedHint: 'Batch value write requires same-type points',
   },
   quality: {
     legendTitle: 'Quality Descriptor QDS · IEC 60870-5-101',

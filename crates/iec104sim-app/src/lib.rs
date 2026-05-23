@@ -31,6 +31,8 @@ pub fn run() {
             commands::batch_remove_data_points,
             commands::update_data_point,
             commands::set_data_point_quality,
+            commands::batch_set_data_point_quality,
+            commands::batch_update_data_points,
             commands::list_data_points,
             commands::list_data_points_since,
             // Log commands

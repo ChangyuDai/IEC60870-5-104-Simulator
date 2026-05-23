@@ -459,35 +459,13 @@ pub async fn batch_remove_data_points(
     Ok(station.remove_points(&targets))
 }
 
-#[tauri::command]
-pub async fn update_data_point(
-    state: State<'_, AppState>,
-    server_id: String,
-    common_address: u16,
-    ioa: u32,
-    asdu_type: String,
-    value: String,
-) -> Result<(), String> {
-    let servers = state.servers.read().await;
-    let srv = servers
-        .get(&server_id)
-        .ok_or_else(|| format!("server {} not found", server_id))?;
-
-    let asdu = parse_asdu_type(&asdu_type)?;
-
-    let mut stations = srv.server.stations.write().await;
-    let station = stations
-        .get_mut(&common_address)
-        .ok_or_else(|| format!("station CA={} not found", common_address))?;
-
-    let point = station.data_points.get_mut(ioa, asdu)
-        .ok_or_else(|| format!("IOA {} type {} not found", ioa, asdu_type))?;
-
-    // Parse value based on current type
+/// 按 `point` 当前值的类型把值串解析为 `DataPointValue`。单点改值与批量改值共用,
+/// 解析失败返回 Err(不写入)。
+fn parse_value_for(point: &DataPoint, value: &str) -> Result<DataPointValue, String> {
     let new_value = match &point.value {
         DataPointValue::SinglePoint { .. } => {
             let v = value.parse::<bool>().or_else(|_| {
-                match value.as_str() {
+                match value {
                     "1" | "true" | "ON" | "on" => Ok(true),
                     "0" | "false" | "OFF" | "off" => Ok(false),
                     _ => Err(format!("invalid bool: {}", value)),
@@ -517,6 +495,34 @@ pub async fn update_data_point(
         }
         _ => return Err("unsupported value type".to_string()),
     };
+    Ok(new_value)
+}
+
+#[tauri::command]
+pub async fn update_data_point(
+    state: State<'_, AppState>,
+    server_id: String,
+    common_address: u16,
+    ioa: u32,
+    asdu_type: String,
+    value: String,
+) -> Result<(), String> {
+    let servers = state.servers.read().await;
+    let srv = servers
+        .get(&server_id)
+        .ok_or_else(|| format!("server {} not found", server_id))?;
+
+    let asdu = parse_asdu_type(&asdu_type)?;
+
+    let mut stations = srv.server.stations.write().await;
+    let station = stations
+        .get_mut(&common_address)
+        .ok_or_else(|| format!("station CA={} not found", common_address))?;
+
+    let point = station.data_points.get_mut(ioa, asdu)
+        .ok_or_else(|| format!("IOA {} type {} not found", ioa, asdu_type))?;
+
+    let new_value = parse_value_for(point, &value)?;
 
     point.value = new_value;
     point.timestamp = Some(chrono::Utc::now());
@@ -570,6 +576,138 @@ pub async fn set_data_point_quality(
     srv.server.queue_spontaneous(common_address, &[(ioa, asdu)]).await;
 
     Ok(())
+}
+
+/// 站级批量写品质(无 async/锁/Tauri,便于单测)。OV 仅测量类;未知 (ioa,type) 跳过。
+fn apply_batch_quality(
+    station: &mut Station,
+    targets: &[(u32, AsduTypeId)],
+    ov: bool,
+    bl: bool,
+    sb: bool,
+    nt: bool,
+    iv: bool,
+) -> Vec<(u32, AsduTypeId)> {
+    let mut changed = Vec::new();
+    for (ioa, asdu) in targets {
+        if let Some(point) = station.data_points.get_mut(*ioa, *asdu) {
+            let measured = asdu.category().is_measured();
+            point.quality = QualityFlags { ov: ov && measured, bl, sb, nt, iv };
+            point.timestamp = Some(chrono::Utc::now());
+            station.data_points.mark_changed(*ioa, *asdu);
+            changed.push((*ioa, *asdu));
+        }
+    }
+    changed
+}
+
+/// 站级批量写值(无 async/锁/Tauri):同分类 + 全或无。先全量校验再全量写入,
+/// 任一步出错返回 Err 且不修改任何点。
+fn apply_batch_value(
+    station: &mut Station,
+    targets: &[(u32, AsduTypeId)],
+    value: &str,
+) -> Result<Vec<(u32, AsduTypeId)>, String> {
+    if targets.is_empty() {
+        return Ok(Vec::new());
+    }
+    let first_cat = targets[0].1.category();
+    let mut parsed: Vec<(u32, AsduTypeId, DataPointValue)> = Vec::with_capacity(targets.len());
+    for (ioa, asdu) in targets {
+        if asdu.category() != first_cat {
+            return Err(format!(
+                "批量写值要求同分类:{} 与 {} 不同类",
+                first_cat.name(),
+                asdu.category().name()
+            ));
+        }
+        let point = station
+            .data_points
+            .get_mut(*ioa, *asdu)
+            .ok_or_else(|| format!("IOA {} type {} not found", ioa, asdu.name()))?;
+        let nv = parse_value_for(point, value)?;
+        parsed.push((*ioa, *asdu, nv));
+    }
+    let mut changed = Vec::with_capacity(parsed.len());
+    for (ioa, asdu, nv) in parsed {
+        if let Some(point) = station.data_points.get_mut(ioa, asdu) {
+            point.value = nv;
+            point.timestamp = Some(chrono::Utc::now());
+            station.data_points.mark_changed(ioa, asdu);
+            changed.push((ioa, asdu));
+        }
+    }
+    Ok(changed)
+}
+
+/// 批量设置一组点位的品质(IV/NT/SB/BL/OV,绝对覆盖)。OV 仅落到测量类目标,
+/// 非测量类忽略 OV。未知 (ioa,type) 跳过(幂等)。返回实际改动的点数。
+#[tauri::command]
+pub async fn batch_set_data_point_quality(
+    state: State<'_, AppState>,
+    server_id: String,
+    common_address: u16,
+    points: Vec<RemovePointTarget>,
+    ov: bool,
+    bl: bool,
+    sb: bool,
+    nt: bool,
+    iv: bool,
+) -> Result<usize, String> {
+    let servers = state.servers.read().await;
+    let srv = servers
+        .get(&server_id)
+        .ok_or_else(|| format!("server {} not found", server_id))?;
+
+    // 先把类型解析齐,坏类型在改动前就中止。
+    let mut targets = Vec::with_capacity(points.len());
+    for p in &points {
+        targets.push((p.ioa, parse_asdu_type(&p.asdu_type)?));
+    }
+
+    let changed = {
+        let mut stations = srv.server.stations.write().await;
+        let station = stations
+            .get_mut(&common_address)
+            .ok_or_else(|| format!("station CA={} not found", common_address))?;
+        apply_batch_quality(station, &targets, ov, bl, sb, nt, iv)
+    };
+    srv.server.queue_spontaneous(common_address, &changed).await;
+    Ok(changed.len())
+}
+
+/// 批量为一组点位写入同一个值。要求所有目标同分类;跨分类或任一解析失败 → 返回
+/// 错误且不修改任何点(先全量校验,后全量写入)。返回实际改动的点数。
+#[tauri::command]
+pub async fn batch_update_data_points(
+    state: State<'_, AppState>,
+    server_id: String,
+    common_address: u16,
+    points: Vec<RemovePointTarget>,
+    value: String,
+) -> Result<usize, String> {
+    if points.is_empty() {
+        return Ok(0);
+    }
+    let servers = state.servers.read().await;
+    let srv = servers
+        .get(&server_id)
+        .ok_or_else(|| format!("server {} not found", server_id))?;
+
+    let mut targets = Vec::with_capacity(points.len());
+    for p in &points {
+        targets.push((p.ioa, parse_asdu_type(&p.asdu_type)?));
+    }
+
+    let changed = {
+        let mut stations = srv.server.stations.write().await;
+        let station = stations
+            .get_mut(&common_address)
+            .ok_or_else(|| format!("station CA={} not found", common_address))?;
+        apply_batch_value(station, &targets, &value)?
+    };
+    srv.server.queue_spontaneous(common_address, &changed).await;
+    Ok(changed.len())
 }
 
 /// Map a core `DataPoint` to the serialisable `DataPointInfo` the UI consumes.
@@ -1086,5 +1224,74 @@ mod tests {
         let def_map: HashMap<(u32, AsduTypeId), &InformationObjectDef> = HashMap::new();
         let info = data_point_to_info(&p, &def_map);
         assert!(!info.quality_iv && !info.quality_nt && !info.quality_sb && !info.quality_bl && !info.quality_ov);
+    }
+
+    // ---- parse_value_for / 批量 helper(任务 2.3 / 3.3)----
+
+    fn sp(ioa: u32, v: bool) -> DataPoint {
+        DataPoint::with_value(ioa, AsduTypeId::MSpNa1, DataPointValue::SinglePoint { value: v })
+    }
+    fn me(ioa: u32, v: f32) -> DataPoint {
+        DataPoint::with_value(ioa, AsduTypeId::MMeNc1, DataPointValue::ShortFloat { value: v })
+    }
+
+    #[test]
+    fn parse_value_for_handles_types_and_errors() {
+        assert!(matches!(parse_value_for(&sp(1, false), "ON"), Ok(DataPointValue::SinglePoint { value: true })));
+        assert!(matches!(parse_value_for(&sp(1, true), "0"), Ok(DataPointValue::SinglePoint { value: false })));
+        assert!(parse_value_for(&sp(1, false), "abc").is_err());
+        assert!(matches!(parse_value_for(&me(1, 0.0), "1.5"), Ok(DataPointValue::ShortFloat { .. })));
+        assert!(parse_value_for(&me(1, 0.0), "x").is_err());
+    }
+
+    #[test]
+    fn batch_quality_sets_all_and_filters_ov_to_measured() {
+        let mut st = iec104sim_core::slave::Station::new(1, "t");
+        st.data_points.insert(sp(100, false));
+        st.data_points.insert(me(200, 0.0));
+        let targets = [(100, AsduTypeId::MSpNa1), (200, AsduTypeId::MMeNc1)];
+
+        // nt=true 落到混类型两点
+        let changed = apply_batch_quality(&mut st, &targets, false, false, false, true, false);
+        assert_eq!(changed.len(), 2);
+        assert!(st.data_points.get(100, AsduTypeId::MSpNa1).unwrap().quality.nt);
+        assert!(st.data_points.get(200, AsduTypeId::MMeNc1).unwrap().quality.nt);
+
+        // ov=true 仅落测量类
+        apply_batch_quality(&mut st, &targets, true, false, false, false, false);
+        assert!(!st.data_points.get(100, AsduTypeId::MSpNa1).unwrap().quality.ov, "SP 忽略 OV");
+        assert!(st.data_points.get(200, AsduTypeId::MMeNc1).unwrap().quality.ov, "ME 写入 OV");
+    }
+
+    #[test]
+    fn batch_value_same_category_writes_all() {
+        let mut st = iec104sim_core::slave::Station::new(1, "t");
+        for ioa in 100..103u32 { st.data_points.insert(sp(ioa, false)); }
+        let targets = [(100, AsduTypeId::MSpNa1), (101, AsduTypeId::MSpNa1), (102, AsduTypeId::MSpNa1)];
+        let changed = apply_batch_value(&mut st, &targets, "ON").unwrap();
+        assert_eq!(changed.len(), 3);
+        for ioa in 100..103u32 {
+            assert!(matches!(st.data_points.get(ioa, AsduTypeId::MSpNa1).unwrap().value, DataPointValue::SinglePoint { value: true }));
+        }
+    }
+
+    #[test]
+    fn batch_value_cross_category_rejected_no_side_effect() {
+        let mut st = iec104sim_core::slave::Station::new(1, "t");
+        st.data_points.insert(sp(100, false));
+        st.data_points.insert(me(200, 0.0));
+        // "1" 对 SP 可解析,但因含 ME(跨类)整体应被拒,且 SP 不被改动
+        let res = apply_batch_value(&mut st, &[(100, AsduTypeId::MSpNa1), (200, AsduTypeId::MMeNc1)], "1");
+        assert!(res.is_err());
+        assert!(matches!(st.data_points.get(100, AsduTypeId::MSpNa1).unwrap().value, DataPointValue::SinglePoint { value: false }), "SP 未被改动");
+    }
+
+    #[test]
+    fn batch_value_parse_failure_rejected_no_side_effect() {
+        let mut st = iec104sim_core::slave::Station::new(1, "t");
+        st.data_points.insert(sp(103, false));
+        let res = apply_batch_value(&mut st, &[(103, AsduTypeId::MSpNa1)], "abc");
+        assert!(res.is_err());
+        assert!(matches!(st.data_points.get(103, AsduTypeId::MSpNa1).unwrap().value, DataPointValue::SinglePoint { value: false }), "解析失败不改动");
     }
 }

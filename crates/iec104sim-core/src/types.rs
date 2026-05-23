@@ -243,6 +243,15 @@ pub enum DataCategory {
 }
 
 impl DataCategory {
+    /// 测量类(QDS 中 OV/溢出位有意义的分类):归一化/标度化/浮点。
+    /// SP/DP/ST/BO/IT 的 OV 不适用。
+    pub fn is_measured(&self) -> bool {
+        matches!(
+            self,
+            Self::NormalizedMeasured | Self::ScaledMeasured | Self::FloatMeasured
+        )
+    }
+
     /// Short display name.
     pub fn name(&self) -> &'static str {
         match self {
@@ -392,6 +401,18 @@ mod tests {
     fn test_quality_flags_default() {
         let q = QualityFlags::good();
         assert!(!q.ov && !q.bl && !q.sb && !q.nt && !q.iv);
+    }
+
+    #[test]
+    fn test_category_is_measured() {
+        assert!(DataCategory::NormalizedMeasured.is_measured());
+        assert!(DataCategory::ScaledMeasured.is_measured());
+        assert!(DataCategory::FloatMeasured.is_measured());
+        assert!(!DataCategory::SinglePoint.is_measured());
+        assert!(!DataCategory::DoublePoint.is_measured());
+        assert!(!DataCategory::StepPosition.is_measured());
+        assert!(!DataCategory::Bitstring.is_measured());
+        assert!(!DataCategory::IntegratedTotals.is_measured());
     }
 
     #[test]

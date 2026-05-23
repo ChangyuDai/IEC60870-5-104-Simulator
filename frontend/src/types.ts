@@ -27,6 +27,25 @@ export interface DataPointInfo {
   timestamp: string | null
 }
 
+/** 由 ASDU 类型派生分类键,用于批量写值的"同分类"判定。
+ *  归一化/标度化/浮点是不同分类(值类型不同),故 ME_NA/NB/NC 区分。 */
+export function categoryKeyOf(asduType: string): string {
+  if (asduType.startsWith('M_SP')) return 'single'
+  if (asduType.startsWith('M_DP')) return 'double'
+  if (asduType.startsWith('M_ST')) return 'step'
+  if (asduType.startsWith('M_BO')) return 'bitstring'
+  if (asduType.startsWith('M_ME_NA') || asduType.startsWith('M_ME_TD')) return 'me_na'
+  if (asduType.startsWith('M_ME_NB') || asduType.startsWith('M_ME_TE')) return 'me_nb'
+  if (asduType.startsWith('M_ME_NC') || asduType.startsWith('M_ME_TF')) return 'me_nc'
+  if (asduType.startsWith('M_IT')) return 'it'
+  return asduType
+}
+
+/** 测量类(OV 适用):M_ME_*。 */
+export function isMeasured(asduType: string): boolean {
+  return asduType.startsWith('M_ME')
+}
+
 /** Response of the incremental `list_data_points_since` command. */
 export interface IncrementalDataResponse {
   /** Current sequence counter — pass back as `sinceSeq` next poll. */

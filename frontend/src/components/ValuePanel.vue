@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { dialogKey } from '@shared/composables/useDialog'
 import type { showAlert as ShowAlert } from '@shared/composables/useDialog'
 import type { DataPointInfo } from '../types'
+import { categoryKeyOf } from '../types'
 import { useI18n, localizeCategoryLabel } from '@shared/i18n'
 import EmptyState from '@shared/components/EmptyState.vue'
 import QualityIndicator from '@shared/components/QualityIndicator.vue'
@@ -119,6 +120,68 @@ async function writeValue() {
   }
 }
 
+// ── 批量编辑(多选)──────────────────────────────────────────────
+type QualityBits = { ov: boolean; bl: boolean; sb: boolean; nt: boolean; iv: boolean }
+const batchQuality = ref<QualityBits>({ ov: false, bl: false, sb: false, nt: false, iv: false })
+const batchValue = ref('')
+
+// 选中点是否全同分类(批量写值前提)
+const allSameCategory = computed(() => {
+  const pts = selectedPoints.value
+  if (pts.length === 0) return false
+  const k = categoryKeyOf(pts[0].asdu_type)
+  return pts.every((p) => categoryKeyOf(p.asdu_type) === k)
+})
+// 选中点是否全为测量类(OV 适用)
+const allMeasured = computed(
+  () => selectedPoints.value.length > 0 && selectedPoints.value.every((p) => p.asdu_type.startsWith('M_ME')),
+)
+
+function batchToggleQuality(bit: keyof QualityBits) {
+  batchQuality.value = { ...batchQuality.value, [bit]: !batchQuality.value[bit] }
+}
+
+function batchTargets() {
+  return selectedPoints.value.map((p) => ({ ioa: p.ioa, asdu_type: p.asdu_type }))
+}
+
+async function applyBatchQuality() {
+  if (!selectedServerId.value || selectedCA.value === null || selectedPoints.value.length === 0) return
+  const q = batchQuality.value
+  try {
+    await invoke('batch_set_data_point_quality', {
+      serverId: selectedServerId.value,
+      commonAddress: selectedCA.value,
+      points: batchTargets(),
+      ov: q.ov, bl: q.bl, sb: q.sb, nt: q.nt, iv: q.iv,
+    })
+    batchQuality.value = { ov: false, bl: false, sb: false, nt: false, iv: false }
+  } catch (e) {
+    await showAlert(String(e))
+  }
+}
+
+async function applyBatchValue() {
+  if (!selectedServerId.value || selectedCA.value === null || !batchValue.value || !allSameCategory.value) return
+  try {
+    await invoke('batch_update_data_points', {
+      serverId: selectedServerId.value,
+      commonAddress: selectedCA.value,
+      points: batchTargets(),
+      value: batchValue.value,
+    })
+    batchValue.value = ''
+  } catch (e) {
+    await showAlert(String(e))
+  }
+}
+
+// 切换选择时清空批量草稿
+watch(selectedPoints, () => {
+  batchQuality.value = { ov: false, bl: false, sb: false, nt: false, iv: false }
+  batchValue.value = ''
+})
+
 function handleEditKeydown(e: KeyboardEvent) {
   if (e.key === 'Enter') {
     e.preventDefault()
@@ -206,7 +269,7 @@ function handleEditKeydown(e: KeyboardEvent) {
     </template>
 
     <template v-else>
-      <!-- Multiple selection -->
+      <!-- Multiple selection: 批量编辑 -->
       <div class="multi-info">
         <div class="detail-section">
           <div class="section-title">{{ t('valuePanel.sectionMultiSelect') }}</div>
@@ -214,6 +277,33 @@ function handleEditKeydown(e: KeyboardEvent) {
             <span class="detail-label">{{ t('valuePanel.countLabel') }}</span>
             <span class="detail-value">{{ selectedPoints.length }} {{ t('table.countSuffix') }}</span>
           </div>
+
+          <!-- 批量品质 -->
+          <div class="detail-row">
+            <span class="detail-label">{{ t('valuePanel.quality') }}</span>
+            <span class="detail-value">
+              <QualityIndicator :quality="batchQuality" editable :show-ov="allMeasured" @toggle="batchToggleQuality" />
+            </span>
+          </div>
+          <div class="write-row">
+            <button class="write-btn" @click="applyBatchQuality">{{ t('valuePanel.applyQuality') }}</button>
+          </div>
+
+          <!-- 批量写值(仅同分类启用)-->
+          <div class="write-row">
+            <input
+              v-model="batchValue"
+              class="write-input"
+              type="text"
+              :placeholder="t('valuePanel.valuePlaceholder')"
+              :disabled="!allSameCategory"
+            />
+            <button class="write-btn" :disabled="!allSameCategory" @click="applyBatchValue">
+              {{ t('valuePanel.applyValue') }}
+            </button>
+          </div>
+          <div v-if="!allSameCategory" class="batch-hint">{{ t('valuePanel.batchValueMixedHint') }}</div>
+
           <div class="ioa-list">
             <span v-for="p in selectedPoints" :key="`${p.ioa}-${p.asdu_type}`" class="ioa-chip">
               {{ p.ioa }}
@@ -344,6 +434,18 @@ function handleEditKeydown(e: KeyboardEvent) {
 
 .write-btn:hover {
   background: var(--c-sapphire);
+}
+
+.write-btn:disabled,
+.write-input:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.batch-hint {
+  padding: 2px 16px 6px;
+  font-size: 11px;
+  color: var(--c-overlay0);
 }
 
 .ioa-list {

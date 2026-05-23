@@ -190,6 +190,9 @@ export type DictShape = {
     write: string
     sectionMultiSelect: string
     countLabel: string
+    applyQuality: string
+    applyValue: string
+    batchValueMixedHint: string
   }
   quality: {
     legendTitle: string
@@ -437,6 +440,9 @@ const dict: DictShape = {
     write: '写入',
     sectionMultiSelect: '批量选中',
     countLabel: '数量',
+    applyQuality: '应用品质',
+    applyValue: '应用值',
+    batchValueMixedHint: '仅同类型点位可批量写值',
   },
   quality: {
     legendTitle: '品质描述词 QDS · IEC 60870-5-101',
