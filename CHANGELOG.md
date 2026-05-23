@@ -4,6 +4,20 @@
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-05-23
+
+### Highlights / 亮点
+
+- 🩹 **补全子站数据表品质列** / Slave data table quality column completed — v1.6.0 把品质升级为多位徽章时漏改了子站主数据表,其品质列仍是只看 IV 的旧单点(全正常一律绿点,看不出 NT/SB/BL/OV)。本补丁把它换成与主站表格一致的紧凑多位徽章 / v1.6.0's per-bit badge upgrade missed the slave's main data table, whose quality column still showed the old IV-only dot (always green, hiding NT/SB/BL/OV). This patch switches it to the same compact multi-bit badges the master table already uses.
+
+### Fixed 修复
+
+- 子站数据表 `DataPointTable.vue` 品质列由旧单点(仅 IV)改为复用共享组件 `QualityIndicator`(紧凑、只读),逐位展示置位品质并高亮、全正常显示 OK,与主站表格统一;编辑仍在右侧详情面板 / Slave `DataPointTable.vue` quality column migrated from the IV-only dot to the shared `QualityIndicator` (compact, read-only) — highlights each set bit, shows OK when clean, matching the master table; editing stays in the detail panel.
+
+### Tests 测试
+
+- 新增 1 个前端 vitest:子站数据表中 `quality_nt=true` 的点渲染高亮 `NT` 徽章、正常点渲染 `OK`(子站前端 44 测试全绿)/ 1 new frontend vitest: a `quality_nt=true` point renders a highlighted `NT` badge and a clean point renders `OK` in the slave table (44 slave-frontend tests green).
+
 ## [1.6.0] - 2026-05-23
 
 ### Highlights / 亮点
