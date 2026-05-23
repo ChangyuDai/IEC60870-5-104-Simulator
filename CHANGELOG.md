@@ -4,6 +4,25 @@
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-05-23
+
+### Highlights / 亮点
+
+- 🛠️ **品质图例 `(?)` 点不开 已修复** / Fixed: the quality legend `(?)` wouldn't open — 子站详情面板的图例 popover 被 `.detail-value{overflow:hidden}` 裁剪,点了不显示;现改为 teleport 到 `<body>` 的 fixed 弹层(沿用本仓库弹窗一贯做法),不再被任何祖先裁剪 / The legend popover in the slave detail panel was clipped by `.detail-value{overflow:hidden}`, so clicking `(?)` showed nothing. It now teleports to `<body>` as a fixed layer (matching the repo's existing dialog pattern), immune to any ancestor clipping.
+- 🏷️ **数据表表头加 `(?)` 图例** / `(?)` legend added to the table header — 主子站数据表「品质」列表头旁新增 `(?)`,无需选中点位也能查看 IV/NT/SB/BL/OV 释义 / Both apps' data-table "Quality" column header now carries a `(?)`, so the IV/NT/SB/BL/OV legend is reachable without selecting a point.
+
+### Fixed 修复
+
+- 品质图例 popover 由组件内 `position:absolute` 改为独立组件 `QualityLegend.vue` + `Teleport` 到 `<body>` 的 `position:fixed` 弹层(从按钮 rect 右对齐、视口内,outside-click / Esc / scroll 关闭),修复在 `overflow:hidden` 容器内被裁剪、点击无反应的问题 / The legend popover moved from an in-component `position:absolute` element to a dedicated `QualityLegend.vue` that `Teleport`s a `position:fixed` layer to `<body>` (right-aligned to the button rect, viewport-clamped, closes on outside-click / Esc / scroll), fixing the clip-and-no-show bug inside `overflow:hidden` containers.
+
+### Added 新增
+
+- 主子站数据表「品质」列表头旁新增独立 `(?)` 图例入口(表格行内仍不带 `(?)`,避免每行噪声)/ A standalone `(?)` legend entry next to both apps' data-table "Quality" column header (per-row `(?)` stays off to avoid noise).
+
+### Tests 测试
+
+- 新增断言:图例 teleport 到 `document.body`(脱离被裁剪子树);新增 `QualityLegend` 独立开/关用例;并以无头浏览器(Playwright)在 `overflow:hidden` 容器内实测 popover 不被裁剪、完整显示 5 行释义 / New assertions: the legend renders into `document.body` (out of the clipped subtree); a standalone `QualityLegend` open/close case; plus a headless-browser (Playwright) check confirming the popover escapes an `overflow:hidden` container and shows all five legend rows.
+
 ## [1.6.1] - 2026-05-23
 
 ### Highlights / 亮点
