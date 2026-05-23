@@ -2,6 +2,7 @@
 import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
 import QualityIndicator from '@shared/components/QualityIndicator.vue'
+import QualityLegend from '@shared/components/QualityLegend.vue'
 import { useI18n } from '@shared/i18n'
 
 type Bits = { ov: boolean; bl: boolean; sb: boolean; nt: boolean; iv: boolean }
@@ -43,14 +44,34 @@ describe('QualityIndicator', () => {
     expect(w.emitted('toggle')).toBeUndefined()
   })
 
-  it('点击 ? 弹出图例并显示中文释义', async () => {
+  it('点击 ? 图例 teleport 到 body(不被祖先 overflow 裁剪)并显示中文释义', async () => {
     useI18n().setLocale('zh-CN')
     const w = mount(QualityIndicator, { props: { quality: q(), showOv: true } })
-    expect(w.find('.q-legend').exists()).toBe(false)
+    // 未点击时 body 无图例
+    expect(document.body.querySelector('.q-legend')).toBeNull()
     await w.find('.q-help').trigger('click')
-    const legend = w.find('.q-legend')
-    expect(legend.exists()).toBe(true)
-    expect(legend.text()).toContain('无效')   // IV
-    expect(legend.text()).toContain('非现时') // NT
+    // 关键:图例渲染到 document.body,而不是留在(可能被裁剪的)组件子树里
+    const legend = document.body.querySelector('.q-legend')
+    expect(legend).not.toBeNull()
+    expect(w.element.contains(legend)).toBe(false) // 已 teleport 出组件子树
+    expect(legend!.textContent).toContain('无效')   // IV
+    expect(legend!.textContent).toContain('非现时') // NT
+    w.unmount()
+    expect(document.body.querySelector('.q-legend')).toBeNull() // 卸载后清理
+  })
+})
+
+describe('QualityLegend(独立图例,用于表头)', () => {
+  it('点击 ? teleport 到 body,再点 ? 关闭', async () => {
+    useI18n().setLocale('zh-CN')
+    const w = mount(QualityLegend)
+    expect(document.body.querySelector('.q-legend')).toBeNull()
+    await w.find('.q-help').trigger('click')
+    const legend = document.body.querySelector('.q-legend')
+    expect(legend).not.toBeNull()
+    expect(legend!.textContent).toContain('溢出') // OV
+    await w.find('.q-help').trigger('click') // 再点关闭
+    expect(document.body.querySelector('.q-legend')).toBeNull()
+    w.unmount()
   })
 })

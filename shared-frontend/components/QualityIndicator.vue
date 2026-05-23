@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { computed } from 'vue'
 import { useI18n } from '../i18n'
+import QualityLegend from './QualityLegend.vue'
 
 export interface QualityBits {
   ov: boolean
@@ -41,7 +42,6 @@ const bits = computed(() =>
 )
 const anyLit = computed(() => applicable.value.some((b) => props.quality[b.key]))
 
-const showLegend = ref(false)
 function onBadge(key: keyof QualityBits) {
   if (props.editable) emit('toggle', key)
 }
@@ -62,21 +62,7 @@ function onBadge(key: keyof QualityBits) {
       >{{ b.letter }}</button>
       <span v-if="compact && !anyLit" class="q-ok">OK</span>
     </span>
-    <button
-      v-if="showHelp"
-      type="button"
-      class="q-help"
-      :aria-label="t('quality.legendTitle')"
-      @click.stop="showLegend = !showLegend"
-    >?</button>
-    <div v-if="showLegend" class="q-legend" @click.stop>
-      <div class="q-legend-title">{{ t('quality.legendTitle') }}</div>
-      <div v-for="b in ALL_BITS" :key="b.key" class="q-legend-row">
-        <span class="q-legend-letter">{{ b.letter }}</span>
-        <span class="q-legend-name">{{ t(`quality.bits.${b.key}.name`) }}</span>
-        <span class="q-legend-desc">{{ t(`quality.bits.${b.key}.desc`) }}</span>
-      </div>
-    </div>
+    <QualityLegend v-if="showHelp" />
   </div>
 </template>
 
@@ -118,59 +104,5 @@ function onBadge(key: keyof QualityBits) {
 }
 .q-badge.q-iv.lit {
   background: var(--c-red);
-}
-.q-help {
-  width: 16px;
-  height: 16px;
-  line-height: 14px;
-  border-radius: 50%;
-  border: 1px solid var(--c-surface2);
-  background: var(--c-surface0);
-  color: var(--c-subtext0);
-  font-size: 11px;
-  cursor: pointer;
-  padding: 0;
-}
-.q-help:hover {
-  border-color: var(--c-blue);
-  color: var(--c-blue);
-}
-.q-legend {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  z-index: 50;
-  min-width: 280px;
-  padding: 8px 10px;
-  background: var(--c-mantle);
-  border: 1px solid var(--c-surface1);
-  border-radius: 6px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-}
-.q-legend-title {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--c-subtext1);
-  margin-bottom: 6px;
-  white-space: nowrap;
-}
-.q-legend-row {
-  display: grid;
-  grid-template-columns: 28px 56px 1fr;
-  gap: 6px;
-  align-items: baseline;
-  font-size: 12px;
-  padding: 2px 0;
-}
-.q-legend-letter {
-  font: 600 11px/1 ui-monospace, monospace;
-  color: var(--c-peach);
-}
-.q-legend-name {
-  color: var(--c-text);
-}
-.q-legend-desc {
-  color: var(--c-subtext0);
-  font-size: 11px;
 }
 </style>

@@ -9,6 +9,7 @@ import BatchAddModal from './BatchAddModal.vue'
 import { useI18n, localizeCategoryLabel } from '@shared/i18n'
 import EmptyState from '@shared/components/EmptyState.vue'
 import QualityIndicator from '@shared/components/QualityIndicator.vue'
+import QualityLegend from '@shared/components/QualityLegend.vue'
 
 const { t } = useI18n()
 const { showAlert } = inject<{ showAlert: typeof ShowAlert }>(dialogKey)!
@@ -509,7 +510,7 @@ defineExpose({ loadData: loadDataPoints })
             <th class="col-type">{{ t('table.asduTypeCol') }}</th>
             <th class="col-name">{{ t('table.nameCol') }}</th>
             <th class="col-value">{{ t('table.valueCol') }}</th>
-            <th class="col-quality">{{ t('table.qualityCol') }}</th>
+            <th class="col-quality"><span class="th-quality">{{ t('table.qualityCol') }}<QualityLegend /></span></th>
             <th class="col-timestamp">{{ t('table.timestampCol') }}</th>
           </tr>
         </thead>
@@ -756,6 +757,11 @@ defineExpose({ loadData: loadDataPoints })
   font-weight: 700;
 }
 
+.th-quality {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
 .col-quality {
   width: 96px;
   text-align: center;

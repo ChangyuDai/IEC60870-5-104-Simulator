@@ -5,6 +5,7 @@ import type { ReceivedDataPointInfo, IncrementalDataResponse, CommandType, Contr
 import { getControlConfig } from '../types'
 import ControlDialog from './ControlDialog.vue'
 import QualityIndicator from '@shared/components/QualityIndicator.vue'
+import QualityLegend from '@shared/components/QualityLegend.vue'
 import { useI18n, localizeCategoryLabel } from '@shared/i18n'
 
 const { t } = useI18n()
@@ -351,7 +352,7 @@ function isCtxActiveOption(optValue: string): boolean {
               <th class="col-ioa">IOA</th>
               <th class="col-type">{{ t('table.type') }}</th>
               <th class="col-value">{{ t('table.value') }}</th>
-              <th class="col-quality">{{ t('table.quality') }}</th>
+              <th class="col-quality"><span class="th-quality">{{ t('table.quality') }}<QualityLegend /></span></th>
               <th class="col-timestamp">{{ t('table.timestamp') }}</th>
             </tr>
           </thead>
@@ -479,6 +480,7 @@ function isCtxActiveOption(optValue: string): boolean {
 .col-value { font-family: var(--font-mono); transition: color 0.3s; }
 .col-value.value-highlight { color: var(--c-peach); font-weight: 700; }
 .col-quality { width: 96px; font-weight: 600; font-size: 11px; }
+.th-quality { display: inline-flex; align-items: center; gap: 4px; }
 .col-quality.quality-ok { color: var(--c-green); }
 .col-quality.quality-iv { color: var(--c-red); }
 .col-timestamp { font-family: var(--font-mono); width: 120px; color: var(--c-overlay0); }
