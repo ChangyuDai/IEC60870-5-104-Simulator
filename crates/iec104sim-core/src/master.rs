@@ -1,7 +1,7 @@
 use crate::data_point::{DataPoint, DataPointMap, DataPointValue};
 use crate::log_collector::LogCollector;
 use crate::log_entry::{Direction, FrameLabel, LogEntry};
-use crate::types::AsduTypeId;
+use crate::types::{AsduTypeId, QualityFlags};
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -1848,8 +1848,31 @@ fn parse_and_store_asdu(
             _ => break,
         };
 
+        // 解出品质,填到点上(此前主站只解值、品质恒为 good)。
+        // SP/DP 的 bit0 是状态值不是 OV,只取高 4 位;ST/BO/ME 用完整 QDS
+        // (含 OV);IT 仅 IV 在 BCR bit8。
+        let quality = match asdu_type {
+            1 | 30 | 3 | 31 => {
+                let b = data[obj_offset];
+                QualityFlags {
+                    ov: false,
+                    bl: b & 0x10 != 0,
+                    sb: b & 0x20 != 0,
+                    nt: b & 0x40 != 0,
+                    iv: b & 0x80 != 0,
+                }
+            }
+            5 | 32 => crate::decode::quality_from_qds(data[obj_offset + 1]),
+            7 | 33 | 13 | 36 => crate::decode::quality_from_qds(data[obj_offset + 4]),
+            9 | 34 | 11 | 35 => crate::decode::quality_from_qds(data[obj_offset + 2]),
+            15 | 37 => QualityFlags { iv: data[obj_offset + 4] & 0x80 != 0, ..Default::default() },
+            _ => QualityFlags::good(),
+        };
+
         obj_offset += elem_size;
-        points.push(DataPoint::with_value(ioa, asdu_id, value));
+        let mut point = DataPoint::with_value(ioa, asdu_id, value);
+        point.quality = quality;
+        points.push(point);
     }
 
     // Batch insert — single lock acquisition for all points in this frame.
@@ -2137,6 +2160,38 @@ mod tests {
     fn test_seq_inc_wraparound() {
         assert_eq!(seq_inc(0), 1);
         assert_eq!(seq_inc(32767), 0);
+    }
+
+    #[test]
+    fn received_frame_decodes_quality_onto_point() {
+        // parse_and_store_asdu 内部用 Handle::block_on 落库,真实路径跑在
+        // spawn_blocking 线程上;此处用一条普通 OS 线程(非 runtime worker)
+        // 进入 runtime 上下文调用,避免 "runtime within runtime" panic。
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let received: SharedReceivedData = Arc::new(RwLock::new(MasterReceivedData::new()));
+        let (tx, _rx) = tokio::sync::broadcast::channel(8);
+        // M_ME_NC_1(type 13),1 对象,COT=3,CA=1,IOA=100,float 0.0,QDS=NT(0x40)
+        let frame: Vec<u8> = vec![
+            0x68, 0x14, 0, 0, 0, 0, // start + len + APCI
+            13, 0x01, 3, 0x00,      // type / vsq(1 obj,SQ=0) / cot / oa
+            1, 0,                   // CA=1
+            100, 0, 0,              // IOA=100
+            0, 0, 0, 0,             // IEEE float 0.0
+            0x40,                   // QDS = NT
+        ];
+        let handle = rt.handle().clone();
+        std::thread::scope(|s| {
+            s.spawn(|| {
+                let _g = handle.enter();
+                parse_and_store_asdu(&frame, &received, &None, &tx);
+            });
+        });
+
+        let guard = received.try_read().unwrap();
+        let pts = guard.all_sorted();
+        let (_, p) = pts.iter().find(|(_, p)| p.ioa == 100).expect("point should be stored");
+        assert!(p.quality.nt, "NT 应解码到点上");
+        assert!(!p.quality.iv && !p.quality.ov && !p.quality.bl && !p.quality.sb, "未置位品质应为 false");
     }
 
     #[test]

@@ -4,7 +4,7 @@ export const RELEASES_URL = 'https://github.com/Karl-Dai/IEC60870-5-104-Simulato
 
 // Keep in sync with CHANGELOG.md — see `release` skill.
 export const RELEASE_NOTES: string[] = [
-  '新增 IEC 104 时序参数自动纠正: t1/t2/t3/k/w 强制满足 t2<t1<t3、w≤⌊2k/3⌋, 新建/编辑连接时以 t1/k 为锚即时修正非法组合并提示',
-  '导入含非法时序的旧配置会自动修正, 并弹出改动明细',
-  '后端在所有入口权威规范化, 再也无法保存会误断健康连接的非法时序组合',
+  '品质显示从单灯升级为多位徽章: 数据表与详情逐位展示收到的 IV/NT/SB/BL/OV 并高亮, (?) 图标点开有中英双语释义图例',
+  '修复主站收帧从不解码品质字节的问题 (此前品质灯永远是绿的), 现按类型解出全部 5 位',
+  '品质字段端到端透传, 与子站发出的品质保持一致',
 ]

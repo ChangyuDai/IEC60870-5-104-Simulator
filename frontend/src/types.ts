@@ -19,6 +19,10 @@ export interface DataPointInfo {
   name: string
   comment: string
   value: string
+  quality_ov: boolean
+  quality_bl: boolean
+  quality_sb: boolean
+  quality_nt: boolean
   quality_iv: boolean
   timestamp: string | null
 }

@@ -1,7 +1,7 @@
 use crate::data_point::{DataPoint, DataPointMap, DataPointValue, InformationObjectDef};
 use crate::log_collector::LogCollector;
 use crate::log_entry::{Direction, FrameLabel, LogEntry};
-use crate::types::{AsduTypeId, DataCategory};
+use crate::types::{AsduTypeId, DataCategory, QualityFlags};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::{SocketAddr, TcpStream};
@@ -2083,42 +2083,48 @@ fn build_i_frame(
     frame
 }
 
-/// 把 `DataPointValue` 编码为 IEC 60870-5-101 中 NA 类型(无时标)的值字节。
-fn encode_na_value(value: &DataPointValue) -> (u8, Vec<u8>) {
+/// 把 `DataPointValue` 编码为 IEC 60870-5-101 中 NA 类型(无时标)的值字节,
+/// 并按类型把品质 `q` 写入对应的品质字节:
+/// - SP/DP:品质占 SIQ/DIQ 高 4 位(低位是 SPI/DPI 值,无 OV)
+/// - 测量类(Normalized/Scaled/ShortFloat):完整 QDS(含 OV)
+/// - Step/Bitstring:QDS 高 4 位(标准 OV 仅对测量类生效,此处不写 OV)
+/// - 累计量:BCR 描述字节的 IV 位(0x80),与进位/序号共存
+fn encode_na_value(value: &DataPointValue, q: &QualityFlags) -> (u8, Vec<u8>) {
     match value {
         DataPointValue::SinglePoint { value } => {
-            let siq = if *value { 0x01 } else { 0x00 };
+            let siq = (if *value { 0x01 } else { 0x00 }) | q.upper_bits();
             (1, vec![siq])
         }
         DataPointValue::DoublePoint { value } => {
-            let diq = *value & 0x03;
+            let diq = (*value & 0x03) | q.upper_bits();
             (3, vec![diq])
         }
         DataPointValue::StepPosition { value, transient } => {
             let vti = ((*value as u8) & 0x7F) | (if *transient { 0x80 } else { 0 });
-            (5, vec![vti, 0])
+            (5, vec![vti, q.upper_bits()])
         }
         DataPointValue::Bitstring { value } => {
             let b = value.to_le_bytes();
-            (7, vec![b[0], b[1], b[2], b[3], 0])
+            (7, vec![b[0], b[1], b[2], b[3], q.upper_bits()])
         }
         DataPointValue::Normalized { value } => {
             let nva = (*value * 32767.0) as i16;
             let b = nva.to_le_bytes();
-            (9, vec![b[0], b[1], 0u8])
+            (9, vec![b[0], b[1], q.qds_byte()])
         }
         DataPointValue::Scaled { value } => {
             let b = value.to_le_bytes();
-            (11, vec![b[0], b[1], 0u8])
+            (11, vec![b[0], b[1], q.qds_byte()])
         }
         DataPointValue::ShortFloat { value } => {
             let b = value.to_le_bytes();
-            (13, vec![b[0], b[1], b[2], b[3], 0u8])
+            (13, vec![b[0], b[1], b[2], b[3], q.qds_byte()])
         }
         DataPointValue::IntegratedTotal { value, carry, sequence } => {
             let b = value.to_le_bytes();
             let mut bcr = *sequence & 0x1F;
             if *carry { bcr |= 0x20; }
+            if q.iv { bcr |= 0x80; }
             (15, vec![b[0], b[1], b[2], b[3], bcr])
         }
     }
@@ -2130,7 +2136,7 @@ fn encode_point_frame(
     value: &DataPointValue, cot: u8, ca: &[u8], ioa: &[u8],
     seq: &mut SeqState,
 ) -> Vec<u8> {
-    let (type_id, value_bytes) = encode_na_value(value);
+    let (type_id, value_bytes) = encode_na_value(value, &QualityFlags::good());
     build_i_frame(type_id, cot, ca, ioa, &value_bytes, seq)
 }
 
@@ -2144,7 +2150,7 @@ fn encode_point_frame_ex(
     point: &DataPoint, cot: u8, ca: &[u8],
     seq: &mut SeqState, force_timestamped: Option<bool>,
 ) -> Vec<u8> {
-    let (na_type, mut value_bytes) = encode_na_value(&point.value);
+    let (na_type, mut value_bytes) = encode_na_value(&point.value, &point.quality);
     let want_tb = match force_timestamped {
         Some(b) => b,
         None => point.asdu_type.is_timestamped(),
@@ -2169,10 +2175,11 @@ fn encode_points_grouped(
     seq: &mut SeqState, timestamped: bool,
 ) -> Option<Vec<u8>> {
     if points.is_empty() { return None; }
-    let (first_type, _) = encode_na_value(&points[0].value);
+    // 品质不影响类型判定,此处仅取 type_id;逐点品质在下方值段循环中各自写入。
+    let (first_type, _) = encode_na_value(&points[0].value, &points[0].quality);
     for w in points.windows(2) {
         if w[1].ioa != w[0].ioa + 1 { return None; }
-        let (t, _) = encode_na_value(&w[1].value);
+        let (t, _) = encode_na_value(&w[1].value, &w[1].quality);
         if t != first_type { return None; }
     }
     let final_type = if timestamped {
@@ -2185,7 +2192,7 @@ fn encode_points_grouped(
     if n > 0x7F { return None; }
     let mut value_section: Vec<u8> = Vec::new();
     for p in points {
-        let (_, bytes) = encode_na_value(&p.value);
+        let (_, bytes) = encode_na_value(&p.value, &p.quality);
         value_section.extend_from_slice(&bytes);
         if timestamped {
             let ts = p.timestamp.unwrap_or_else(chrono::Utc::now);
@@ -2610,6 +2617,143 @@ mod tests {
         assert_eq!(frame[6], 1);
         assert_eq!(frame[7], 0x85);
         assert_eq!(&frame[12..15], &[100, 0, 0]);
+    }
+
+    // ---- 品质位写入帧字节 (QDS/SIQ/DIQ/BCR) ----
+
+    /// 构造一个带指定值与品质的单点,编码为 NA I-frame,返回帧字节。
+    fn encode_na(value: DataPointValue, q: QualityFlags, ioa: u32, ty: AsduTypeId) -> Vec<u8> {
+        let mut p = DataPoint::new(ioa, ty);
+        p.value = value;
+        p.quality = q;
+        let ca = 1u16.to_le_bytes();
+        let mut seq = SeqState::default();
+        encode_point_frame_ex(&p, 20, &ca, &mut seq, Some(false))
+    }
+
+    #[test]
+    fn quality_single_point_iv_in_siq() {
+        let f = encode_na(
+            DataPointValue::SinglePoint { value: true },
+            QualityFlags { iv: true, ..Default::default() },
+            100, AsduTypeId::MSpNa1,
+        );
+        // SIQ = SPI(0x01) | IV(0x80)
+        assert_eq!(f[6], 1, "type SP NA");
+        assert_eq!(f[15], 0x81, "SIQ = ON + IV");
+    }
+
+    #[test]
+    fn quality_double_point_nt_in_diq() {
+        let f = encode_na(
+            DataPointValue::DoublePoint { value: 2 },
+            QualityFlags { nt: true, ..Default::default() },
+            100, AsduTypeId::MDpNa1,
+        );
+        // DIQ = DPI(2) | NT(0x40)
+        assert_eq!(f[6], 3, "type DP NA");
+        assert_eq!(f[15], 0x42, "DIQ = DPI2 + NT");
+    }
+
+    #[test]
+    fn quality_measured_ov_in_qds() {
+        let f = encode_na(
+            DataPointValue::ShortFloat { value: 0.0 },
+            QualityFlags { ov: true, ..Default::default() },
+            100, AsduTypeId::MMeNc1,
+        );
+        // 短浮点 NA: [f0 f1 f2 f3 QDS],QDS 在 frame[19]
+        assert_eq!(f[6], 13, "type ShortFloat NA");
+        assert_eq!(f[19] & 0x01, 0x01, "QDS OV bit set");
+    }
+
+    #[test]
+    fn quality_measured_iv_nt_combined_in_qds() {
+        let f = encode_na(
+            DataPointValue::ShortFloat { value: 0.0 },
+            QualityFlags { iv: true, nt: true, ..Default::default() },
+            100, AsduTypeId::MMeNc1,
+        );
+        assert_eq!(f[19], 0xC0, "QDS = IV(0x80) | NT(0x40)");
+    }
+
+    #[test]
+    fn quality_measured_good_qds_zero() {
+        // 零回归:good() 测量类 QDS 仍为 0x00
+        let f = encode_na(
+            DataPointValue::ShortFloat { value: 0.0 },
+            QualityFlags::good(),
+            100, AsduTypeId::MMeNc1,
+        );
+        assert_eq!(f[19], 0x00, "good QDS = 0");
+    }
+
+    #[test]
+    fn quality_integrated_total_iv_in_bcr() {
+        let f = encode_na(
+            DataPointValue::IntegratedTotal { value: 123, carry: false, sequence: 3 },
+            QualityFlags { iv: true, ..Default::default() },
+            100, AsduTypeId::MItNa1,
+        );
+        // 累计量 NA: [v0 v1 v2 v3 BCR],BCR 在 frame[19]
+        assert_eq!(f[6], 15, "type IT NA");
+        assert_eq!(f[19] & 0x80, 0x80, "BCR IV bit set");
+        assert_eq!(f[19] & 0x1F, 3, "序号 3 保留");
+    }
+
+    #[test]
+    fn quality_single_point_does_not_emit_ov() {
+        // OV 仅测量类;单点 bit1 是 SPI 值,不应被 OV 污染
+        let f = encode_na(
+            DataPointValue::SinglePoint { value: false },
+            QualityFlags { ov: true, ..Default::default() },
+            100, AsduTypeId::MSpNa1,
+        );
+        assert_eq!(f[15], 0x00, "SIQ = OFF,OV 不写入");
+    }
+
+    #[test]
+    fn quality_grouped_sq1_per_point() {
+        // SQ=1 打包三点:good / iv / nt → QDS 各自 0x00 / 0x80 / 0x40
+        let qs = [
+            QualityFlags::good(),
+            QualityFlags { iv: true, ..Default::default() },
+            QualityFlags { nt: true, ..Default::default() },
+        ];
+        let pts: Vec<DataPoint> = (100..103u32)
+            .zip(qs)
+            .map(|(ioa, q)| {
+                let mut p = DataPoint::new(ioa, AsduTypeId::MMeNc1);
+                p.value = DataPointValue::ShortFloat { value: 0.0 };
+                p.quality = q;
+                p
+            })
+            .collect();
+        let refs: Vec<&DataPoint> = pts.iter().collect();
+        let ca = 1u16.to_le_bytes();
+        let mut seq = SeqState::default();
+        let f = encode_points_grouped(&refs, 20, &ca, &mut seq, false).unwrap();
+        assert_eq!(f[6], 13, "type ShortFloat");
+        assert_eq!(f[7], 0x83, "VSQ.SQ=1,n=3");
+        // 每点 5 字节,值段从 frame[15] 起;各点 QDS 在第 5 字节
+        assert_eq!(f[19], 0x00, "pt0 good QDS");
+        assert_eq!(f[24], 0x80, "pt1 IV QDS");
+        assert_eq!(f[29], 0x40, "pt2 NT QDS");
+    }
+
+    #[test]
+    fn quality_roundtrip_encode_then_decode() {
+        // 端到端:子站编码带品质 → 标准解码(主站/ParseFrameDialog 同路径)还原同样品质
+        let f = encode_na(
+            DataPointValue::ShortFloat { value: 1.5 },
+            QualityFlags { nt: true, sb: true, ..Default::default() },
+            100, AsduTypeId::MMeNc1,
+        );
+        let parsed = crate::decode::parse_frame_full(&f).expect("decode ok");
+        let asdu = parsed.asdu.expect("应有 ASDU");
+        let q = asdu.objects[0].quality.expect("应解出品质");
+        assert!(q.nt && q.sb, "NT/SB 编解码往返一致");
+        assert!(!q.iv && !q.ov && !q.bl, "未置位品质保持 false");
     }
 
     #[test]

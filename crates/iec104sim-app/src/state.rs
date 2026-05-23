@@ -62,6 +62,10 @@ pub struct DataPointInfo {
     pub name: String,
     pub comment: String,
     pub value: String,
+    pub quality_ov: bool,
+    pub quality_bl: bool,
+    pub quality_sb: bool,
+    pub quality_nt: bool,
     pub quality_iv: bool,
     pub timestamp: Option<String>,
 }

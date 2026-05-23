@@ -296,6 +296,21 @@ impl QualityFlags {
     pub fn invalid() -> Self {
         Self { iv: true, ..Default::default() }
     }
+
+    /// 公共品质位 BL/SB/NT/IV 组装到 QDS/SIQ/DIQ 的高 4 位
+    /// (`BL=0x10 / SB=0x20 / NT=0x40 / IV=0x80`)。不含 OV。
+    pub fn upper_bits(&self) -> u8 {
+        (if self.bl { 0x10 } else { 0 })
+            | (if self.sb { 0x20 } else { 0 })
+            | (if self.nt { 0x40 } else { 0 })
+            | (if self.iv { 0x80 } else { 0 })
+    }
+
+    /// 测量类(M_ME_*)的完整 QDS 字节:高 4 位 + OV(bit1=0x01)。
+    /// OV 仅对测量类有意义,SP/DP/IT 与 Step/Bitstring 不用此方法。
+    pub fn qds_byte(&self) -> u8 {
+        self.upper_bits() | (if self.ov { 0x01 } else { 0 })
+    }
 }
 
 /// Cause of Transmission.

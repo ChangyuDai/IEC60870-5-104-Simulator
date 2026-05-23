@@ -6,7 +6,7 @@ use iec104sim_core::slave::{
     FixedMutationConfig, ProtocolTimingConfig, RemoteOperationConfig, SlaveServer,
     SlaveTransportConfig, Station,
 };
-use iec104sim_core::types::AsduTypeId;
+use iec104sim_core::types::{AsduTypeId, QualityFlags};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -530,6 +530,48 @@ pub async fn update_data_point(
     Ok(())
 }
 
+/// 设置点位的品质描述词(IV/NT/SB/BL/OV)。与 `update_data_point` 解耦:
+/// 后者只改值,本命令只改品质,改后触发一次自发上送让主站及时收到。
+#[tauri::command]
+pub async fn set_data_point_quality(
+    state: State<'_, AppState>,
+    server_id: String,
+    common_address: u16,
+    ioa: u32,
+    asdu_type: String,
+    ov: bool,
+    bl: bool,
+    sb: bool,
+    nt: bool,
+    iv: bool,
+) -> Result<(), String> {
+    let servers = state.servers.read().await;
+    let srv = servers
+        .get(&server_id)
+        .ok_or_else(|| format!("server {} not found", server_id))?;
+
+    let asdu = parse_asdu_type(&asdu_type)?;
+
+    let mut stations = srv.server.stations.write().await;
+    let station = stations
+        .get_mut(&common_address)
+        .ok_or_else(|| format!("station CA={} not found", common_address))?;
+
+    let point = station.data_points.get_mut(ioa, asdu)
+        .ok_or_else(|| format!("IOA {} type {} not found", ioa, asdu_type))?;
+
+    point.quality = QualityFlags { ov, bl, sb, nt, iv };
+    point.timestamp = Some(chrono::Utc::now());
+    // 与 update_data_point 一致:get_mut 写入不会自动 bump update_seq,
+    // 必须 mark_changed,增量轮询(list_data_points_since)才看得到品质变化。
+    station.data_points.mark_changed(ioa, asdu);
+
+    drop(stations);
+    srv.server.queue_spontaneous(common_address, &[(ioa, asdu)]).await;
+
+    Ok(())
+}
+
 /// Map a core `DataPoint` to the serialisable `DataPointInfo` the UI consumes.
 fn data_point_to_info(
     p: &DataPoint,
@@ -543,6 +585,10 @@ fn data_point_to_info(
         name: def.map(|d| d.name.clone()).unwrap_or_default(),
         comment: def.map(|d| d.comment.clone()).unwrap_or_default(),
         value: p.value.display(),
+        quality_ov: p.quality.ov,
+        quality_bl: p.quality.bl,
+        quality_sb: p.quality.sb,
+        quality_nt: p.quality.nt,
         quality_iv: p.quality.iv,
         // DataPoint.timestamp 内部存 UTC 便于无歧义比较；展示给用户时转为
         // 本地时区,这样 UI 看到的"时间戳"和系统挂钟一致。
@@ -1013,4 +1059,32 @@ pub fn parse_frame_full(data: String) -> Result<iec104sim_core::decode::ParsedFr
     let bytes = iec104sim_core::tools::parse_hex_string(&data)
         .map_err(|e| format!("{}", e))?;
     iec104sim_core::decode::parse_frame_full(&bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    // 任务 2.4: DTO 映射携带全部 5 个品质位(本 crate 的实质改动)。
+    // set_data_point_quality / update_data_point 命令体仅 get_mut 后写单字段,
+    // 数据层行为已由 core 单测覆盖,此处聚焦 DTO 透传正确性。
+    #[test]
+    fn data_point_to_info_maps_all_quality_bits() {
+        let mut p = DataPoint::new(100, AsduTypeId::MMeNc1);
+        p.quality = QualityFlags { nt: true, sb: true, ..Default::default() };
+        let def_map: HashMap<(u32, AsduTypeId), &InformationObjectDef> = HashMap::new();
+        let info = data_point_to_info(&p, &def_map);
+        assert!(info.quality_nt, "nt 透传");
+        assert!(info.quality_sb, "sb 透传");
+        assert!(!info.quality_iv && !info.quality_ov && !info.quality_bl, "未置位为 false");
+    }
+
+    #[test]
+    fn data_point_to_info_good_all_false() {
+        let p = DataPoint::new(100, AsduTypeId::MSpNa1);
+        let def_map: HashMap<(u32, AsduTypeId), &InformationObjectDef> = HashMap::new();
+        let info = data_point_to_info(&p, &def_map);
+        assert!(!info.quality_iv && !info.quality_nt && !info.quality_sb && !info.quality_bl && !info.quality_ov);
+    }
 }

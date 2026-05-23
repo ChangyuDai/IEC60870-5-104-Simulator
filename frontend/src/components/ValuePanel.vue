@@ -6,6 +6,7 @@ import type { showAlert as ShowAlert } from '@shared/composables/useDialog'
 import type { DataPointInfo } from '../types'
 import { useI18n, localizeCategoryLabel } from '@shared/i18n'
 import EmptyState from '@shared/components/EmptyState.vue'
+import QualityIndicator from '@shared/components/QualityIndicator.vue'
 
 const { t } = useI18n()
 const { showAlert } = inject<{ showAlert: typeof ShowAlert }>(dialogKey)!
@@ -19,6 +20,42 @@ const firstPoint = computed(() => selectedPoints.value[0] ?? null)
 
 // Detailed info for the selected point
 const pointDetail = ref<DataPointInfo | null>(null)
+
+// 当前点的 5 个品质位(供 QualityIndicator 展示/编辑)
+const quality = computed(() => ({
+  ov: pointDetail.value?.quality_ov ?? false,
+  bl: pointDetail.value?.quality_bl ?? false,
+  sb: pointDetail.value?.quality_sb ?? false,
+  nt: pointDetail.value?.quality_nt ?? false,
+  iv: pointDetail.value?.quality_iv ?? false,
+}))
+// OV 仅测量类(M_ME_*)适用
+const isMeasured = computed(() => pointDetail.value?.asdu_type?.startsWith('M_ME') ?? false)
+
+async function toggleQuality(bit: 'ov' | 'bl' | 'sb' | 'nt' | 'iv') {
+  const p = pointDetail.value
+  if (!selectedServerId.value || selectedCA.value === null || !p) return
+  const cur = quality.value
+  const next = { ...cur, [bit]: !cur[bit] }
+  // 乐观更新本地详情;失败回滚
+  pointDetail.value = {
+    ...p,
+    quality_ov: next.ov, quality_bl: next.bl, quality_sb: next.sb,
+    quality_nt: next.nt, quality_iv: next.iv,
+  }
+  try {
+    await invoke('set_data_point_quality', {
+      serverId: selectedServerId.value,
+      commonAddress: selectedCA.value,
+      ioa: p.ioa,
+      asduType: p.asdu_type,
+      ov: next.ov, bl: next.bl, sb: next.sb, nt: next.nt, iv: next.iv,
+    })
+  } catch (e) {
+    pointDetail.value = { ...p }
+    await showAlert(String(e))
+  }
+}
 
 watch(
   () => [selectedServerId.value, selectedCA.value, selectedPoints.value] as const,
@@ -144,8 +181,7 @@ function handleEditKeydown(e: KeyboardEvent) {
         <div class="detail-row">
           <span class="detail-label">{{ t('valuePanel.quality') }}</span>
           <span class="detail-value">
-            <span v-if="pointDetail.quality_iv" class="quality-badge invalid">{{ t('valuePanel.qualityInvalid') }}</span>
-            <span v-else class="quality-badge ok">{{ t('valuePanel.qualityValid') }}</span>
+            <QualityIndicator :quality="quality" editable :show-ov="isMeasured" @toggle="toggleQuality" />
           </span>
         </div>
         <div class="detail-row">

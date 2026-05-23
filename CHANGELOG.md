@@ -4,6 +4,37 @@
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-05-23
+
+### Highlights / 亮点
+
+- 🏷️ **品质描述词端到端打通** / Quality descriptor end-to-end — 子站现在能为任意点位设置 IV(无效)/ NT(非现时)/ SB(被取代)/ BL(被闭锁)/ OV(溢出),编码时真正写入 SIQ/DIQ/QDS/BCR 字节;此前这些位被硬编码为 0、模型形同虚设 / The slave can now set IV/NT/SB/BL/OV on any point and the encoder actually writes them into the SIQ/DIQ/QDS/BCR bytes; previously these bits were hard-coded to 0 and the quality model was inert.
+- 💡 **品质显示从单灯升级为多位徽章** / Quality display upgraded from a single lamp to per-bit badges — 主子站不再只显示 IV/OK,而是逐位展示置位的品质(字母徽章高亮),旁边 `(?)` 图标点开有中英双语释义图例 / Both apps now show every set quality bit as a highlighted letter badge instead of a binary IV/OK lamp, with a `(?)` legend popover explaining each bit in zh/en.
+- 🐛 **修复主站收帧从不解码品质** / Fixed: master never decoded received quality — 主站实时收帧路径此前完全不解析品质字节,导致品质灯永远是绿的;现已按类型解出全部 5 位 / The master's live receive path never parsed the quality byte, so the lamp was always green; it now decodes all five bits per type.
+- 🧪 **新增 13 个无头测试** / 13 new headless tests — core 字节级断言 + 编解码往返 + 主站收帧解码 + app DTO 透传 + 前端 QualityIndicator 组件 / Core byte-level assertions, encode↔decode round-trip, master receive-decode, app DTO passthrough, and the frontend QualityIndicator component.
+
+### Added 新增
+
+- 子站命令 `set_data_point_quality`:为点位独立设置 5 个品质位(与 `update_data_point` 改值解耦),设置后即时自发上送 / Slave command `set_data_point_quality` sets the five quality bits on a point independently of `update_data_point` (value vs. quality fully decoupled), with an immediate spontaneous transmission.
+- 共享组件 `shared-frontend/components/QualityIndicator.vue`:主子站复用,支持可编辑/只读、紧凑表格模式、OV 条件显示与 `(?)` 图例 / Shared `QualityIndicator.vue` reused by both apps — editable/read-only, compact table mode, conditional OV, and `(?)` legend.
+- i18n `quality.*`:5 个品质位名称 + 释义 + 图例标题,zh-CN / en-US 两套 / i18n `quality.*` block: five bit names, descriptions and legend title in zh-CN / en-US.
+- 数据点 DTO 新增 `quality_ov / quality_bl / quality_sb / quality_nt` 字段(主子站两端)/ Data-point DTOs gain `quality_ov / quality_bl / quality_sb / quality_nt` on both apps.
+
+### Changed 改进
+
+- `encode_na_value` 按类型把品质写入帧:SP/DP→SIQ/DIQ 高 4 位、测量类→完整 QDS(含 OV)、累计量→BCR 的 IV 位;SQ=1 打包逐点携带各自品质 / `encode_na_value` now writes quality per type: SP/DP into the SIQ/DIQ upper nibble, measured types into the full QDS (incl. OV), counters into the BCR IV bit; SQ=1 packing carries each point's own quality.
+- 主站收帧 `parse_and_store_asdu` 按类型解出品质并落到点上(SP/DP 仅高 4 位、QDS 类型含 OV、IT 取 BCR IV)/ The master's `parse_and_store_asdu` now decodes quality onto each point by type (SP/DP upper nibble only, QDS types incl. OV, IT from the BCR IV bit).
+- 子站 ValuePanel 品质行从单灯改为 5 个可切换开关(OV 仅测量类显示);主站 DataTable / ValuePanel 改为多位徽章 / The slave ValuePanel quality row becomes five toggle switches (OV only for measured types); the master DataTable / ValuePanel switch to multi-bit badges.
+
+### Fixed 修复
+
+- 主站实时收帧路径此前从不解码品质字节(`DataPoint::with_value` 后品质恒为 good),品质 DTO 与显示一直无效;现已修复 / The master live-receive path previously never decoded the quality byte (quality stayed `good()` after `DataPoint::with_value`), leaving the quality DTO and display inert — now fixed.
+
+### Tests 测试
+
+- core:SIQ(0x81)/ DIQ(0x42)/ QDS(OV 0x01、IV|NT 0xC0)/ BCR(0x80 保序号)字节断言、SQ=1 逐点品质、good() 零回归、encode→`parse_frame_full` 往返、主站收帧解码 NT / Core: SIQ/DIQ/QDS/BCR byte assertions, per-point SQ=1 quality, good() zero-regression, encode→`parse_frame_full` round-trip, master receive-decode of NT.
+- app:`data_point_to_info` 透传全部 5 位;前端 vitest 覆盖 QualityIndicator 徽章渲染、OV 条件显示、紧凑模式、`(?)` 图例文案 / App: `data_point_to_info` passes all five bits; frontend vitest covers QualityIndicator badge rendering, conditional OV, compact mode and the `(?)` legend text.
+
 ## [1.5.0] - 2026-05-22
 
 ### Highlights / 亮点

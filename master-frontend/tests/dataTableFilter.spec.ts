@@ -9,7 +9,7 @@ const invokeMock = vi.fn()
 vi.mock('@tauri-apps/api/core', () => ({ invoke: (...a: unknown[]) => invokeMock(...a) }))
 
 function pt(ioa: number, category: string, value: string, ca = 1) {
-  return { ioa, asdu_type: 'M_X', value, category, common_address: ca, quality_iv: false, timestamp: null }
+  return { ioa, asdu_type: 'M_X', value, category, common_address: ca, quality_ov: false, quality_bl: false, quality_sb: false, quality_nt: false, quality_iv: false, timestamp: null }
 }
 
 function provideRefs() {

@@ -36,6 +36,10 @@ export interface ReceivedDataPointInfo {
   asdu_type: string
   category: string
   value: string
+  quality_ov: boolean
+  quality_bl: boolean
+  quality_sb: boolean
+  quality_nt: boolean
   quality_iv: boolean
   timestamp: string | null
   update_seq: number

@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core'
 import type { ReceivedDataPointInfo, IncrementalDataResponse, CommandType, ControlResult, ChangedCategoriesMap, CategoryCountsMap } from '../types'
 import { getControlConfig } from '../types'
 import ControlDialog from './ControlDialog.vue'
+import QualityIndicator from '@shared/components/QualityIndicator.vue'
 import { useI18n, localizeCategoryLabel } from '@shared/i18n'
 
 const { t } = useI18n()
@@ -369,7 +370,14 @@ function isCtxActiveOption(optValue: string): boolean {
                 <td class="col-ioa">{{ point.ioa }}</td>
                 <td class="col-type">{{ point.asdu_type }}</td>
                 <td :class="['col-value', { 'value-highlight': changedKeys.has(pointKey(point)) }]">{{ point.value }}</td>
-                <td :class="['col-quality', point.quality_iv ? 'quality-iv' : 'quality-ok']">{{ point.quality_iv ? 'IV' : 'OK' }}</td>
+                <td class="col-quality">
+                  <QualityIndicator
+                    :quality="{ ov: point.quality_ov, bl: point.quality_bl, sb: point.quality_sb, nt: point.quality_nt, iv: point.quality_iv }"
+                    :show-ov="point.asdu_type.startsWith('M_ME')"
+                    :show-help="false"
+                    compact
+                  />
+                </td>
                 <td class="col-timestamp">{{ point.timestamp ?? '-' }}</td>
               </tr>
             </tbody>
@@ -470,7 +478,7 @@ function isCtxActiveOption(optValue: string): boolean {
 .col-type { font-family: var(--font-mono); width: 120px; }
 .col-value { font-family: var(--font-mono); transition: color 0.3s; }
 .col-value.value-highlight { color: var(--c-peach); font-weight: 700; }
-.col-quality { width: 50px; font-weight: 600; font-size: 11px; }
+.col-quality { width: 96px; font-weight: 600; font-size: 11px; }
 .col-quality.quality-ok { color: var(--c-green); }
 .col-quality.quality-iv { color: var(--c-red); }
 .col-timestamp { font-family: var(--font-mono); width: 120px; color: var(--c-overlay0); }

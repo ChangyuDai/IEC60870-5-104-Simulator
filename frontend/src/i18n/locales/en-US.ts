@@ -193,6 +193,16 @@ const dict: DictShape = {
     sectionMultiSelect: 'Multi-Select',
     countLabel: 'Count',
   },
+  quality: {
+    legendTitle: 'Quality Descriptor QDS · IEC 60870-5-101',
+    bits: {
+      iv: { name: 'Invalid', desc: 'Value not trustworthy — acquisition/sensor fault' },
+      nt: { name: 'Not topical', desc: 'Stale value — source lost' },
+      sb: { name: 'Substituted', desc: 'Manually entered — not field-acquired' },
+      bl: { name: 'Blocked', desc: 'Blocked — updates suspended' },
+      ov: { name: 'Overflow', desc: 'Out of range — measured types only' },
+    },
+  },
   log: {
     title: 'Communication Log',
     refresh: 'Refresh',

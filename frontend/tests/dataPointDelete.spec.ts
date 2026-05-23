@@ -10,7 +10,7 @@ const invokeMock = vi.fn()
 vi.mock('@tauri-apps/api/core', () => ({ invoke: (...a: unknown[]) => invokeMock(...a) }))
 
 function dp(ioa: number, asdu_type: string, category: string, value: string): DataPointInfo {
-  return { ioa, asdu_type, category, name: `p${ioa}`, comment: '', value, quality_iv: false, timestamp: null }
+  return { ioa, asdu_type, category, name: `p${ioa}`, comment: '', value, quality_ov: false, quality_bl: false, quality_sb: false, quality_nt: false, quality_iv: false, timestamp: null }
 }
 
 interface Refs {

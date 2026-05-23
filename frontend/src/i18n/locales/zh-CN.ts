@@ -191,6 +191,10 @@ export type DictShape = {
     sectionMultiSelect: string
     countLabel: string
   }
+  quality: {
+    legendTitle: string
+    bits: Record<'iv' | 'nt' | 'sb' | 'bl' | 'ov', { name: string; desc: string }>
+  }
   log: {
     title: string
     refresh: string
@@ -433,6 +437,16 @@ const dict: DictShape = {
     write: '写入',
     sectionMultiSelect: '批量选中',
     countLabel: '数量',
+  },
+  quality: {
+    legendTitle: '品质描述词 QDS · IEC 60870-5-101',
+    bits: {
+      iv: { name: '无效', desc: '值不可信 —— 采集/传感器故障' },
+      nt: { name: '非现时', desc: '陈旧值 —— 数据源已失联' },
+      sb: { name: '被取代', desc: '人工置数 —— 非现场采集' },
+      bl: { name: '被闭锁', desc: '已闭锁 —— 停止刷新' },
+      ov: { name: '溢出', desc: '超出量程 —— 仅测量类' },
+    },
   },
   log: {
     title: '通信日志',

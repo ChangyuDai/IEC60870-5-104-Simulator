@@ -3,6 +3,7 @@ import { inject, computed, ref, type Ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import type { ReceivedDataPointInfo, ControlResult } from '../types'
 import { getControlConfig } from '../types'
+import QualityIndicator from '@shared/components/QualityIndicator.vue'
 import { useI18n, localizeCategoryLabel } from '@shared/i18n'
 
 const { t } = useI18n()
@@ -125,8 +126,11 @@ watch(firstPoint, (p) => {
           </div>
           <div class="detail-row">
             <span class="detail-label">{{ t('valuePanel.quality') }}</span>
-            <span :class="['detail-value', point.quality_iv ? 'text-red' : 'text-green']">
-              {{ point.quality_iv ? t('valuePanel.qualityInvalid') : t('valuePanel.qualityValid') }}
+            <span class="detail-value">
+              <QualityIndicator
+                :quality="{ ov: point.quality_ov, bl: point.quality_bl, sb: point.quality_sb, nt: point.quality_nt, iv: point.quality_iv }"
+                :show-ov="point.asdu_type.startsWith('M_ME')"
+              />
             </span>
           </div>
           <div class="detail-row">

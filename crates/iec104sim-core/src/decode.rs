@@ -110,7 +110,7 @@ fn asdu_element_size(asdu_type: u8) -> Option<(usize, bool)> {
     }
 }
 
-fn quality_from_qds(qds: u8) -> QualityFlags {
+pub(crate) fn quality_from_qds(qds: u8) -> QualityFlags {
     QualityFlags {
         ov: qds & 0x01 != 0,
         bl: qds & 0x10 != 0,
