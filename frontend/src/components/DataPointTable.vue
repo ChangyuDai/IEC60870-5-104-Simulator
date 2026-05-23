@@ -764,7 +764,6 @@ defineExpose({ loadData: loadDataPoints })
 }
 .col-quality {
   width: 96px;
-  text-align: center;
   font-weight: 600;
   font-size: 11px;
 }
