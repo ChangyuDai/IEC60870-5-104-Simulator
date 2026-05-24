@@ -4,6 +4,34 @@
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-05-24
+
+### Highlights / 亮点
+
+- 🆕 **新增 M_ME_ND_1(TypeID 21)归一化无品质测量值** / New ASDU type M_ME_ND_1 (TypeID 21): normalized measured value without quality descriptor — IEC 60870-5-101/104 标准里带宽最省的测量上送格式,信息对象仅 2 字节 NVA、既无 QDS 品质字节也无时标,常用于高频周期数据;子站可创建/编码、主站可解码,补齐此前缺失的"裸值"类型 / the most bandwidth-efficient measured type in the standard (2-byte NVA only, no QDS, no timestamp), commonly used for high-frequency periodic data — the slave can create/encode it and the master decodes it, filling the previously-missing "bare value" type.
+- 🧩 **品质语义贯通到 UI** / Quality semantics carried through to the UI — 在子站 ValuePanel 选中 M_ME_ND_1 点时隐藏全部品质开关并显示「无品质 (N/A)」,避免对无品质类型展示无意义的可编辑品质位 / selecting an M_ME_ND_1 point in the slave ValuePanel hides all quality toggles and shows "No quality (N/A)", so a quality-less type never shows meaningless editable bits.
+
+### Added 新增
+
+- core `AsduTypeId::MMeNd1 = 21`,含 `name`/`description`/`category=NormalizedMeasured`/`from_u8(21)`;无带时标变体(`timestamped_variant` 返回 `None`)/ core `AsduTypeId::MMeNd1 = 21` with `name`/`description`/`category=NormalizedMeasured`/`from_u8(21)`; no timestamped variant (`timestamped_variant` returns `None`).
+- 子站编码:M_ME_ND_1 输出 2 字节小端 NVA,**不写 QDS、不写时标**(即便点上设了品质位也不出现在帧中)/ Slave encoding: M_ME_ND_1 emits a 2-byte little-endian NVA with **no QDS byte and no timestamp** (quality bits never appear in the frame even if set on the point).
+- 解码:`decode.rs`(报文解析工具)与 `master.rs`(收帧)两条路径均支持 TypeID 21,`asdu_element_size(21)=(2,false)`,产出归一化值、品质中性 / Decoding: both `decode.rs` (frame-parser tool) and `master.rs` (receive path) handle TypeID 21 with `asdu_element_size(21)=(2,false)`, yielding a normalized value with neutral quality.
+- 前端:数据点类型下拉新增 M_ME_ND_1(`asduTypes.ts` + i18n zh/en),后端 `parse_asdu_type` 接受 `MMeNd1` / Frontend: M_ME_ND_1 added to the data-point type dropdown (`asduTypes.ts` + zh/en i18n); backend `parse_asdu_type` accepts `MMeNd1`.
+
+### Changed 改进
+
+- 子站 ValuePanel:选中 M_ME_ND_1 点时隐藏 IV/NT/SB/BL/OV 全部可编辑品质开关,改显「无品质 (N/A)」占位 / Slave ValuePanel: selecting an M_ME_ND_1 point hides all editable IV/NT/SB/BL/OV toggles and shows a "No quality (N/A)" placeholder instead.
+
+### Tests 测试
+
+- 后端新增 7 个单测:类型元信息、2 字节编码、设品质仍无 QDS(carve-out)、TypeID 21 解码、编解码 round-trip 保类型、ND 不派生 TB、主子站 `asdu_element_size` 一致 / 7 new backend unit tests: type metadata, 2-byte encoding, quality-set still no QDS (carve-out), TypeID 21 decode, encode/decode round-trip preserving type, ND not derived to TB, and master/slave `asdu_element_size` consistency.
+- 前端新增 3 个 vitest(ValuePanel ND 隐藏开关 + 类型清单含 ND),并经真实无头浏览器(Chromium)实测选点→ValuePanel 显示「无品质 (N/A)」、品质徽章数为 0 / 3 new frontend vitest cases (ValuePanel hides toggles for ND + type list contains ND), plus a real headless-browser (Chromium) check selecting the point and asserting the ValuePanel shows "No quality (N/A)" with zero quality badges.
+
+### Internal 内部
+
+- M_ME_ND_1 与 M_ME_NA_1 共用 `DataPointValue::Normalized`,靠 `asdu_type` 区分:编码在 `encode_point_frame_ex` 前置拦截避免误走 `encode_na_value`(那会附 QDS),SQ=1 打包对 ND 段返回 `None` 逐点回退 / M_ME_ND_1 shares `DataPointValue::Normalized` with M_ME_NA_1 and is distinguished by `asdu_type`: encoding intercepts in `encode_point_frame_ex` to avoid `encode_na_value` (which would append a QDS), and SQ=1 packing returns `None` for ND segments to fall back to per-point framing.
+- ND 无带时标变体,`should_derive_tb` 对其恒返回 `false`,即使 NormalizedMeasured 分类的变位同步开关开启也不会误生成带品质的 M_ME_TD_1 / ND has no timestamped variant, so `should_derive_tb` always returns `false` for it — even with the NormalizedMeasured change-sync toggle on, it never mistakenly emits a quality-bearing M_ME_TD_1.
+
 ## [1.7.0] - 2026-05-24
 
 ### Highlights / 亮点

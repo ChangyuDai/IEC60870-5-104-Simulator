@@ -4,7 +4,7 @@ export const RELEASES_URL = 'https://github.com/Karl-Dai/IEC60870-5-104-Simulato
 
 // Keep in sync with CHANGELOG.md — see `release` skill.
 export const RELEASE_NOTES: string[] = [
-  '多选数据点后可批量改品质: 详情面板一键设 IV/NT/SB/BL/OV (类型无关, OV 仅测量类)',
-  '多选同分类点可批量写同一个值; 跨分类自动禁用并提示, 批量写值原子 (全或无)',
-  '修复数据表品质列与表头错位, 改为左对齐 (与主站一致)',
+  '新增 M_ME_ND_1 (TypeID 21) 归一化无品质测量值: 可创建并编码为 2 字节裸值 NVA, 无品质字节、无时标',
+  'ValuePanel 选中 M_ME_ND_1 点时隐藏全部品质开关, 改显「无品质 (N/A)」',
+  '数据点类型下拉新增 M_ME_ND_1 选项',
 ]

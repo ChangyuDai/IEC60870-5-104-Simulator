@@ -4,6 +4,5 @@ export const RELEASES_URL = 'https://github.com/Karl-Dai/IEC60870-5-104-Simulato
 
 // Keep in sync with CHANGELOG.md — see `release` skill.
 export const RELEASE_NOTES: string[] = [
-  '修复品质图例 (?) 弹层在受限容器内被裁剪的问题, 现 teleport 到顶层正常弹出',
-  '数据表「品质」列表头旁新增 (?) 图例, 无需选中点位即可查看 IV/NT/SB/BL/OV 释义',
+  '新增支持接收并解码 M_ME_ND_1 (TypeID 21) 归一化无品质测量值: 2 字节 NVA, 品质中性',
 ]
