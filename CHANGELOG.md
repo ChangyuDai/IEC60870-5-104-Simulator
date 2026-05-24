@@ -4,6 +4,30 @@
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-05-24
+
+### Highlights / 亮点
+
+- 🧰 **子站多选点位批量改值 + 批量改品质** / Batch edit value & quality on multi-selected slave points — 选中多个点后,可在数据点详情面板一键设 IV/NT/SB/BL/OV(类型无关,OV 仅测量类),或对同分类点批量写同一个值;此前多选只能批量删除 / After multi-selecting points you can now set IV/NT/SB/BL/OV in one click (type-agnostic, OV only for measured) or write one value to all same-category points; previously multi-select could only batch-delete.
+- 🔒 **批量写值同分类约束 + 全或无原子** / Same-category constraint with all-or-nothing atomicity — 跨分类或任一解析失败时整批拒绝、不改动任何点;混选时写值输入自动禁用并提示,品质批量仍可用 / Cross-category or any parse failure rejects the whole batch with zero writes; the value input auto-disables with a hint on mixed selections while quality batch stays available.
+- 🩹 **修复子站数据表品质列与表头错位** / Fixed slave data-table quality column misaligned with its header — 去掉多余的 `text-align:center`,表头与单元格统一左对齐,与主站表格一致 / Removed a stray `text-align:center` so header and cells are both left-aligned, matching the master table.
+
+### Added 新增
+
+- 后端命令 `batch_set_data_point_quality`(绝对设置 5 个品质位,OV 仅落测量类目标,未知点跳过)与 `batch_update_data_points`(同分类 + 先全量校验后写入的全或无原子)/ Backend commands `batch_set_data_point_quality` (absolute set of the five bits, OV only on measured targets, unknown points skipped) and `batch_update_data_points` (same-category, validate-all-then-write all-or-nothing).
+- 子站 ValuePanel 多选区:可编辑 `QualityIndicator`(OV 仅全测量类显示)+「应用品质」、按分类条件启用的批量写值输入 +「应用值」/ Slave ValuePanel multi-select area: editable `QualityIndicator` (OV shown only when all measured) + "Apply Quality", and a category-gated batch value input + "Apply Value".
+- core `DataCategory::is_measured()`;前端 `categoryKeyOf` 分类派生 / core `DataCategory::is_measured()`; frontend `categoryKeyOf` for category derivation.
+
+### Changed 改进
+
+- 子站数据表「品质」列改为左对齐,与表头及主站表格统一 / Slave data-table "Quality" column is now left-aligned, consistent with its header and the master table.
+- 抽出 `parse_value_for`,单点 `update_data_point` 与批量写值共用一套值解析 / Extracted `parse_value_for`; single `update_data_point` and batch write now share one value parser.
+
+### Tests 测试
+
+- core:`is_measured`;app:`parse_value_for` + `apply_batch_quality`(OV 过滤)+ `apply_batch_value`(同类/跨类拒/解析拒 全或无);前端 vitest 多选区 5 例 / Core `is_measured`; app `parse_value_for` + `apply_batch_quality` (OV filtering) + `apply_batch_value` (same/cross-category/parse-failure all-or-nothing); 5 frontend vitest cases for the multi-select area.
+- 两处前端改动均经无头浏览器(Playwright)实测:表头对齐 delta 41→0;批量区同类启用·混类禁用+提示·全测量 OV·应用按钮真发命令 / Both frontend changes verified in a headless browser: header alignment delta 41→0; batch area same-category enabled, mixed disabled+hint, all-measured OV, apply buttons actually dispatch commands.
+
 ## [1.6.2] - 2026-05-23
 
 ### Highlights / 亮点
