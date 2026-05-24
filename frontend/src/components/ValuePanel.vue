@@ -32,6 +32,8 @@ const quality = computed(() => ({
 }))
 // OV 仅测量类(M_ME_*)适用
 const isMeasured = computed(() => pointDetail.value?.asdu_type?.startsWith('M_ME') ?? false)
+// M_ME_ND_1 不携带品质描述词:整组品质开关隐藏,只显示中性占位
+const isNoQuality = computed(() => pointDetail.value?.asdu_type === 'M_ME_ND_1')
 
 async function toggleQuality(bit: 'ov' | 'bl' | 'sb' | 'nt' | 'iv') {
   const p = pointDetail.value
@@ -244,7 +246,8 @@ function handleEditKeydown(e: KeyboardEvent) {
         <div class="detail-row">
           <span class="detail-label">{{ t('valuePanel.quality') }}</span>
           <span class="detail-value">
-            <QualityIndicator :quality="quality" editable :show-ov="isMeasured" @toggle="toggleQuality" />
+            <span v-if="isNoQuality" class="quality-na">{{ t('valuePanel.qualityNa') }}</span>
+            <QualityIndicator v-else :quality="quality" editable :show-ov="isMeasured" @toggle="toggleQuality" />
           </span>
         </div>
         <div class="detail-row">
@@ -377,6 +380,12 @@ function handleEditKeydown(e: KeyboardEvent) {
 
 .detail-value.editable:hover {
   background: var(--c-surface0);
+}
+
+.quality-na {
+  color: var(--c-overlay0);
+  font-size: 12px;
+  font-style: italic;
 }
 
 .quality-badge {

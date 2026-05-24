@@ -39,3 +39,4 @@ crates/*/*.p12
 
 # Tauri runtime-generated capability/ACL schemas (per-machine, do not commit)
 crates/*/gen/schemas/
+.playwright-mcp/

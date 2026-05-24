@@ -25,6 +25,8 @@ pub enum AsduTypeId {
     MMeNa1 = 9,
     /// Measured value, normalized with CP56Time2a (Type 34)
     MMeTd1 = 34,
+    /// Measured value, normalized without quality descriptor (Type 21)
+    MMeNd1 = 21,
     /// Measured value, scaled (Type 11)
     MMeNb1 = 11,
     /// Measured value, scaled with CP56Time2a (Type 35)
@@ -75,6 +77,7 @@ impl AsduTypeId {
             Self::MBoTb1 => "M_BO_TB_1",
             Self::MMeNa1 => "M_ME_NA_1",
             Self::MMeTd1 => "M_ME_TD_1",
+            Self::MMeNd1 => "M_ME_ND_1",
             Self::MMeNb1 => "M_ME_NB_1",
             Self::MMeTe1 => "M_ME_TE_1",
             Self::MMeNc1 => "M_ME_NC_1",
@@ -101,6 +104,7 @@ impl AsduTypeId {
             Self::MStNa1 | Self::MStTb1 => "步位置信息",
             Self::MBoNa1 | Self::MBoTb1 => "32位串",
             Self::MMeNa1 | Self::MMeTd1 => "归一化测量值",
+            Self::MMeNd1 => "归一化测量值(无品质)",
             Self::MMeNb1 | Self::MMeTe1 => "标度化测量值",
             Self::MMeNc1 | Self::MMeTf1 => "短浮点测量值",
             Self::MItNa1 | Self::MItTb1 => "累计量",
@@ -123,7 +127,7 @@ impl AsduTypeId {
             Self::MDpNa1 | Self::MDpTb1 => DataCategory::DoublePoint,
             Self::MStNa1 | Self::MStTb1 => DataCategory::StepPosition,
             Self::MBoNa1 | Self::MBoTb1 => DataCategory::Bitstring,
-            Self::MMeNa1 | Self::MMeTd1 => DataCategory::NormalizedMeasured,
+            Self::MMeNa1 | Self::MMeTd1 | Self::MMeNd1 => DataCategory::NormalizedMeasured,
             Self::MMeNb1 | Self::MMeTe1 => DataCategory::ScaledMeasured,
             Self::MMeNc1 | Self::MMeTf1 => DataCategory::FloatMeasured,
             Self::MItNa1 | Self::MItTb1 => DataCategory::IntegratedTotals,
@@ -193,6 +197,7 @@ impl AsduTypeId {
             5 => Some(Self::MStNa1),
             7 => Some(Self::MBoNa1),
             9 => Some(Self::MMeNa1),
+            21 => Some(Self::MMeNd1),
             11 => Some(Self::MMeNb1),
             13 => Some(Self::MMeNc1),
             15 => Some(Self::MItNa1),
@@ -387,6 +392,17 @@ mod tests {
         assert_eq!(AsduTypeId::from_u8(13), Some(AsduTypeId::MMeNc1));
         assert_eq!(AsduTypeId::from_u8(100), Some(AsduTypeId::CIcNa1));
         assert_eq!(AsduTypeId::from_u8(255), None);
+    }
+
+    #[test]
+    fn test_m_me_nd_1_metadata() {
+        let nd = AsduTypeId::from_u8(21).expect("21 → MMeNd1");
+        assert_eq!(nd, AsduTypeId::MMeNd1);
+        assert_eq!(nd.name(), "M_ME_ND_1");
+        assert_eq!(nd.category(), DataCategory::NormalizedMeasured);
+        assert!(!nd.is_timestamped(), "ND 不带时标");
+        assert_eq!(nd.timestamped_variant(), None, "ND 无带时标变体");
+        assert_eq!(nd.untimestamped_variant(), AsduTypeId::MMeNd1, "untimestamped 恒等");
     }
 
     #[test]

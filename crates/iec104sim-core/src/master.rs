@@ -1694,6 +1694,7 @@ fn asdu_element_size(asdu_type: u8) -> Option<(usize, bool)> {
         33 => Some((5, true)),   // M_BO_TB_1: BSI(4) + QDS(1) + CP56Time2a
         9  => Some((3, false)),  // M_ME_NA_1: NVA(2) + QDS(1)
         34 => Some((3, true)),   // M_ME_TD_1: NVA(2) + QDS(1) + CP56Time2a
+        21 => Some((2, false)),  // M_ME_ND_1: NVA(2) only, no QDS, no timestamp
         11 => Some((3, false)),  // M_ME_NB_1: SVA(2) + QDS(1)
         35 => Some((3, true)),   // M_ME_TE_1: SVA(2) + QDS(1) + CP56Time2a
         13 => Some((5, false)),  // M_ME_NC_1: float(4) + QDS(1)
@@ -1820,7 +1821,7 @@ fn parse_and_store_asdu(
                 ]);
                 DataPointValue::Bitstring { value: bsi }
             }
-            9 | 34 => {
+            9 | 34 | 21 => {
                 let nva = i16::from_le_bytes([data[obj_offset], data[obj_offset + 1]]);
                 DataPointValue::Normalized { value: nva as f32 / 32767.0 }
             }
@@ -2069,6 +2070,15 @@ pub enum MasterError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_asdu_element_size_m_me_nd_1() {
+        // M_ME_ND_1 (21): 2 字节 NVA,无 QDS、无时标。
+        // 必须与 decode.rs::asdu_element_size 镜像一致(两处注释要求)。
+        assert_eq!(asdu_element_size(21), Some((2, false)));
+        // 对照:带品质的 M_ME_NA_1 (9) 多一个 QDS 字节
+        assert_eq!(asdu_element_size(9), Some((3, false)));
+    }
 
     #[test]
     fn test_master_config_default() {

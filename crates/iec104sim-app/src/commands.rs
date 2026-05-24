@@ -312,6 +312,7 @@ fn parse_asdu_type(s: &str) -> Result<AsduTypeId, String> {
         "mbona1" => Ok(AsduTypeId::MBoNa1),
         "mbotb1" => Ok(AsduTypeId::MBoTb1),
         "mmena1" => Ok(AsduTypeId::MMeNa1),
+        "mmend1" => Ok(AsduTypeId::MMeNd1),
         "mmenb1" => Ok(AsduTypeId::MMeNb1),
         "mmenc1" => Ok(AsduTypeId::MMeNc1),
         "mmetd1" => Ok(AsduTypeId::MMeTd1),

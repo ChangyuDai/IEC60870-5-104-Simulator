@@ -2150,6 +2150,19 @@ fn encode_point_frame_ex(
     point: &DataPoint, cot: u8, ca: &[u8],
     seq: &mut SeqState, force_timestamped: Option<bool>,
 ) -> Vec<u8> {
+    // M_ME_ND_1 (TypeID 21): 归一化测量值,2 字节裸 NVA,无 QDS、无时标。
+    // 它与 M_ME_NA_1 共用 `DataPointValue::Normalized`,只能靠 asdu_type 区分;
+    // 前置拦截以免走 encode_na_value(那会按值返回 type 9 并附 QDS)。无 TB 变体,
+    // force_timestamped 对其无意义。
+    if point.asdu_type == AsduTypeId::MMeNd1 {
+        let nva = match point.value {
+            DataPointValue::Normalized { value } => (value * 32767.0) as i16,
+            _ => 0,
+        };
+        let b = nva.to_le_bytes();
+        let ioa_bytes = point.ioa.to_le_bytes();
+        return build_i_frame(21, cot, ca, &ioa_bytes[..3], &[b[0], b[1]], seq);
+    }
     let (na_type, mut value_bytes) = encode_na_value(&point.value, &point.quality);
     let want_tb = match force_timestamped {
         Some(b) => b,
@@ -2175,6 +2188,9 @@ fn encode_points_grouped(
     seq: &mut SeqState, timestamped: bool,
 ) -> Option<Vec<u8>> {
     if points.is_empty() { return None; }
+    // M_ME_ND_1 无法用 encode_na_value 表达(它会按 Normalized 值返回 type 9 + QDS),
+    // 故 ND 段不走 SQ=1 打包,返回 None 让调用方逐点回退到 encode_point_frame_ex。
+    if points[0].asdu_type == AsduTypeId::MMeNd1 { return None; }
     // 品质不影响类型判定,此处仅取 type_id;逐点品质在下方值段循环中各自写入。
     let (first_type, _) = encode_na_value(&points[0].value, &points[0].quality);
     for w in points.windows(2) {
@@ -2617,6 +2633,73 @@ mod tests {
         assert_eq!(frame[6], 1);
         assert_eq!(frame[7], 0x85);
         assert_eq!(&frame[12..15], &[100, 0, 0]);
+    }
+
+    #[test]
+    fn encode_m_me_nd_1_two_bytes_no_qds() {
+        let mut point = DataPoint::new(100, AsduTypeId::MMeNd1);
+        point.value = DataPointValue::Normalized { value: 0.5 };
+        let ca = 1u16.to_le_bytes();
+        let mut seq = SeqState::default();
+        let frame = encode_point_frame_ex(&point, 3, &ca, &mut seq, None);
+        assert_eq!(frame[6], 21, "type=21 (M_ME_ND_1)");
+        // APCI(6)+ASDU头(6)+IOA(3)+NVA(2) = 17,无 QDS、无时标
+        assert_eq!(frame.len(), 17, "ND 帧值段恰 2 字节");
+        assert_eq!(&frame[15..17], &0x3FFFi16.to_le_bytes(), "NVA LE");
+    }
+
+    #[test]
+    fn encode_m_me_nd_1_omits_quality_even_when_set() {
+        let mut point = DataPoint::new(100, AsduTypeId::MMeNd1);
+        point.value = DataPointValue::Normalized { value: 0.5 };
+        point.quality = QualityFlags { iv: true, nt: true, ..Default::default() };
+        let ca = 1u16.to_le_bytes();
+        let mut seq = SeqState::default();
+        let frame = encode_point_frame_ex(&point, 3, &ca, &mut seq, Some(false));
+        assert_eq!(frame[6], 21);
+        assert_eq!(frame.len(), 17, "即便设了品质,ND 帧仍无 QDS 字节");
+        assert_eq!(&frame[15..17], &0x3FFFi16.to_le_bytes());
+    }
+
+    #[test]
+    fn m_me_nd_1_round_trip_preserves_type() {
+        let mut point = DataPoint::new(7, AsduTypeId::MMeNd1);
+        point.value = DataPointValue::Normalized { value: 0.5 };
+        let ca = 1u16.to_le_bytes();
+        let mut seq = SeqState::default();
+        let frame = encode_point_frame_ex(&point, 3, &ca, &mut seq, None);
+        let parsed = crate::decode::parse_frame_full(&frame).unwrap();
+        let asdu = parsed.asdu.unwrap();
+        assert_eq!(asdu.type_id, 21);
+        assert_eq!(AsduTypeId::from_u8(asdu.type_id), Some(AsduTypeId::MMeNd1));
+        let obj = &asdu.objects[0];
+        assert_eq!(obj.ioa, 7);
+        match obj.value.as_ref().unwrap() {
+            DataPointValue::Normalized { value } => assert!((value - 0.5).abs() < 1e-3),
+            _ => panic!("expected Normalized"),
+        }
+    }
+
+    #[test]
+    fn m_me_nd_1_not_derived_to_tb() {
+        // ND 无时标变体 → should_derive_tb 恒 false
+        let map = DataPointMap::new();
+        assert!(!should_derive_tb(&map, AsduTypeId::MMeNd1, 100));
+        // SQ=1 打包对 ND 段返回 None(逐点回退)
+        let pts: Vec<DataPoint> = (100..103u32)
+            .map(|ioa| {
+                let mut p = DataPoint::new(ioa, AsduTypeId::MMeNd1);
+                p.value = DataPointValue::Normalized { value: 0.25 };
+                p
+            })
+            .collect();
+        let refs: Vec<&DataPoint> = pts.iter().collect();
+        let ca = 1u16.to_le_bytes();
+        let mut seq = SeqState::default();
+        assert!(
+            encode_points_grouped(&refs, 3, &ca, &mut seq, false).is_none(),
+            "ND 段不走 SQ=1 打包"
+        );
     }
 
     // ---- 品质位写入帧字节 (QDS/SIQ/DIQ/BCR) ----

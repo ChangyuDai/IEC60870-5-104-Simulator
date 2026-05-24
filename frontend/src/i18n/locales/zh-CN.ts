@@ -115,6 +115,7 @@ export type DictShape = {
     bo_tb: string
     me_na: string
     me_td: string
+    me_nd: string
     me_nb: string
     me_te: string
     me_nc: string
@@ -182,6 +183,7 @@ export type DictShape = {
     sectionCurrent: string
     value: string
     quality: string
+    qualityNa: string
     qualityValid: string
     qualityInvalid: string
     timestamp: string
@@ -365,6 +367,7 @@ const dict: DictShape = {
     bo_tb: 'M_BO_TB_1 - 位串 (带时标)',
     me_na: 'M_ME_NA_1 - 归一化测量值',
     me_td: 'M_ME_TD_1 - 归一化 (带时标)',
+    me_nd: 'M_ME_ND_1 - 归一化 (无品质)',
     me_nb: 'M_ME_NB_1 - 标度化测量值',
     me_te: 'M_ME_TE_1 - 标度化 (带时标)',
     me_nc: 'M_ME_NC_1 - 浮点测量值',
@@ -432,6 +435,7 @@ const dict: DictShape = {
     sectionCurrent: '当前值',
     value: '值',
     quality: '品质',
+    qualityNa: '无品质 (N/A)',
     qualityValid: '正常',
     qualityInvalid: 'IV (无效)',
     timestamp: '时间戳',

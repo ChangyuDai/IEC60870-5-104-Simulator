@@ -91,6 +91,7 @@ fn asdu_element_size(asdu_type: u8) -> Option<(usize, bool)> {
         33 => Some((5, true)),   // M_BO_TB_1
         9  => Some((3, false)),  // M_ME_NA_1: NVA(2) + QDS
         34 => Some((3, true)),
+        21 => Some((2, false)),  // M_ME_ND_1: NVA(2) only, no QDS, no timestamp
         11 => Some((3, false)),  // M_ME_NB_1: SVA(2) + QDS
         35 => Some((3, true)),
         13 => Some((5, false)),  // M_ME_NC_1: float(4) + QDS
@@ -206,6 +207,12 @@ fn decode_element(
             let q = quality_from_qds(elem[2]);
             let ts = if asdu_type == 34 { decode_cp56time2a(&elem[3..]) } else { None };
             (Some(value), Some(q), ts)
+        }
+        // ---- Monitor: NVA(2) only, no QDS, no timestamp (M_ME_ND_1) ----
+        21 => {
+            let nva = i16::from_le_bytes([elem[0], elem[1]]);
+            let value = DataPointValue::Normalized { value: nva as f32 / 32767.0 };
+            (Some(value), Some(QualityFlags::good()), None)
         }
         // ---- Monitor: SVA(2) + QDS ----
         11 | 35 => {
@@ -479,6 +486,31 @@ mod tests {
         }
         assert!(obj.quality.is_some());
         assert!(obj.timestamp.is_none());
+    }
+
+    #[test]
+    fn test_i_frame_m_me_nd_1_no_quality() {
+        // I-frame; ASDU type=21(M_ME_ND_1=0x15) VSQ=1 COT=3 OA=0 CA=1
+        // IOA=1 (3B LE) + NVA 0x3FFF (2B) —— 无 QDS、无时标
+        let mut bytes = vec![0x68, 0x0F, 0x00, 0x00, 0x00, 0x00];
+        bytes.extend_from_slice(&[0x15, 0x01, 0x03, 0x00, 0x01, 0x00]);
+        bytes.extend_from_slice(&[0x01, 0x00, 0x00]);
+        bytes.extend_from_slice(&0x3FFFi16.to_le_bytes());
+        let p = parse_frame_full(&bytes).unwrap();
+        let asdu = p.asdu.expect("I-frame must have ASDU");
+        assert_eq!(asdu.type_id, 21);
+        assert_eq!(asdu.type_name, "M_ME_ND_1");
+        assert_eq!(asdu.objects.len(), 1);
+        let obj = &asdu.objects[0];
+        assert_eq!(obj.ioa, 1);
+        match obj.value.as_ref().unwrap() {
+            DataPointValue::Normalized { value } => assert!((value - 0.5).abs() < 1e-3),
+            _ => panic!("expected Normalized"),
+        }
+        // 品质中性、无时标
+        let q = obj.quality.as_ref().expect("quality present (neutral)");
+        assert!(!q.iv && !q.nt && !q.sb && !q.bl && !q.ov, "ND 品质全 false");
+        assert!(obj.timestamp.is_none(), "ND 无时标");
     }
 
     #[test]

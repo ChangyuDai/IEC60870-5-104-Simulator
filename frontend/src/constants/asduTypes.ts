@@ -20,6 +20,7 @@ export const ASDU_TYPE_OPTIONS: AsduTypeOption[] = [
   { value: 'MBoTb1', labelKey: 'asduType.bo_tb', typeId: 33 },
   { value: 'MMeNa1', labelKey: 'asduType.me_na', typeId: 9 },
   { value: 'MMeTd1', labelKey: 'asduType.me_td', typeId: 34 },
+  { value: 'MMeNd1', labelKey: 'asduType.me_nd', typeId: 21 },
   { value: 'MMeNb1', labelKey: 'asduType.me_nb', typeId: 11 },
   { value: 'MMeTe1', labelKey: 'asduType.me_te', typeId: 35 },
   { value: 'MMeNc1', labelKey: 'asduType.me_nc', typeId: 13 },
