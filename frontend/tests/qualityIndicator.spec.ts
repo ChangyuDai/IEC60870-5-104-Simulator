@@ -74,4 +74,20 @@ describe('QualityLegend(独立图例,用于表头)', () => {
     expect(document.body.querySelector('.q-legend')).toBeNull()
     w.unmount()
   })
+
+  it('图例底部含 OK(正常)行,解释无位置位的基线态,且排在 OV 之后', async () => {
+    useI18n().setLocale('zh-CN')
+    const w = mount(QualityLegend)
+    await w.find('.q-help').trigger('click')
+    const legend = document.body.querySelector('.q-legend')!
+    const ok = legend.querySelector('.q-legend-row.is-ok')
+    expect(ok).not.toBeNull()
+    expect(ok!.textContent).toContain('OK')
+    expect(ok!.textContent).toContain('正常')
+    expect(ok!.textContent).toContain('数据正常可信')
+    // OK 行排在所有品质位(末位 OV)之后
+    const rows = [...legend.querySelectorAll('.q-legend-row')]
+    expect(rows[rows.length - 1]).toBe(ok)
+    w.unmount()
+  })
 })

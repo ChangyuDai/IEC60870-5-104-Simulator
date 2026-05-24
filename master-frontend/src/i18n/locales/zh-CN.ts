@@ -119,6 +119,7 @@ export type DictShape = {
   quality: {
     legendTitle: string
     bits: Record<'iv' | 'nt' | 'sb' | 'bl' | 'ov', { name: string; desc: string }>
+    ok: { name: string; desc: string }
   }
   log: {
     title: string
@@ -362,6 +363,7 @@ const dict: DictShape = {
       bl: { name: '被闭锁', desc: '已闭锁 —— 停止刷新' },
       ov: { name: '溢出', desc: '超出量程 —— 仅测量类' },
     },
+    ok: { name: '正常', desc: '无任何位置位 —— 数据正常可信' },
   },
   log: {
     title: '通信日志',

@@ -83,6 +83,11 @@ onBeforeUnmount(close)
         <span class="q-legend-name">{{ t(`quality.bits.${b}.name`) }}</span>
         <span class="q-legend-desc">{{ t(`quality.bits.${b}.desc`) }}</span>
       </div>
+      <div class="q-legend-row is-ok">
+        <span class="q-legend-letter">OK</span>
+        <span class="q-legend-name">{{ t('quality.ok.name') }}</span>
+        <span class="q-legend-desc">{{ t('quality.ok.desc') }}</span>
+      </div>
     </div>
   </Teleport>
 </template>
@@ -140,5 +145,13 @@ onBeforeUnmount(close)
 .q-legend-desc {
   color: var(--c-subtext0);
   font-size: 11px;
+}
+.q-legend-row.is-ok {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--c-surface1);
+}
+.q-legend-row.is-ok .q-legend-letter {
+  color: var(--c-green);
 }
 </style>

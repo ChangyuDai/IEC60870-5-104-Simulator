@@ -207,6 +207,7 @@ const dict: DictShape = {
       bl: { name: 'Blocked', desc: 'Blocked — updates suspended' },
       ov: { name: 'Overflow', desc: 'Out of range — measured types only' },
     },
+    ok: { name: 'Normal', desc: 'No bits set — value is good' },
   },
   log: {
     title: 'Communication Log',
