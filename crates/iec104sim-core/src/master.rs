@@ -240,6 +240,10 @@ pub struct MasterConfig {
     /// Period for auto counter interrogation in seconds. 0 disables.
     #[serde(default)]
     pub counter_interrogate_period_s: u32,
+    /// 广播公共地址。用于广播 GI/对时/计量召唤。
+    /// 默认 0xFFFF。常见替代值: 0xFF00(部分厂商方言)。
+    #[serde(default = "default_broadcast_address")]
+    pub broadcast_address: u16,
 }
 
 fn default_t0() -> u32 { 30 }
@@ -250,6 +254,7 @@ fn default_k() -> u16 { 12 }
 fn default_w() -> u16 { 8 }
 fn default_qoi_value() -> u8 { 20 }
 fn default_qcc_value() -> u8 { 5 }
+fn default_broadcast_address() -> u16 { 0xFFFF }
 
 impl Default for MasterConfig {
     fn default() -> Self {
@@ -269,6 +274,7 @@ impl Default for MasterConfig {
             default_qcc: default_qcc_value(),
             interrogate_period_s: 0,
             counter_interrogate_period_s: 0,
+            broadcast_address: default_broadcast_address(),
         }
     }
 }
@@ -2143,6 +2149,12 @@ mod tests {
         let frame = build_gi_command(2, 21);
         assert_eq!(frame[15], 21);
         assert_eq!(frame[10], 2u16.to_le_bytes()[0]);
+    }
+
+    #[test]
+    fn master_config_default_broadcast_addr_is_ffff() {
+        let cfg = MasterConfig::default();
+        assert_eq!(cfg.broadcast_address, 0xFFFF);
     }
 
     #[test]
