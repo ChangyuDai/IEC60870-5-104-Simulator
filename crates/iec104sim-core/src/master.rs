@@ -457,6 +457,10 @@ pub struct MasterConnection {
     send_lock: Arc<tokio::sync::Mutex<()>>,
     /// Broadcast channel for control command responses (COT=7, COT=10).
     control_tx: tokio::sync::broadcast::Sender<ControlResponse>,
+    /// commands 层注入:未知 CA 喂这里。
+    ca_inbox: Option<crate::ca_debouncer::CaInbox>,
+    /// commands 层注入并随广播 flush 更新。Arc 包裹便于克隆进 spawned 接收任务。
+    configured_cas: Arc<std::sync::RwLock<Vec<u16>>>,
 }
 
 impl MasterConnection {
@@ -484,6 +488,8 @@ impl MasterConnection {
             ack_notify: Arc::new(tokio::sync::Notify::new()),
             send_lock: Arc::new(tokio::sync::Mutex::new(())),
             control_tx,
+            ca_inbox: None,
+            configured_cas: Arc::new(std::sync::RwLock::new(Vec::new())),
         }
     }
 
@@ -496,6 +502,19 @@ impl MasterConnection {
     pub fn with_log_collector(mut self, collector: Arc<LogCollector>) -> Self {
         self.log_collector = Some(collector);
         self
+    }
+
+    pub fn with_ca_inbox(mut self, inbox: crate::ca_debouncer::CaInbox) -> Self {
+        self.ca_inbox = Some(inbox);
+        self
+    }
+
+    pub fn set_configured_cas(&self, cas: Vec<u16>) {
+        if let Ok(mut w) = self.configured_cas.write() { *w = cas; }
+    }
+
+    pub(crate) fn configured_cas_snapshot(&self) -> Vec<u16> {
+        self.configured_cas.read().map(|g| g.clone()).unwrap_or_default()
     }
 
     pub fn state(&self) -> MasterState {
@@ -617,9 +636,12 @@ impl MasterConnection {
             let protocol = self.protocol.clone();
             let ack_notify = self.ack_notify.clone();
             let control_tx = self.control_tx.clone();
+            let ca_inbox_clone = self.ca_inbox.clone();
+            let configured_cas_clone = self.configured_cas.clone();
+            let broadcast_addr = self.config.broadcast_address;
 
             let handle = tokio::task::spawn_blocking(move || {
-                receive_loop_mutex(stream_for_receiver, received_data, log_collector, shutdown_flag, state_tx, protocol, ack_notify, control_tx);
+                receive_loop_mutex(stream_for_receiver, received_data, log_collector, shutdown_flag, state_tx, protocol, ack_notify, control_tx, ca_inbox_clone, configured_cas_clone, broadcast_addr);
             });
 
             self.receiver_handle = Some(handle);
@@ -646,9 +668,12 @@ impl MasterConnection {
             let protocol = self.protocol.clone();
             let ack_notify = self.ack_notify.clone();
             let control_tx = self.control_tx.clone();
+            let ca_inbox_clone = self.ca_inbox.clone();
+            let configured_cas_clone = self.configured_cas.clone();
+            let broadcast_addr = self.config.broadcast_address;
 
             let handle = tokio::task::spawn_blocking(move || {
-                receive_loop(stream_clone, received_data, log_collector, shutdown_flag, state_tx, protocol, ack_notify, control_tx);
+                receive_loop(stream_clone, received_data, log_collector, shutdown_flag, state_tx, protocol, ack_notify, control_tx, ca_inbox_clone, configured_cas_clone, broadcast_addr);
             });
 
             self.receiver_handle = Some(handle);
@@ -1316,6 +1341,9 @@ fn receive_loop(
     protocol: Arc<std::sync::Mutex<ProtocolState>>,
     ack_notify: Arc<tokio::sync::Notify>,
     control_tx: tokio::sync::broadcast::Sender<ControlResponse>,
+    ca_inbox: Option<crate::ca_debouncer::CaInbox>,
+    configured_cas: Arc<std::sync::RwLock<Vec<u16>>>,
+    broadcast_address: u16,
 ) {
     let mut reassembly_buf = Vec::with_capacity(65536);
     let mut read_buf = [0u8; 8192];
@@ -1363,7 +1391,7 @@ fn receive_loop(
                 break;
             }
             let frame_data: Vec<u8> = reassembly_buf.drain(..frame_len).collect();
-            process_received_frame(&frame_data, &received_data, &log_collector, &mut stream, &protocol, &ack_notify, &control_tx);
+            process_received_frame(&frame_data, &received_data, &log_collector, &mut stream, &protocol, &ack_notify, &control_tx, &ca_inbox, &configured_cas, broadcast_address);
         }
     }
 }
@@ -1391,6 +1419,9 @@ fn receive_loop_mutex(
     protocol: Arc<std::sync::Mutex<ProtocolState>>,
     ack_notify: Arc<tokio::sync::Notify>,
     control_tx: tokio::sync::broadcast::Sender<ControlResponse>,
+    ca_inbox: Option<crate::ca_debouncer::CaInbox>,
+    configured_cas: Arc<std::sync::RwLock<Vec<u16>>>,
+    broadcast_address: u16,
 ) {
     if let Ok(locked) = stream.lock() {
         if let MasterStream::Tls(tls) = &*locked {
@@ -1447,7 +1478,7 @@ fn receive_loop_mutex(
                     }
                     let frame_data: Vec<u8> = reassembly_buf.drain(..frame_len).collect();
                     let mut writer = TlsWriter(&stream);
-                    process_received_frame(&frame_data, &received_data, &log_collector, &mut writer, &protocol, &ack_notify, &control_tx);
+                    process_received_frame(&frame_data, &received_data, &log_collector, &mut writer, &protocol, &ack_notify, &control_tx, &ca_inbox, &configured_cas, broadcast_address);
                 }
             }
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock
@@ -1593,6 +1624,9 @@ fn process_received_frame<W: RawWrite>(
     protocol: &Arc<std::sync::Mutex<ProtocolState>>,
     ack_notify: &Arc<tokio::sync::Notify>,
     control_tx: &tokio::sync::broadcast::Sender<ControlResponse>,
+    ca_inbox: &Option<crate::ca_debouncer::CaInbox>,
+    configured_cas: &Arc<std::sync::RwLock<Vec<u16>>>,
+    broadcast_address: u16,
 ) {
     if data.len() < 6 { return; }
     let ctrl1 = data[2];
@@ -1648,7 +1682,7 @@ fn process_received_frame<W: RawWrite>(
     } else if ctrl1 & 0x01 == 0x01 {
         log_frame(data, log_collector);
     } else if data.len() >= 12 {
-        parse_and_store_asdu(data, received_data, log_collector, control_tx);
+        parse_and_store_asdu(data, received_data, log_collector, control_tx, ca_inbox, configured_cas, broadcast_address);
         if let Some(rsn) = force_ack {
             let s_frame = build_s_frame(rsn);
             let _ = writer.write_raw(&s_frame);
@@ -1714,12 +1748,34 @@ fn asdu_element_size(asdu_type: u8) -> Option<(usize, bool)> {
     }
 }
 
+/// 提取 + 判定 ASDU 帧的 CA 是否为"未知 CA"(广播召唤自动学习用)。
+/// 满足以下两个条件就调用 `on_unknown`:
+///   - `ca != broadcast_address`(从站协议错误地把广播地址回灌时丢弃)
+///   - `ca ∉ configured_cas`
+///
+/// `data` 必须至少 12 字节(I 帧含 CA 的最小长度)。
+fn filter_unknown_ca(
+    data: &[u8],
+    configured_cas: &[u16],
+    broadcast_address: u16,
+    mut on_unknown: impl FnMut(u16),
+) {
+    if data.len() < 12 { return; }
+    let ca = u16::from_le_bytes([data[10], data[11]]);
+    if ca != broadcast_address && !configured_cas.contains(&ca) {
+        on_unknown(ca);
+    }
+}
+
 /// Parse ASDU from an I-frame and store data points.
 fn parse_and_store_asdu(
     data: &[u8],
     received_data: &SharedReceivedData,
     log_collector: &Option<Arc<LogCollector>>,
     control_tx: &tokio::sync::broadcast::Sender<ControlResponse>,
+    ca_inbox: &Option<crate::ca_debouncer::CaInbox>,
+    configured_cas: &Arc<std::sync::RwLock<Vec<u16>>>,
+    broadcast_address: u16,
 ) {
     if data.len() < 12 { return; }
 
@@ -1765,6 +1821,14 @@ fn parse_and_store_asdu(
         return;
     }
     let ca = u16::from_le_bytes([data[10], data[11]]);
+
+    // 未知 CA 喂给 debouncer。
+    {
+        let snapshot: Vec<u16> = configured_cas.read().map(|g| g.clone()).unwrap_or_default();
+        if let Some(inbox) = ca_inbox.as_ref() {
+            filter_unknown_ca(data, &snapshot, broadcast_address, |c| inbox.push(c));
+        }
+    }
 
     if let Some(lc) = active_lc(log_collector) {
         let type_name = AsduTypeId::from_u8(asdu_type)
@@ -2202,10 +2266,11 @@ mod tests {
             0x40,                   // QDS = NT
         ];
         let handle = rt.handle().clone();
+        let configured_cas = Arc::new(std::sync::RwLock::new(Vec::<u16>::new()));
         std::thread::scope(|s| {
             s.spawn(|| {
                 let _g = handle.enter();
-                parse_and_store_asdu(&frame, &received, &None, &tx);
+                parse_and_store_asdu(&frame, &received, &None, &tx, &None, &configured_cas, 0xFFFF);
             });
         });
 
@@ -2379,5 +2444,54 @@ mod tests {
         assert_eq!(frame[10], 0xFF);
         assert_eq!(frame[11], 0xFF);
         assert_eq!(frame[15], 5, "QCC");
+    }
+
+    #[test]
+    fn receive_path_pushes_unknown_ca_to_inbox() {
+        let cfg = MasterConfig::default();
+        let configured: Vec<u16> = vec![1];
+        let mut frame = vec![
+            0x68, 0x0E, 0x00, 0x00, 0x00, 0x00,
+            1u8,        // TypeID
+            0x01,       // VSQ: N=1
+            0x14,       // CauseTx = 20 (响应总召)
+            0x00,
+            99u8, 0x00, // CA = 99 (little-endian)
+            0x01, 0x00, 0x00, // IOA = 1
+            0x00,       // SIQ
+        ];
+        frame[1] = (frame.len() - 2) as u8;
+
+        let mut hits: Vec<u16> = Vec::new();
+        filter_unknown_ca(&frame, &configured, cfg.broadcast_address, |ca| hits.push(ca));
+        assert_eq!(hits, vec![99]);
+    }
+
+    #[test]
+    fn receive_path_skips_configured_ca() {
+        let cfg = MasterConfig::default();
+        let configured: Vec<u16> = vec![1];
+        let mut frame = vec![
+            0x68, 0x0E, 0x00, 0x00, 0x00, 0x00,
+            1u8, 0x01, 0x14, 0x00, 1u8, 0x00, 0x01, 0x00, 0x00, 0x00,
+        ];
+        frame[1] = (frame.len() - 2) as u8;
+        let mut hits: Vec<u16> = Vec::new();
+        filter_unknown_ca(&frame, &configured, cfg.broadcast_address, |ca| hits.push(ca));
+        assert!(hits.is_empty(), "configured CA must not trigger inbox");
+    }
+
+    #[test]
+    fn receive_path_skips_broadcast_addr_self() {
+        let cfg = MasterConfig::default(); // broadcast = 0xFFFF
+        let configured: Vec<u16> = vec![];
+        let mut frame = vec![
+            0x68, 0x0E, 0x00, 0x00, 0x00, 0x00,
+            1u8, 0x01, 0x14, 0x00, 0xFF, 0xFF, 0x01, 0x00, 0x00, 0x00,
+        ];
+        frame[1] = (frame.len() - 2) as u8;
+        let mut hits: Vec<u16> = Vec::new();
+        filter_unknown_ca(&frame, &configured, cfg.broadcast_address, |ca| hits.push(ca));
+        assert!(hits.is_empty(), "slave reflecting broadcast addr must not persist");
     }
 }
