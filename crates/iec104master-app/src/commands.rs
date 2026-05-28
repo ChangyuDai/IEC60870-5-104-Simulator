@@ -90,6 +90,10 @@ pub async fn create_connection(
     };
 
     let common_addresses = request.resolve_cas();
+
+    let (ca_inbox, mut flush_rx, _debouncer_handle) =
+        iec104sim_core::ca_debouncer::spawn(std::time::Duration::from_secs(3));
+
     let mut config = MasterConfig {
         target_address: request.target_address.clone(),
         port: request.port,
@@ -136,7 +140,9 @@ pub async fn create_connection(
     // 默认关闭,LogPanel 展开时由前端通过 set_logging_enabled 打开。
     log_collector.set_enabled(false);
     let connection = MasterConnection::new(config.clone())
-        .with_log_collector(log_collector.clone());
+        .with_log_collector(log_collector.clone())
+        .with_ca_inbox(ca_inbox);
+    connection.set_configured_cas(common_addresses.clone());
 
     // Forward state-change notifications from the core connection to the frontend.
     // Exits when the connection is dropped (`delete_connection`) and its `state_tx` closes.
@@ -179,13 +185,50 @@ pub async fn create_connection(
     };
 
     state.connections.write().await.insert(
-        id,
+        id.clone(),
         MasterConnectionState {
             connection,
             log_collector,
             common_addresses,
         },
     );
+
+    // Forward flush events from the ca_debouncer to the frontend.
+    {
+        let app = app_handle.clone();
+        let id_clone = id.clone();
+        tokio::spawn(async move {
+            use tauri::Manager;
+            while let Some(ev) = flush_rx.recv().await {
+                let state: State<'_, AppState> = app.state();
+                let added = {
+                    let guard = state.connections.read().await;
+                    match guard.get(&id_clone) {
+                        Some(c) => c.connection.extend_configured_cas(&ev.new_cas),
+                        None => break,
+                    }
+                };
+                if !added.is_empty() {
+                    let all_cas = {
+                        let guard = state.connections.read().await;
+                        guard.get(&id_clone)
+                            .map(|c| c.connection.configured_cas())
+                            .unwrap_or_default()
+                    };
+                    let payload = serde_json::json!({
+                        "id": id_clone,
+                        "common_addresses": all_cas,
+                        "added": added,
+                    });
+                    let _ = app.emit("connection-cas-updated", payload);
+                }
+            }
+        });
+    }
+
+    // _debouncer_handle detaches here; its lifetime is tied to ca_inbox which
+    // is held by the MasterConnection inside connections map.
+    drop(_debouncer_handle);
 
     Ok(info)
 }
