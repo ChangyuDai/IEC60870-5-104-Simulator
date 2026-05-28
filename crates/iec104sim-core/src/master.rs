@@ -523,6 +523,10 @@ impl MasterConnection {
         *self.state_tx.borrow()
     }
 
+    pub fn config(&self) -> &MasterConfig {
+        &self.config
+    }
+
     /// Connect to the remote IEC 104 slave (with optional TLS).
     pub async fn connect(&mut self) -> Result<(), MasterError> {
         if self.state() == MasterState::Connected {

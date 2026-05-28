@@ -91,9 +91,13 @@ pub struct MasterConnectionConfig {
     pub default_qcc: u8,
     pub interrogate_period_s: u32,
     pub counter_interrogate_period_s: u32,
+    #[serde(default = "default_broadcast_address")]
+    pub broadcast_address: Option<u16>,
     #[serde(default)]
     pub snapshot: Vec<MasterSnapshotPoint>,
 }
+
+fn default_broadcast_address() -> Option<u16> { None }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MasterConfigFile {
@@ -202,6 +206,7 @@ mod tests {
             default_qoi: 20, default_qcc: 5,
             interrogate_period_s: 0,
             counter_interrogate_period_s: 0,
+            broadcast_address: None,
             snapshot: vec![MasterSnapshotPoint { ca: 1, point }],
         }]);
         let json = file.to_json().unwrap();

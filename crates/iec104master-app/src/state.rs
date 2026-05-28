@@ -68,6 +68,8 @@ pub struct ConnectionInfo {
     /// already valid. The frontend surfaces these to the user.
     #[serde(default)]
     pub timing_corrections: Vec<iec104sim_core::timing::TimingCorrection>,
+    /// 广播公共地址,用于 GI/CI 广播帧(默认 0xFFFF)。
+    pub broadcast_address: u16,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

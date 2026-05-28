@@ -59,6 +59,8 @@ pub struct CreateConnectionRequest {
     pub interrogate_period_s: Option<u32>,
     /// Period (s) for auto counter interrogation. 0 disables.
     pub counter_interrogate_period_s: Option<u32>,
+    /// 广播公共地址(默认 0xFFFF;0xFF00 是某些方言)。
+    pub broadcast_address: Option<u16>,
 }
 
 impl CreateConnectionRequest {
@@ -123,6 +125,7 @@ pub async fn create_connection(
     if let Some(v) = request.default_qcc { config.default_qcc = v; }
     if let Some(v) = request.interrogate_period_s { config.interrogate_period_s = v; }
     if let Some(v) = request.counter_interrogate_period_s { config.counter_interrogate_period_s = v; }
+    if let Some(bcast) = request.broadcast_address { config.broadcast_address = bcast; }
 
     // Authoritative timing normalization: enforce t2<t1<t3 and w≤⌊2k/3⌋ before
     // the config takes effect. Covers direct creation, load_config and import
@@ -172,6 +175,7 @@ pub async fn create_connection(
         interrogate_period_s: config.interrogate_period_s,
         counter_interrogate_period_s: config.counter_interrogate_period_s,
         timing_corrections,
+        broadcast_address: config.broadcast_address,
     };
 
     state.connections.write().await.insert(
@@ -271,6 +275,7 @@ pub async fn list_connections(
             // Live connections already hold normalized config; no corrections
             // to report on a steady-state list.
             timing_corrections: Vec::new(),
+            broadcast_address: cfg.broadcast_address,
         });
     }
 
@@ -873,6 +878,7 @@ pub async fn save_config(
                 default_qcc: cfg.default_qcc,
                 interrogate_period_s: cfg.interrogate_period_s,
                 counter_interrogate_period_s: cfg.counter_interrogate_period_s,
+                broadcast_address: Some(cfg.broadcast_address),
                 snapshot,
             });
         }
@@ -918,6 +924,7 @@ pub async fn load_config(
             default_qcc: Some(conn.default_qcc),
             interrogate_period_s: Some(conn.interrogate_period_s),
             counter_interrogate_period_s: Some(conn.counter_interrogate_period_s),
+            broadcast_address: conn.broadcast_address,
         };
         let info = create_connection(state.clone(), app_handle.clone(), request).await?;
 
@@ -953,4 +960,28 @@ pub async fn load_config(
 struct TimingCorrectedEvent {
     target_address: String,
     corrections: Vec<iec104sim_core::timing::TimingCorrection>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn create_request_deserializes_broadcast_address() {
+        let json = r#"{
+            "target_address": "127.0.0.1",
+            "port": 2404,
+            "common_addresses": [1],
+            "broadcast_address": 65280
+        }"#;
+        let req: CreateConnectionRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.broadcast_address, Some(0xFF00));
+    }
+
+    #[test]
+    fn create_request_missing_broadcast_address_is_none() {
+        let json = r#"{"target_address":"127.0.0.1","port":2404,"common_addresses":[1]}"#;
+        let req: CreateConnectionRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.broadcast_address, None);
+    }
 }
