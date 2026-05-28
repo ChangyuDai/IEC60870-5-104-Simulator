@@ -2239,6 +2239,7 @@ mod tests {
         assert_eq!(cfg.t1, 15); // pulled from default_t1
         assert_eq!(cfg.k, 12);
         assert_eq!(cfg.default_qoi, 20);
+        assert_eq!(cfg.broadcast_address, 0xFFFF);
     }
 
     #[test]
