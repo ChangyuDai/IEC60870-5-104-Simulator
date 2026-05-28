@@ -519,6 +519,26 @@ impl MasterConnection {
         self.configured_cas.read().map(|g| g.clone()).unwrap_or_default()
     }
 
+    /// 把新发现的 CA 并入 `configured_cas`(去重)。返回新增的 CA 列表。
+    pub fn extend_configured_cas(&self, new_cas: &[u16]) -> Vec<u16> {
+        let mut w = match self.configured_cas.write() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+        let mut added = Vec::new();
+        for &ca in new_cas {
+            if !w.contains(&ca) {
+                w.push(ca);
+                added.push(ca);
+            }
+        }
+        added
+    }
+
+    pub fn configured_cas(&self) -> Vec<u16> {
+        self.configured_cas_snapshot()
+    }
+
     pub fn state(&self) -> MasterState {
         *self.state_tx.borrow()
     }
@@ -2523,5 +2543,14 @@ mod tests {
         let ev = tokio::time::timeout(Duration::from_secs(3), rx.recv())
             .await.expect("flush timeout").expect("no event");
         assert_eq!(ev.new_cas, vec![77]);
+    }
+
+    #[test]
+    fn extend_configured_cas_dedupes_and_returns_only_new() {
+        let conn = MasterConnection::new(MasterConfig::default());
+        conn.set_configured_cas(vec![1, 2]);
+        let added = conn.extend_configured_cas(&[2, 3, 4]);
+        assert_eq!(added, vec![3, 4]);
+        assert_eq!(conn.configured_cas(), vec![1, 2, 3, 4]);
     }
 }
