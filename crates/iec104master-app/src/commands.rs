@@ -201,20 +201,15 @@ pub async fn create_connection(
             use tauri::Manager;
             while let Some(ev) = flush_rx.recv().await {
                 let state: State<'_, AppState> = app.state();
-                let added = {
+                let (added, all_cas) = {
+                    // 单次 read guard,保证 added 与 all_cas 来自同一连接快照
                     let guard = state.connections.read().await;
-                    match guard.get(&id_clone) {
-                        Some(c) => c.connection.extend_configured_cas(&ev.new_cas),
-                        None => break,
-                    }
+                    let Some(c) = guard.get(&id_clone) else { break };
+                    let added = c.connection.extend_configured_cas(&ev.new_cas);
+                    let all_cas = if added.is_empty() { Vec::new() } else { c.connection.configured_cas() };
+                    (added, all_cas)
                 };
                 if !added.is_empty() {
-                    let all_cas = {
-                        let guard = state.connections.read().await;
-                        guard.get(&id_clone)
-                            .map(|c| c.connection.configured_cas())
-                            .unwrap_or_default()
-                    };
                     let payload = serde_json::json!({
                         "id": id_clone,
                         "common_addresses": all_cas,
