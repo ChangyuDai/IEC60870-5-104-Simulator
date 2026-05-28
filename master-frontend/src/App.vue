@@ -134,6 +134,13 @@ let unlistenTimingCorrected: (() => void) | null = null
 let unlistenCasUpdated: (() => void) | null = null
 
 onMounted(async () => {
+  // Tauri runtime 不可用(纯浏览器 vite dev / headless UI 验证)时跳过 IPC listener,
+  // 仅渲染静态 UI。生产 Tauri 环境下 __TAURI_INTERNALS__ 存在,正常注册 listener。
+  const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+  if (!inTauri) {
+    console.warn('Tauri runtime not detected; skipping IPC listeners for UI-only render')
+    return
+  }
   unlistenConnState = await listen<{ id: string; state: string }>('connection-state', (event) => {
     const { id, state } = event.payload
     if (selectedConnectionId.value === id) {
