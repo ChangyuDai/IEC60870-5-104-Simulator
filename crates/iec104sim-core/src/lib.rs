@@ -9,5 +9,6 @@ pub mod log_collector;
 pub mod config;
 pub mod tools;
 pub mod timing;
+pub mod ca_debouncer;
 pub mod decode;
 pub(crate) mod tls_key;
