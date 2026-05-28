@@ -130,6 +130,8 @@ provide('openEditConnection', (id: string) => {
 let unlistenConnState: (() => void) | null = null
 // load_config imported a config violating t2<t1<t3 / w≤⌊2k/3⌋; backend corrected it.
 let unlistenTimingCorrected: (() => void) | null = null
+// CA set updated by GI debouncer; refresh tree to reflect new common addresses in memory.
+let unlistenCasUpdated: (() => void) | null = null
 
 onMounted(async () => {
   unlistenConnState = await listen<{ id: string; state: string }>('connection-state', (event) => {
@@ -148,6 +150,14 @@ onMounted(async () => {
       void showAlert(t('newConn.timingCorrected', { detail }))
     },
   )
+  unlistenCasUpdated = await listen<{ id: string; common_addresses: number[]; added: number[] }>(
+    'connection-cas-updated',
+    () => {
+      // 后端 GI debouncer 自动扩充了内存中的 CA 集合;刷新连接树即可。
+      // 持久化由用户主动保存配置时触发,此处无需 save_config。
+      refreshTree()
+    },
+  )
   setTimeout(() => {
     checkUpdate(false).catch((e) => console.warn('auto update check failed', e))
   }, 2000)
@@ -156,6 +166,7 @@ onMounted(async () => {
 onUnmounted(() => {
   unlistenConnState?.()
   unlistenTimingCorrected?.()
+  unlistenCasUpdated?.()
   if (refreshTreePending !== null) {
     clearTimeout(refreshTreePending)
     refreshTreePending = null
