@@ -513,8 +513,6 @@ impl MasterConnection {
         if let Ok(mut w) = self.configured_cas.write() { *w = cas; }
     }
 
-    /// 供 commands-layer integration 调用,当前阶段尚未启用。
-    #[allow(dead_code)]
     pub(crate) fn configured_cas_snapshot(&self) -> Vec<u16> {
         self.configured_cas.read().map(|g| g.clone()).unwrap_or_default()
     }
