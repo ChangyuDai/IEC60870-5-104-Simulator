@@ -2349,4 +2349,35 @@ mod tests {
     fn test_frame_label_step_command() {
         assert_eq!(FrameLabel::StepCommand.name(), "C_RC");
     }
+
+    #[test]
+    fn build_gi_command_broadcast_ffff_emits_le_ff_ff() {
+        let frame = build_gi_command(0xFFFF, 20);
+        // 帧结构:68 0E 00 00 00 00 64 01 06 00 [CA_lo] [CA_hi] 00 00 00 [QOI]
+        assert_eq!(frame[10], 0xFF, "CA low byte");
+        assert_eq!(frame[11], 0xFF, "CA high byte");
+        assert_eq!(frame[15], 20, "QOI");
+    }
+
+    #[test]
+    fn build_gi_command_broadcast_ff00_emits_le_00_ff() {
+        let frame = build_gi_command(0xFF00, 20);
+        assert_eq!(frame[10], 0x00, "CA low byte");
+        assert_eq!(frame[11], 0xFF, "CA high byte");
+    }
+
+    #[test]
+    fn build_clock_sync_broadcast_ffff_emits_le_ff_ff() {
+        let frame = build_clock_sync_command(0xFFFF);
+        assert_eq!(frame[10], 0xFF);
+        assert_eq!(frame[11], 0xFF);
+    }
+
+    #[test]
+    fn build_counter_read_broadcast_ffff_emits_le_ff_ff() {
+        let frame = build_counter_read_command(0xFFFF, 5);
+        assert_eq!(frame[10], 0xFF);
+        assert_eq!(frame[11], 0xFF);
+        assert_eq!(frame[15], 5, "QCC");
+    }
 }
