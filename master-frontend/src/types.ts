@@ -24,6 +24,7 @@ export interface ConnectionInfo {
   default_qcc: number
   interrogate_period_s: number
   counter_interrogate_period_s: number
+  broadcast_address: number
   /** Timing fields auto-corrected by the backend during creation/import.
    *  Empty when the supplied config already satisfied the IEC 104 invariants. */
   timing_corrections?: { field: string; from: number; to: number }[]
