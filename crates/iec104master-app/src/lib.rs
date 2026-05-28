@@ -24,6 +24,9 @@ pub fn run() {
             commands::send_interrogation,
             commands::send_clock_sync,
             commands::send_counter_read,
+            commands::send_broadcast_gi,
+            commands::send_broadcast_clock_sync,
+            commands::send_broadcast_counter_read,
             commands::send_control_command,
             // Data commands
             commands::get_received_data,
