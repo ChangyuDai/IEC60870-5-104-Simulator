@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { inject, ref, type Ref } from 'vue'
+import { inject, ref, watch, onMounted, onBeforeUnmount, type Ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { save, open } from '@tauri-apps/plugin-dialog'
 import { openUrl } from '@tauri-apps/plugin-opener'
@@ -48,6 +48,26 @@ async function manualCheckUpdate() {
     updateChecking.value = false
   }
 }
+
+const broadcastMenuOpen = ref(false)
+const broadcastAddrLabel = ref('FFFF')
+
+async function loadBroadcastAddr() {
+  if (!selectedConnectionId.value) return
+  const conns = await invoke<any[]>('list_connections')
+  const c = conns.find((x: any) => x.id === selectedConnectionId.value)
+  const v = c?.broadcast_address ?? 0xFFFF
+  broadcastAddrLabel.value = v.toString(16).toUpperCase().padStart(4, '0')
+}
+
+watch(selectedConnectionId, () => { loadBroadcastAddr() }, { immediate: true })
+
+function closeBroadcastMenu(e: MouseEvent) {
+  const el = e.target as HTMLElement
+  if (!el.closest('.split-btn')) broadcastMenuOpen.value = false
+}
+onMounted(() => document.addEventListener('click', closeBroadcastMenu))
+onBeforeUnmount(() => document.removeEventListener('click', closeBroadcastMenu))
 
 const showAbout = ref(false)
 
@@ -217,6 +237,33 @@ async function openConfig() {
 
 const isConnected = () => selectedConnectionState.value === 'Connected'
 const hasConnection = () => selectedConnectionId.value !== null
+
+async function sendBroadcastGI() {
+  if (!selectedConnectionId.value) return
+  try {
+    await invoke('send_broadcast_gi', { id: selectedConnectionId.value })
+    refreshData()
+    setTimeout(() => refreshTree(), 3500)
+  } catch (e) { await showAlert(String(e)) }
+  broadcastMenuOpen.value = false
+}
+
+async function sendBroadcastClockSync() {
+  if (!selectedConnectionId.value) return
+  try {
+    await invoke('send_broadcast_clock_sync', { id: selectedConnectionId.value })
+  } catch (e) { await showAlert(String(e)) }
+  broadcastMenuOpen.value = false
+}
+
+async function sendBroadcastCounterRead() {
+  if (!selectedConnectionId.value) return
+  try {
+    await invoke('send_broadcast_counter_read', { id: selectedConnectionId.value })
+    refreshData()
+  } catch (e) { await showAlert(String(e)) }
+  broadcastMenuOpen.value = false
+}
 </script>
 
 <template>
@@ -247,6 +294,26 @@ const hasConnection = () => selectedConnectionId.value !== null
       <button class="toolbar-btn" :disabled="!hasConnection() || !isConnected()" @click="sendGI">
         {{ t('toolbar.sendGI') }}
       </button>
+      <div class="split-btn" :class="{ disabled: !hasConnection() || !isConnected() }">
+        <button
+          class="toolbar-btn"
+          :disabled="!hasConnection() || !isConnected()"
+          :title="`${t('toolbar.broadcastAddressLabel')}: 0x${broadcastAddrLabel}`"
+          @click="sendBroadcastGI"
+        >
+          {{ t('toolbar.broadcast') }}
+        </button>
+        <button
+          class="toolbar-btn split-toggle"
+          :disabled="!hasConnection() || !isConnected()"
+          @click="broadcastMenuOpen = !broadcastMenuOpen"
+        >&#9662;</button>
+        <ul v-if="broadcastMenuOpen" class="split-menu" @click.stop>
+          <li @click="sendBroadcastGI">{{ t('toolbar.broadcastGi') }}</li>
+          <li @click="sendBroadcastClockSync">{{ t('toolbar.broadcastClockSync') }}</li>
+          <li @click="sendBroadcastCounterRead">{{ t('toolbar.broadcastCounterRead') }}</li>
+        </ul>
+      </div>
       <button class="toolbar-btn" :disabled="!hasConnection() || !isConnected()" @click="sendClockSync">
         {{ t('toolbar.clockSync') }}
       </button>
@@ -376,5 +443,18 @@ const hasConnection = () => selectedConnectionId.value !== null
   font-family: inherit;
 }
 .toolbar-title.as-button:hover { color: var(--c-text); }
+
+.split-btn { position: relative; display: inline-flex; }
+.split-btn .split-toggle { padding: 0 6px; min-width: 0; }
+.split-menu {
+  position: absolute; top: 100%; left: 0; z-index: 50;
+  list-style: none; margin: 0; padding: 4px 0;
+  background: var(--bg-elevated, var(--c-base, #fff));
+  border: 1px solid var(--c-surface0, #ccc);
+  border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+  min-width: 160px;
+}
+.split-menu li { padding: 6px 12px; cursor: pointer; white-space: nowrap; font-size: 12px; }
+.split-menu li:hover { background: var(--c-surface0, #f0f0f0); }
 
 </style>
