@@ -513,6 +513,8 @@ impl MasterConnection {
         if let Ok(mut w) = self.configured_cas.write() { *w = cas; }
     }
 
+    /// 供 commands-layer integration 调用,当前阶段尚未启用。
+    #[allow(dead_code)]
     pub(crate) fn configured_cas_snapshot(&self) -> Vec<u16> {
         self.configured_cas.read().map(|g| g.clone()).unwrap_or_default()
     }
@@ -1822,12 +1824,10 @@ fn parse_and_store_asdu(
     }
     let ca = u16::from_le_bytes([data[10], data[11]]);
 
-    // 未知 CA 喂给 debouncer。
-    {
+    // 未知 CA 喂给 debouncer(仅当 inbox 注入时)。
+    if let Some(inbox) = ca_inbox.as_ref() {
         let snapshot: Vec<u16> = configured_cas.read().map(|g| g.clone()).unwrap_or_default();
-        if let Some(inbox) = ca_inbox.as_ref() {
-            filter_unknown_ca(data, &snapshot, broadcast_address, |c| inbox.push(c));
-        }
+        filter_unknown_ca(data, &snapshot, broadcast_address, |c| inbox.push(c));
     }
 
     if let Some(lc) = active_lc(log_collector) {
