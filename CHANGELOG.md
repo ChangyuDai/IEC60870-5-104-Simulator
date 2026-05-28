@@ -2,27 +2,39 @@
 
 本项目的所有重要变更记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [1.9.0] - 2026-05-28
+
+### Highlights / 亮点
+
+- 📡 **104Master 广播总召(0xFFFF / 0xFF00)** — 工具栏新增「广播 ▾」拆分按钮,一帧召唤全部从站,默认地址 0xFFFF、可配 0xFF00 等厂商方言;广播总召唤 / 对时 / 累计量召唤三件套齐全 / **Broadcast Interrogation on 104Master (0xFFFF / 0xFF00)** — new split-button "Broadcast ▾" calls all slaves in a single frame; default address 0xFFFF, configurable to 0xFF00 and other vendor dialects; broadcast GI / clock sync / counter read all wired up.
+- 🔍 **未知 CA 自动学习** — 广播应答中出现的、原本不在连接配置里的公共地址,经 3 秒安静期 debouncer 自动并入 `common_addresses`,前端连接树自动刷新;断连前强制 flush 不丢数据 / **Auto-learn unknown CAs** — common addresses replied during broadcast but absent from connection config are auto-merged into `common_addresses` via a 3-second quiet-period debouncer; the connection tree refreshes automatically and a force-flush on disconnect prevents data loss.
+- 🛡️ **协议层 0 耦合 Tauri** — `iec104sim-core` 通过 `mpsc::Sender` 把 flush 事件抛给上层,emit `connection-cas-updated` 在 `iec104master-app` commands 层做,核心保持纯协议库 / **Zero Tauri coupling in protocol layer** — `iec104sim-core` forwards flush events via `mpsc::Sender`; the `connection-cas-updated` emit lives in `iec104master-app` commands, keeping core a pure protocol library.
+- ✅ **14 个新单测 + 2 个集成测试 + Playwright headless 中英 UI 实测**,全工作区 200/0 / **14 new unit tests + 2 integration tests + headless Playwright zh/en UI verification**, whole-workspace 200 pass / 0 fail.
 
 ### Added 新增
 
-- 104Master:工具栏新增「广播 ▾」按钮,支持广播公共地址(默认 0xFFFF,可配 0xFF00 等方言)的总召唤/对时/计量召唤。
-- 104Master:新建/编辑连接对话框新增「广播公共地址」hex 输入字段;持久化到连接配置。
-- 104Master:广播应答中未发现的 CA 自动加入连接 common_addresses(3 秒安静期 debouncer,断连前强制 flush)。
-- 104Master:前端监听 `connection-cas-updated` 事件,自动刷新连接树。
+- 104Master:工具栏新增「广播 ▾」拆分按钮(主体=广播总召,▾ 展开"广播对时 / 广播计量召唤"),tooltip 显示当前广播地址 / 104Master: new split-button "Broadcast ▾" in toolbar (primary = Broadcast GI, ▾ expands "Broadcast Clock Sync / Broadcast Counter Read"); tooltip shows the current broadcast address.
+- 104Master:新建/编辑连接对话框新增「广播公共地址」hex 输入字段(默认 FFFF,1-4 位 hex 校验),持久化到 `MasterConnectionConfig.broadcast_address` / 104Master: new "Broadcast common address" hex input on the new/edit connection dialog (default FFFF, 1-4 hex validation), persisted to `MasterConnectionConfig.broadcast_address`.
+- core:`MasterConfig.broadcast_address: u16`(serde default 0xFFFF,兼容老配置文件);`ca_debouncer` 独立模块,`spawn(settle)` 返回 `(CaInbox, mpsc::UnboundedReceiver<CaFlushEvent>, JoinHandle)` / core: `MasterConfig.broadcast_address: u16` (serde default 0xFFFF, back-compat with old config files); new `ca_debouncer` module — `spawn(settle)` returns `(CaInbox, mpsc::UnboundedReceiver<CaFlushEvent>, JoinHandle)`.
+- master-app:三个新 Tauri 命令 `send_broadcast_gi` / `send_broadcast_clock_sync` / `send_broadcast_counter_read`;Tauri 事件 `connection-cas-updated { id, common_addresses, added }` / master-app: three new Tauri commands `send_broadcast_gi` / `send_broadcast_clock_sync` / `send_broadcast_counter_read`; new Tauri event `connection-cas-updated { id, common_addresses, added }`.
 
 ### Changed 改进
 
-- core:`MasterConnection` 接收路径新增 `filter_unknown_ca` 钩子,把未知 CA 喂给 `ca_debouncer`。
-- master-app:`create_connection` 启动 `ca_debouncer` 并把 flush 事件转成 Tauri `connection-cas-updated` 事件。
+- core:`MasterConnection` 增字段 `ca_inbox: Option<CaInbox>` + `configured_cas: Arc<RwLock<Vec<u16>>>`;接收路径(`parse_and_store_asdu`)新增 `filter_unknown_ca` 钩子,过滤掉广播地址自反射后把未知 CA 喂给 debouncer / core: `MasterConnection` gains `ca_inbox: Option<CaInbox>` + `configured_cas: Arc<RwLock<Vec<u16>>>`; receive path (`parse_and_store_asdu`) adds a `filter_unknown_ca` hook that filters broadcast-address self-reflection then feeds unknown CAs to the debouncer.
+- master-app:`create_connection` 启动 ca_debouncer 后台 task,把 flush 事件(单 read guard 原子快照)转成 Tauri `connection-cas-updated` 事件;`MasterConnectionConfig` 持久化字段加 `broadcast_address: Option<u16>`(`#[serde(default)]` 兼容) / master-app: `create_connection` starts a ca_debouncer background task and forwards flush events (single read-guard atomic snapshot) to the Tauri `connection-cas-updated` event; `MasterConnectionConfig` gains a persisted `broadcast_address: Option<u16>` (`#[serde(default)]` back-compat).
+- master-fe:`App.vue` 增 Tauri runtime 守卫(`__TAURI_INTERNALS__ in window`)让纯浏览器 dev 也能 mount,便于无头 UI 验证;监听 `connection-cas-updated` 自动 `refreshTree()` / master-fe: `App.vue` adds a Tauri runtime guard (`__TAURI_INTERNALS__ in window`) so it mounts under plain-browser dev for headless UI verification; listens to `connection-cas-updated` and auto-refreshes the tree.
 
 ### Tests 测试
 
-- core:ca_debouncer 5 单测(突发/重置/去重/drop flush/空)
-- core:filter_unknown_ca 3 单测(未知/已配置/广播自反射)
-- core:广播 CA(0xFFFF/0xFF00)帧字节顺序断言
-- master-app:debouncer 突发 + 安静期集成测试
-- frontend:headless Playwright(via MCP)验证 Toolbar 广播按钮中英渲染 + 新建连接对话框广播地址字段
+- core 单测:`ca_debouncer` 5 个(突发/deadline 重置/去重/drop 强制 flush/空状态不发);`filter_unknown_ca` 3 个(未知 CA→喂/已配置 CA→跳过/广播地址自反射→丢);帧字节断言 4 个(GI/对时/计量 在 0xFFFF + 0xFF00 下的 CA 字节顺序);`extend_configured_cas` + `disconnect_drops_ca_inbox_so_pending_cas_flush` 各 1 / core unit tests: `ca_debouncer` ×5 (burst / deadline reset / dedup / drop force-flush / empty), `filter_unknown_ca` ×3 (unknown→push / configured→skip / broadcast self-reflection→drop), frame-byte assertions ×4 (GI/clock/counter at 0xFFFF + 0xFF00), plus `extend_configured_cas` and `disconnect_drops_ca_inbox_so_pending_cas_flush`.
+- master-app 集成:`broadcast_ca_debouncer_integration.rs` 2 个(突发 + 安静期、突发 + 去重) / master-app integration: `broadcast_ca_debouncer_integration.rs` ×2 (burst + quiet period, burst + dedup).
+- master-fe:Playwright MCP headless 实测 Toolbar 广播 ▾ + 菜单展开(中文「广播总召 / 广播对时 / 广播计量召唤」 + 英文「Broadcast GI / Broadcast Clock Sync / Broadcast Counter Read」),以及 NewConnectionModal 广播地址字段渲染 / master-fe: Playwright MCP headless verification of toolbar "Broadcast ▾" + menu expansion (zh "广播总召 / 广播对时 / 广播计量召唤" + en "Broadcast GI / Broadcast Clock Sync / Broadcast Counter Read") plus NewConnectionModal broadcast-address field rendering.
+- 全工作区 `cargo test --workspace`:200 passed / 0 failed / Whole-workspace `cargo test --workspace`: 200 passed / 0 failed.
+
+### Internal 内部
+
+- 设计 + 实施文档归档至 `docs/superpowers/specs/2026-05-28-master-broadcast-interrogation-design.md` 和 `docs/superpowers/plans/2026-05-28-master-broadcast-interrogation.md`(16 任务 TDD plan,完整 spec + 风险/Future Work)/ Design + implementation docs archived at `docs/superpowers/specs/2026-05-28-master-broadcast-interrogation-design.md` and `docs/superpowers/plans/2026-05-28-master-broadcast-interrogation.md` (16-task TDD plan with full spec + risks / Future Work).
+- Slave 端识别 0xFFFF/0xFF00 广播作为 Future Work(本次仅 master 侧;slave 自联自测用 mock fan-out 替代真广播验证) / Slave-side recognition of 0xFFFF / 0xFF00 broadcast is deferred to Future Work (this release covers master side only; self-loop integration tests use mock fan-out instead of real broadcast).
 
 ## [1.8.0] - 2026-05-24
 
