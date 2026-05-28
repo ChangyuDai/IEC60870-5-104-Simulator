@@ -34,6 +34,11 @@ export type DictShape = {
     configLoaded: string
     configSaveFailed: string
     configLoadFailed: string
+    broadcast: string
+    broadcastGi: string
+    broadcastClockSync: string
+    broadcastCounterRead: string
+    broadcastAddressLabel: string
   }
   newConn: {
     title: string
@@ -62,6 +67,9 @@ export type DictShape = {
     interrogatePeriod: string
     counterInterrogatePeriod: string
     timingCorrected: string
+    broadcastAddress: string
+    broadcastAddressHint: string
+    broadcastAddressInvalid: string
   }
   tree: {
     title: string
@@ -271,6 +279,11 @@ const dict: DictShape = {
     configLoaded: '已导入 {count} 个连接',
     configSaveFailed: '保存失败',
     configLoadFailed: '打开失败',
+    broadcast: '广播',
+    broadcastGi: '广播总召',
+    broadcastClockSync: '广播对时',
+    broadcastCounterRead: '广播计量召唤',
+    broadcastAddressLabel: '当前广播地址',
   },
   newConn: {
     title: '新建连接',
@@ -299,6 +312,9 @@ const dict: DictShape = {
     interrogatePeriod: '总召唤周期 (秒，0=关闭)',
     counterInterrogatePeriod: '计数量召唤周期 (秒，0=关闭)',
     timingCorrected: '已自动调整以满足约束 (t2<t1<t3, w≤⌊2k/3⌋): {detail}',
+    broadcastAddress: '广播公共地址',
+    broadcastAddressHint: '4 位十六进制，默认 FFFF；常见方言 FF00',
+    broadcastAddressInvalid: '请输入 1-4 位十六进制',
   },
   tree: {
     title: '连接列表',
