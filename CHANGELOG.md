@@ -4,6 +4,26 @@
 
 ## [Unreleased]
 
+### Added 新增
+
+- 104Master:工具栏新增「广播 ▾」按钮,支持广播公共地址(默认 0xFFFF,可配 0xFF00 等方言)的总召唤/对时/计量召唤。
+- 104Master:新建/编辑连接对话框新增「广播公共地址」hex 输入字段;持久化到连接配置。
+- 104Master:广播应答中未发现的 CA 自动加入连接 common_addresses(3 秒安静期 debouncer,断连前强制 flush)。
+- 104Master:前端监听 `connection-cas-updated` 事件,自动刷新连接树。
+
+### Changed 改进
+
+- core:`MasterConnection` 接收路径新增 `filter_unknown_ca` 钩子,把未知 CA 喂给 `ca_debouncer`。
+- master-app:`create_connection` 启动 `ca_debouncer` 并把 flush 事件转成 Tauri `connection-cas-updated` 事件。
+
+### Tests 测试
+
+- core:ca_debouncer 5 单测(突发/重置/去重/drop flush/空)
+- core:filter_unknown_ca 3 单测(未知/已配置/广播自反射)
+- core:广播 CA(0xFFFF/0xFF00)帧字节顺序断言
+- master-app:debouncer 突发 + 安静期集成测试
+- frontend:headless Playwright(via MCP)验证 Toolbar 广播按钮中英渲染 + 新建连接对话框广播地址字段
+
 ## [1.8.0] - 2026-05-24
 
 ### Highlights / 亮点
