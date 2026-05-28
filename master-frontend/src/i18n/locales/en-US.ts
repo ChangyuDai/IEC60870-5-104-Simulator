@@ -36,6 +36,11 @@ const dict: DictShape = {
     configLoaded: 'Imported {count} connection(s)',
     configSaveFailed: 'Save failed',
     configLoadFailed: 'Open failed',
+    broadcast: 'Broadcast',
+    broadcastGi: 'Broadcast GI',
+    broadcastClockSync: 'Broadcast Clock Sync',
+    broadcastCounterRead: 'Broadcast Counter Read',
+    broadcastAddressLabel: 'Current broadcast address',
   },
   newConn: {
     title: 'New Connection',
@@ -64,6 +69,9 @@ const dict: DictShape = {
     interrogatePeriod: 'Auto GI period (s, 0=off)',
     counterInterrogatePeriod: 'Auto counter period (s, 0=off)',
     timingCorrected: 'Auto-adjusted to satisfy constraints (t2<t1<t3, w≤⌊2k/3⌋): {detail}',
+    broadcastAddress: 'Broadcast common address',
+    broadcastAddressHint: 'Up-to-4 hex digits, default FFFF; FF00 for some vendors',
+    broadcastAddressInvalid: 'Enter 1–4 hex digits',
   },
   tree: {
     title: 'Connections',
