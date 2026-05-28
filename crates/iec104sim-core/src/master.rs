@@ -891,6 +891,9 @@ impl MasterConnection {
 
         *self.stream.write().await = None;
         self.tls_stream_mutex = None;
+        // 让 debouncer 把未 flush 的 CA 抛出来(随 Drop 路径自然走;
+        // 显式置 None 让 sender 立即关闭,无需等结构整体析构)。
+        self.ca_inbox = None;
         self.state_tx.send_replace(MasterState::Disconnected);
 
         if let Some(lc) = active_lc(&self.log_collector) {
@@ -902,6 +905,12 @@ impl MasterConnection {
         }
 
         Ok(())
+    }
+
+    /// 测试用:同步释放 ca_inbox,触发 debouncer flush。
+    #[cfg(test)]
+    pub fn shutdown_for_test(&mut self) {
+        self.ca_inbox = None;
     }
 
     /// Send General Interrogation command. `qoi=None` falls back to the
@@ -2493,5 +2502,22 @@ mod tests {
         let mut hits: Vec<u16> = Vec::new();
         filter_unknown_ca(&frame, &configured, cfg.broadcast_address, |ca| hits.push(ca));
         assert!(hits.is_empty(), "slave reflecting broadcast addr must not persist");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn disconnect_drops_ca_inbox_so_pending_cas_flush() {
+        use crate::ca_debouncer;
+        use std::time::Duration;
+        let (inbox, mut rx, _h) = ca_debouncer::spawn(Duration::from_secs(60));
+        let mut conn = MasterConnection::new(MasterConfig::default()).with_ca_inbox(inbox);
+        // 模拟接收到未知 CA(直接调内部 API 喂)
+        if let Some(ix) = conn.ca_inbox.as_ref() { ix.push(77); }
+
+        // 断连:必须把 ca_inbox drop 掉
+        conn.shutdown_for_test();
+        // debouncer 因 sender 关闭而强制 flush 一次
+        let ev = tokio::time::timeout(Duration::from_secs(3), rx.recv())
+            .await.expect("flush timeout").expect("no event");
+        assert_eq!(ev.new_cas, vec![77]);
     }
 }
