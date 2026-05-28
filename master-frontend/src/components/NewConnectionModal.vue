@@ -41,6 +41,7 @@ type NewConnForm = {
   default_qcc: number
   interrogate_period_s: number
   counter_interrogate_period_s: number
+  broadcast_address_hex: string
 }
 const defaultForm = (): NewConnForm => ({
   target_address: '127.0.0.1',
@@ -62,7 +63,14 @@ const defaultForm = (): NewConnForm => ({
   default_qcc: 5,
   interrogate_period_s: 0,
   counter_interrogate_period_s: 0,
+  broadcast_address_hex: 'FFFF',
 })
+
+function parseBroadcastHex(s: string): number | null {
+  const trimmed = s.trim()
+  if (!/^[0-9a-fA-F]{1,4}$/.test(trimmed)) return null
+  return parseInt(trimmed, 16)
+}
 
 function parseCAList(s: string): number[] {
   const seen = new Set<number>()
@@ -156,6 +164,7 @@ async function openEditConnection(connId: string) {
       default_qcc: conn.default_qcc,
       interrogate_period_s: conn.interrogate_period_s,
       counter_interrogate_period_s: conn.counter_interrogate_period_s,
+      broadcast_address_hex: (conn.broadcast_address ?? 0xFFFF).toString(16).toUpperCase().padStart(4, '0'),
     }
     emit('update:visible', true)
   } catch (e) {
@@ -175,6 +184,11 @@ async function createConnection() {
     await showAlert(t('newConn.invalidCA'))
     return
   }
+  const bcast = parseBroadcastHex(form.value.broadcast_address_hex)
+  if (bcast === null) {
+    await showAlert(t('newConn.broadcastAddressInvalid'))
+    return
+  }
   try {
     if (editingConnId.value !== null) {
       await invoke('delete_connection', { id: editingConnId.value })
@@ -188,6 +202,7 @@ async function createConnection() {
         target_address: form.value.target_address,
         port: form.value.port,
         common_addresses: cas,
+        broadcast_address: bcast,
         use_tls: form.value.use_tls,
         ca_file: form.value.ca_file || undefined,
         cert_file: form.value.cert_file || undefined,
@@ -283,6 +298,17 @@ defineExpose({ openEditConnection, openNew })
               placeholder="1, 2, 3"
             />
             <span class="form-hint">{{ t('newConn.commonAddressHint') }}</span>
+          </label>
+          <label class="form-label">
+            {{ t('newConn.broadcastAddress') }}
+            <input
+              v-model="form.broadcast_address_hex"
+              class="form-input hex-input"
+              type="text"
+              maxlength="4"
+              placeholder="FFFF"
+            />
+            <span class="form-hint">{{ t('newConn.broadcastAddressHint') }}</span>
           </label>
 
           <details class="proto-section">
