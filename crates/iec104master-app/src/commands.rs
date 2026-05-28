@@ -337,6 +337,54 @@ pub async fn send_counter_read(
         .map_err(|e| format!("failed to send counter read: {}", e))
 }
 
+#[tauri::command]
+pub async fn send_broadcast_gi(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
+    let connections = state.connections.read().await;
+    let conn = connections
+        .get(&id)
+        .ok_or_else(|| format!("connection {} not found", id))?;
+    let bcast = conn.connection.config().broadcast_address;
+    conn.connection
+        .send_interrogation(bcast)
+        .await
+        .map_err(|e| format!("failed to send broadcast GI: {}", e))
+}
+
+#[tauri::command]
+pub async fn send_broadcast_clock_sync(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
+    let connections = state.connections.read().await;
+    let conn = connections
+        .get(&id)
+        .ok_or_else(|| format!("connection {} not found", id))?;
+    let bcast = conn.connection.config().broadcast_address;
+    conn.connection
+        .send_clock_sync(bcast)
+        .await
+        .map_err(|e| format!("failed to send broadcast clock sync: {}", e))
+}
+
+#[tauri::command]
+pub async fn send_broadcast_counter_read(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
+    let connections = state.connections.read().await;
+    let conn = connections
+        .get(&id)
+        .ok_or_else(|| format!("connection {} not found", id))?;
+    let bcast = conn.connection.config().broadcast_address;
+    conn.connection
+        .send_counter_read(bcast)
+        .await
+        .map_err(|e| format!("failed to send broadcast counter read: {}", e))
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct ControlCommandRequest {
