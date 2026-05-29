@@ -2,6 +2,16 @@
 
 本项目的所有重要变更记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.11.2] - 2026-05-29
+
+### Highlights / 亮点
+
+- 🔢 **点位类型显示十进制 TypeID**:104Master 接收数据表的「类型」列与数据详情面板现在在 ASDU 类型名旁标出其十进制 TypeID(如 `M_SP_NA_1 · 1`、`M_ME_NC_1 · 13`),与命令类型下拉一致,对照报文/规约更直观 / **Data-point type now shows the decimal TypeID**: the 104Master received-data table's Type column and the detail panel label each ASDU type with its decimal TypeID (e.g. `M_SP_NA_1 · 1`, `M_ME_NC_1 · 13`), matching the command-type dropdown.
+
+### Added 新增
+
+- 104Master:`ReceivedDataPointInfo` 新增权威字段 `asdu_type_id`(= `AsduTypeId as u8`),前端数据表 / 详情面板据此渲染 `类型 · TypeID` / 104Master: `ReceivedDataPointInfo` gains an authoritative `asdu_type_id` field (= `AsduTypeId as u8`); the data table and detail panel render `type · TypeID`.
+
 ## [1.11.1] - 2026-05-29
 
 ### Highlights / 亮点
