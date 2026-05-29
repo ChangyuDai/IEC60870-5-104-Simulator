@@ -92,7 +92,9 @@ pub async fn create_connection(
     let common_addresses = request.resolve_cas();
 
     let (ca_inbox, mut flush_rx, _debouncer_handle) =
-        iec104sim_core::ca_debouncer::spawn(std::time::Duration::from_secs(3));
+        // 安静期 1s:Goldwind 现场 GI 应答帧通常在 ~100ms 内全部到达,
+        // 1s 足以聚批且让用户感觉"按一下即响应"。原 3s 在现场显得卡顿。
+        iec104sim_core::ca_debouncer::spawn(std::time::Duration::from_millis(1000));
 
     let mut config = MasterConfig {
         target_address: request.target_address.clone(),

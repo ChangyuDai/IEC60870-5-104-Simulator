@@ -2,6 +2,38 @@
 
 本项目的所有重要变更记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.11.0] - 2026-05-29
+
+### Highlights / 亮点
+
+- 🔢 **命令类型下拉显示十进制 TypeID**:发送控制命令对话框里每个类型在英文缩写旁标出 IEC 104 TypeID(如 `C_SC_NA_1 · 45`),对照报文/规约更直观 / **Command-type dropdown now shows the decimal TypeID**: each entry in the control dialog labels its IEC 104 TypeID next to the acronym (e.g. `C_SC_NA_1 · 45`), making it easier to cross-check against frames and the spec.
+- ⚡ **广播 GI 响应更快**:未知 CA 聚批安静期从 3s 缩短到 1s,广播总召后连接树几乎即时刷新(原固定 3500ms 兜底定时器已移除,改由后端事件驱动)/ **Faster broadcast GI response**: the unknown-CA debounce window drops from 3s to 1s, and the connection tree refreshes almost instantly after a broadcast interrogation (the fixed 3500 ms fallback timer is gone, replaced by a backend event).
+- 🌲 **修复新学到的 CA 节点不出现**:广播 GI 学到的新 CA 现在默认展开,子分类正常渲染(此前 `caExpanded` 缺 key 导致 `v-if` 拒绝渲染,看起来像"CA 不出现")/ **Fixes newly-learned CA nodes not appearing**: CAs learned via broadcast GI now default to expanded so their sub-categories render (previously a missing `caExpanded` key made `v-if` skip them, looking like the CA never showed up).
+- 🚀 **广播 GI 高峰内存优化**:`parse_and_store_asdu` 改用读锁直接比较,每帧少一次 CA 快照 `Vec::clone` 与分配 / **Broadcast GI hot-path optimization**: `parse_and_store_asdu` compares under a read guard, saving a CA-snapshot `Vec::clone` and allocation per frame during GI bursts.
+
+### Added 新增
+
+- 104Master 发送控制命令对话框的命令类型下拉,每项在缩写后显示十进制 TypeID(45–51),中英文界面一致 / The 104Master control-command dialog's type dropdown shows the decimal TypeID (45–51) after each acronym, in both zh and en locales.
+
+### Changed 改进
+
+- 104Master:未知 CA 聚批 debouncer 安静期 3s → 1s(现场金风 GI 应答通常 ~100ms 内到齐,1s 足够聚批且响应更跟手)/ 104Master: unknown-CA debounce window 3s → 1s (field Goldwind GI replies usually arrive within ~100 ms; 1s still batches them while feeling responsive).
+- 104Master:广播 GI 后连接树刷新改由后端 `connection-cas-updated` 事件触发,移除固定 3500ms `setTimeout` 兜底 / 104Master: post-broadcast-GI tree refresh is now driven by the backend `connection-cas-updated` event; the fixed 3500 ms `setTimeout` fallback is removed.
+- core:`parse_and_store_asdu` 未知 CA 过滤改在读锁下直接 `contains`,不再 `clone` 已配置 CA 快照 / core: `parse_and_store_asdu` filters unknown CAs directly under a read guard instead of cloning the configured-CA snapshot.
+
+### Fixed 修复
+
+- 104Master:连接树合并 `caExpanded` 状态,广播 GI 新学到的 CA 默认 `expanded=true`,修复子分类不渲染、CA 节点像"不出现" / 104Master: the connection tree merges `caExpanded` state and defaults newly-learned (broadcast-GI) CAs to `expanded=true`, fixing sub-categories not rendering / CA nodes appearing to be missing.
+- 104Master:切换到点数更少的 CA / 分类后数据表格空白 / 104Master: data table going blank after switching to a CA / category with fewer points.
+
+### Tests 测试
+
+- 新增 `e2e_forward_task_syncs_state.rs`(205 行):用 fake TCP slave 复现金风现场 `M_DP_NA_1 CA=3 N=0`,断言 forward task 把 CA=3 同步进 `common_addresses` 并经 `list_connections` 暴露给前端 / Added `e2e_forward_task_syncs_state.rs` (205 lines): a fake TCP slave reproduces the Goldwind-site `M_DP_NA_1 CA=3 N=0`, asserting the forward task syncs CA=3 into `common_addresses` for `list_connections` to expose to the frontend.
+
+### Internal 内部
+
+- 重新生成 Tauri ACL schema(`gen/schemas/*.json`,master + sim),随 Tauri CLI 更新移除已弃用的 `core:app:*-supports-multiple-windows` 权限项 / Regenerated Tauri ACL schemas (`gen/schemas/*.json`, master + sim), dropping the deprecated `core:app:*-supports-multiple-windows` permissions per the Tauri CLI update.
+
 ## [1.10.3] - 2026-05-29
 
 ### Highlights / 亮点

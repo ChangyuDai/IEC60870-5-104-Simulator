@@ -242,8 +242,9 @@ async function sendBroadcastGI() {
   if (!selectedConnectionId.value) return
   try {
     await invoke('send_broadcast_gi', { id: selectedConnectionId.value })
+    // 树刷新由后端 `connection-cas-updated` 事件触发(debouncer 1s 安静期后 flush),
+    // 不再走固定 3500ms setTimeout fallback,避免延迟感。
     refreshData()
-    setTimeout(() => refreshTree(), 3500)
   } catch (e) { await showAlert(String(e)) }
   broadcastMenuOpen.value = false
 }

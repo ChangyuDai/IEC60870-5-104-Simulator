@@ -1865,9 +1865,12 @@ fn parse_and_store_asdu(
     let ca = u16::from_le_bytes([data[10], data[11]]);
 
     // 未知 CA 喂给 debouncer(仅当 inbox 注入时)。
+    // 短时 read guard,直接 contains 不 clone Vec —— 广播 GI 高峰每秒 N 帧涌入时
+    // 每帧省一次 Vec::clone + alloc。filter_unknown_ca 内部仅做几次比较,持锁时间极短。
     if let Some(inbox) = ca_inbox.as_ref() {
-        let snapshot: Vec<u16> = configured_cas.read().map(|g| g.clone()).unwrap_or_default();
-        filter_unknown_ca(data, &snapshot, broadcast_address, |c| inbox.push(c));
+        if let Ok(g) = configured_cas.read() {
+            filter_unknown_ca(data, &g, broadcast_address, |c| inbox.push(c));
+        }
     }
 
     if let Some(lc) = active_lc(log_collector) {

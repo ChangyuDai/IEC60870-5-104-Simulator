@@ -109,12 +109,18 @@ async function loadTree() {
     const newTree: TreeConnection[] = []
     for (const conn of conns) {
       const existing = connections.value.find(c => c.info.id === conn.id)
+      // 合并 caExpanded:保留用户对旧 CA 的展开/折叠状态,
+      // 把广播 GI debouncer 新学到的 CA 默认 expanded=true。
+      // 直接用 `existing?.caExpanded ?? ...` 会让新 CA 永远拿不到 key,
+      // 模板 `v-if="caExpanded[ca]"` 拒绝渲染子分类,导致用户感觉"CA 节点不出现"。
+      const mergedCaExpanded: Record<number, boolean> = { ...(existing?.caExpanded ?? {}) }
+      for (const ca of conn.common_addresses) {
+        if (!(ca in mergedCaExpanded)) mergedCaExpanded[ca] = true
+      }
       newTree.push({
         info: conn,
         expanded: existing?.expanded ?? true,
-        caExpanded: existing?.caExpanded ?? Object.fromEntries(
-          conn.common_addresses.map((ca) => [ca, true])
-        ),
+        caExpanded: mergedCaExpanded,
       })
     }
     connections.value = newTree
