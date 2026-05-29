@@ -805,6 +805,7 @@ fn point_to_info(ca: u16, p: &iec104sim_core::data_point::DataPoint) -> Received
         ioa: p.ioa,
         common_address: ca,
         asdu_type: p.asdu_type.name().to_string(),
+        asdu_type_id: p.asdu_type as u8,
         category: p.asdu_type.category().name().to_string(),
         value: p.value.display(),
         quality_ov: p.quality.ov,

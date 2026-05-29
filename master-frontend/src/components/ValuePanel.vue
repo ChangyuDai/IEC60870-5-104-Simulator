@@ -114,7 +114,7 @@ watch(firstPoint, (p) => {
           </div>
           <div class="detail-row">
             <span class="detail-label">{{ t('valuePanel.type') }}</span>
-            <span class="detail-value mono">{{ point.asdu_type }}</span>
+            <span class="detail-value mono">{{ point.asdu_type }} · {{ point.asdu_type_id }}</span>
           </div>
           <div class="detail-row">
             <span class="detail-label">{{ t('valuePanel.category') }}</span>

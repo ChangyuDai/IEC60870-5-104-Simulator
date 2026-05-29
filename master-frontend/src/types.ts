@@ -35,6 +35,8 @@ export interface ReceivedDataPointInfo {
   /** Common Address of the station this point came from. */
   common_address: number
   asdu_type: string
+  /** Numeric IEC 104 TypeID for `asdu_type` (e.g. M_SP_NA_1 → 1). */
+  asdu_type_id: number
   category: string
   value: string
   quality_ov: boolean

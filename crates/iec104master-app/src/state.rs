@@ -80,6 +80,9 @@ pub struct ReceivedDataPointInfo {
     /// so right-click control commands target the correct station.
     pub common_address: u16,
     pub asdu_type: String,
+    /// Numeric IEC 60870-5-101/104 TypeID for `asdu_type` (e.g. M_SP_NA_1 → 1).
+    /// Shown next to the type name in the data table and detail panel.
+    pub asdu_type_id: u8,
     pub category: String,
     pub value: String,
     pub quality_ov: bool,

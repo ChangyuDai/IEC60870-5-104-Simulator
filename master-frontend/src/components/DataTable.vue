@@ -378,7 +378,7 @@ function isCtxActiveOption(optValue: string): boolean {
                 @contextmenu="handleRowContextMenu(i, $event)"
               >
                 <td class="col-ioa">{{ point.ioa }}</td>
-                <td class="col-type">{{ point.asdu_type }}</td>
+                <td class="col-type">{{ point.asdu_type }} · {{ point.asdu_type_id }}</td>
                 <td :class="['col-value', { 'value-highlight': changedKeys.has(pointKey(point)) }]">{{ point.value }}</td>
                 <td class="col-quality">
                   <QualityIndicator
