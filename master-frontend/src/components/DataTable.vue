@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, inject, watch, onMounted, onUnmounted, computed, shallowRef, type Ref } from 'vue'
+import { ref, inject, watch, onMounted, onUnmounted, computed, shallowRef, nextTick, type Ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import type { ReceivedDataPointInfo, IncrementalDataResponse, CommandType, ControlResult, ChangedCategoriesMap, CategoryCountsMap } from '../types'
 import { getControlConfig } from '../types'
@@ -45,6 +45,7 @@ const ROW_HEIGHT = 28
 const OVERSCAN = 10
 const scrollTop = ref(0)
 const containerHeight = ref(400)
+const scrollContainer = ref<HTMLElement | null>(null)
 
 let pollTimer: number | null = null
 
@@ -176,6 +177,14 @@ watch(selectedConnectionId, (newId) => {
 
 // GI / counter read just triggers an extra fetch — no reset
 watch(dataRefreshKey, fetchData)
+
+// 切换 CA/分类/搜索 → 列表内容整体替换,必须把滚动归零。否则在大列表(如 CA1
+// 单点 5278 条)滚到下方后切到小列表(CA2 单点 21 条),残留的 scrollTop 让
+// visibleStart 越过新列表末尾,slice 返回空 → 表格全空白(计数却仍显示 21)。
+watch([selectedCA, selectedCategory, searchFilter], () => {
+  scrollTop.value = 0
+  nextTick(() => { if (scrollContainer.value) scrollContainer.value.scrollTop = 0 })
+})
 
 // === Filtered + virtual scroll ===
 const filteredPoints = computed(() => {
@@ -344,7 +353,7 @@ function isCtxActiveOption(optValue: string): boolean {
         <span class="point-count">{{ pointCountLabel }}</span>
       </div>
 
-      <div class="table-scroll" @scroll="onScroll">
+      <div ref="scrollContainer" class="table-scroll" @scroll="onScroll">
         <!-- Fixed header -->
         <table class="table">
           <thead>
