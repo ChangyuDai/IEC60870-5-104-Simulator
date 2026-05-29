@@ -4,6 +4,6 @@ export const RELEASES_URL = 'https://github.com/Karl-Dai/IEC60870-5-104-Simulato
 
 // Keep in sync with CHANGELOG.md — see `release` skill.
 export const RELEASE_NOTES: string[] = [
-  '本版本 Slave 端无用户可见改动, 仅 Master 端新增广播总召 (0xFFFF/0xFF00) 等能力',
-  '版本号与 Master 同步 bump 以保持发版一致, 详见 CHANGELOG.md',
+  '品质图例补 OK(正常)行, 说明无品质位置位的基线态',
+  '本版本 Slave 端其他改动较小; Master 端新增广播总召 (0xFFFF/0xFF00) + 单向被动接收模式, 详见 CHANGELOG.md',
 ]
