@@ -2,6 +2,16 @@
 
 本项目的所有重要变更记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.11.1] - 2026-05-29
+
+### Highlights / 亮点
+
+- 🔗 **GitHub 图标点击直接打开浏览器**:版本徽标的 GitHub 图标、关于对话框的"主页 / Releases"链接现在点击会在系统默认浏览器打开,而非复制链接到剪贴板;非 Tauri 环境(纯浏览器渲染)自动回退到复制,点击永不失效 / **Clicking the GitHub icon now opens the browser**: the version-badge GitHub icon and the About dialog's "Homepage / Releases" links open in the system default browser instead of copying the URL; outside Tauri (pure-browser render) they fall back to copy so the click is never a dead end.
+
+### Changed 改进
+
+- 104Master / 104Slave:共享组件 `VersionBadge` 与 `AboutDialog` 的外链点击改用 `@tauri-apps/plugin-opener` 的 `openUrl` 打开系统浏览器,失败时回退剪贴板复制(新增 `useClipboardFlash().openOrCopy`)/ 104Master / 104Slave: external-link clicks in the shared `VersionBadge` and `AboutDialog` now use `@tauri-apps/plugin-opener`'s `openUrl` to open the system browser, falling back to clipboard copy on failure (new `useClipboardFlash().openOrCopy`).
+
 ## [1.11.0] - 2026-05-29
 
 ### Highlights / 亮点

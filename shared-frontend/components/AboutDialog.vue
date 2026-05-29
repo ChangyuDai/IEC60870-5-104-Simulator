@@ -9,7 +9,7 @@ defineProps<{ visible: boolean }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
 
 const { t } = useI18n()
-const { flash: copied, copy: copyLink } = useClipboardFlash()
+const { flash: copied, openOrCopy } = useClipboardFlash()
 const version = ref('')
 onMounted(async () => {
   try { version.value = await getVersion() } catch { version.value = '' }
@@ -31,9 +31,9 @@ onMounted(async () => {
             <li v-for="(note, i) in RELEASE_NOTES" :key="i">{{ note }}</li>
           </ul>
           <div class="about-links">
-            <a href="#" @click.prevent="copyLink(REPO_URL, t('about.homepageLabel'))">{{ t('about.homepageLabel') }}</a>
+            <a href="#" @click.prevent="openOrCopy(REPO_URL, t('about.homepageLabel'))">{{ t('about.homepageLabel') }}</a>
             <span class="about-sep">·</span>
-            <a href="#" @click.prevent="copyLink(RELEASES_URL, t('about.releasesLabel'))">{{ t('about.releasesLabel') }}</a>
+            <a href="#" @click.prevent="openOrCopy(RELEASES_URL, t('about.releasesLabel'))">{{ t('about.releasesLabel') }}</a>
             <span v-if="copied" class="about-toast">{{ copied }}</span>
           </div>
         </div>

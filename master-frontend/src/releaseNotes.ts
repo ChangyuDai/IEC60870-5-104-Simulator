@@ -4,6 +4,7 @@ export const RELEASES_URL = 'https://github.com/Karl-Dai/IEC60870-5-104-Simulato
 
 // Keep in sync with CHANGELOG.md — see `release` skill.
 export const RELEASE_NOTES: string[] = [
+  'GitHub 图标 / 关于对话框的主页·Releases 链接点击改为直接打开系统浏览器 (非 Tauri 环境回退到复制链接)',
   '命令类型下拉显示十进制 TypeID: 发送控制命令对话框每个类型在缩写旁标出 IEC 104 TypeID (如 C_SC_NA_1 · 45), 对照报文/规约更直观',
   '广播 GI 响应更快: 未知 CA 聚批安静期 3s → 1s, 广播总召后连接树几乎即时刷新 (移除固定 3500ms 兜底定时器, 改由后端事件驱动)',
   '修复广播 GI 新学到的 CA 节点不出现: 新 CA 默认展开, 子分类正常渲染',
