@@ -1794,6 +1794,16 @@ fn filter_unknown_ca(
     mut on_unknown: impl FnMut(u16),
 ) {
     if data.len() < 12 { return; }
+    let typeid = data[6];
+    // 命令类响应(C_IC=100 / C_CI=101 / C_CS=103)的 CA 仅 echo 广播地址,不代表
+    // "有数据点的从站"。部分工业从站(如 Goldwind)协议异常时会用自己 CA 回 ActCon,
+    // 学进 debouncer 会污染连接树。命令响应一律不学。
+    if matches!(typeid, 100 | 101 | 103) { return; }
+    // VSQ 低 7 位 = N (number of objects). IEC 60870-5-101 §7.2.2.1 规定 N≥1。
+    // 现场遇到 Goldwind 从站对总召回 `M_DP_NA_1 CA=3 N=0` 的空数据帧(声称是数据
+    // 但实际无对象),学这种 CA 也只会显示空节点。N=0 一律不学。
+    let num_objects = data[7] & 0x7F;
+    if num_objects == 0 { return; }
     let ca = u16::from_le_bytes([data[10], data[11]]);
     if ca != broadcast_address && !configured_cas.contains(&ca) {
         on_unknown(ca);

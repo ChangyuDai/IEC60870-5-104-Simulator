@@ -2,6 +2,22 @@
 
 本项目的所有重要变更记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.10.2] - 2026-05-29
+
+### Highlights / 亮点
+
+- 🧹 **未知 CA 学习增加两条防御**:跳过命令响应类型(TypeID 100/101/103)和 N=0 的空数据帧 / **Two guards added to unknown-CA learning**: skip command-response types (TypeID 100/101/103) and N=0 empty-data frames.
+- 🎯 **解决金风现场连接树出现空 CA 节点**:Goldwind 从站对广播 GI 回了 `M_DP_NA_1 CA=3 N=0`(声称是双点数据但 N=0,IEC 60870-5-101 §7.2.2.1 规定 N≥1)以及部分 ActCon 用自己 CA 而非 echo 0xFFFF;v1.10.1 把这些 CA 学进树后所有子分类徽章为 0,看起来像 master bug。v1.10.2 起这两类协议异常的 CA 都不再被学习 / **Fixes empty CA nodes appearing in connection tree at Goldwind site**: the Goldwind slave replies broadcast GI with `M_DP_NA_1 CA=3 N=0` (claims to be double-point data but N=0, violating IEC 60870-5-101 §7.2.2.1 that requires N≥1) and some ActCon frames with its own CA instead of echoing 0xFFFF; v1.10.1 learned these CAs into the tree where every category badge stayed at 0, looking like a master bug. From v1.10.2 these protocol-anomaly CAs are no longer learned.
+
+### Fixed 修复
+
+- core:`filter_unknown_ca` 加 TypeID 黑名单(100=C_IC, 101=C_CI, 103=C_CS),命令类响应的 CA 不学(因为它们仅 echo 广播地址,且部分从站协议异常时用自己 CA 回灌) / core: `filter_unknown_ca` adds a TypeID blacklist (100=C_IC, 101=C_CI, 103=C_CS); command-response CAs are not learned (they only echo the broadcast address, and some slaves anomalously fill their own CA).
+- core:`filter_unknown_ca` 跳过 VSQ 低 7 位为 0 的帧(IEC 60870-5-101 §7.2.2.1 规定 N≥1,N=0 是协议违反且无任何数据对象,学这种 CA 只会在树里造成空节点) / core: `filter_unknown_ca` skips frames whose VSQ low-7-bits is 0 (IEC 60870-5-101 §7.2.2.1 requires N≥1; N=0 violates the spec and carries no data objects, so learning such a CA only produces an empty node in the tree).
+
+### Tests 测试
+
+- core 新增 `tests/reproduce_ca3_anomaly.rs`:3 个集成测试 — (a) 精确按金风 2026-05-29 09:54 通信日志的 hex 序列回放,验证只学到 CA=4;(b) ActCon CA=3 协议异常帧,验证 v1.10.2+ 不学;(c) `M_DP_NA_1 CA=3 N=0` 金风真实异常帧,验证 v1.10.2+ 不学 / core: new `tests/reproduce_ca3_anomaly.rs` with 3 integration tests — (a) replay of the exact Goldwind 2026-05-29 09:54 hex sequence asserts only CA=4 is learned; (b) anomalous ActCon CA=3 frame asserts v1.10.2+ does not learn it; (c) real Goldwind `M_DP_NA_1 CA=3 N=0` frame asserts v1.10.2+ does not learn it.
+
 ## [1.10.1] - 2026-05-29
 
 ### Highlights / 亮点

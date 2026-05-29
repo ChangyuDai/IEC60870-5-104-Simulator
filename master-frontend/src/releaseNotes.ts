@@ -4,7 +4,8 @@ export const RELEASES_URL = 'https://github.com/Karl-Dai/IEC60870-5-104-Simulato
 
 // Keep in sync with CHANGELOG.md — see `release` skill.
 export const RELEASE_NOTES: string[] = [
-  '[hotfix] 修复广播应答中未配置 CA 不进连接树: v1.10.0 中 debouncer 学到的新 CA 没同步到 list_connections 暴露给前端的字段, 现已修复',
+  '[hotfix v1.10.2] 未知 CA 学习增加两条防御: 跳过命令响应类型 (TypeID 100/101/103) 和 N=0 空数据帧, 解决金风现场连接树出现空 CA 节点',
+  '[hotfix v1.10.1] 修复广播应答中未配置 CA 不进连接树: debouncer 学到的新 CA 没同步到 list_connections 暴露给前端的字段',
   '新增「广播 ▾」拆分按钮: 一帧广播召唤全部从站, 含广播总召 / 广播对时 / 广播计量召唤三项',
   '广播公共地址可在新建/编辑连接对话框配置, 默认 0xFFFF, 支持 0xFF00 等厂商方言',
   '广播应答中未配置的公共地址 3 秒安静期后自动并入连接, 连接树即时刷新',
