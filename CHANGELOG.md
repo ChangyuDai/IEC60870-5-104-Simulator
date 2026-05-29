@@ -2,6 +2,18 @@
 
 本项目的所有重要变更记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.10.3] - 2026-05-29
+
+### Highlights / 亮点
+
+- 🔄 **撤销 v1.10.2 的 N=0 跳过**:现场反馈"收到了的 CA 都应该在树里看到",即使从站对该 CA 回的是 N=0 空数据帧;空节点本身就是从站协议异常的可视化信号 / **Reverts v1.10.2's N=0 skip**: field feedback says "every CA we receive should appear in the tree", even if the slave replies with N=0 empty-data frames for that CA; an empty node is itself a visual signal of slave protocol anomaly.
+- ✅ **保留 v1.10.2 的命令响应黑名单**(TypeID 100/101/103):它们的 CA 仅是 echo 广播地址,学了没意义,继续跳过 / **Keeps v1.10.2's command-response blacklist** (TypeID 100/101/103): their CA only echoes the broadcast address, so they remain skipped.
+
+### Changed 改进
+
+- core:`filter_unknown_ca` 仅保留 TypeID 100/101/103 黑名单,N=0 数据帧的 CA 恢复学习 / core: `filter_unknown_ca` keeps only the TypeID 100/101/103 blacklist; N=0 data-frame CAs are learned again.
+- core:回归测试 `n_zero_dp_frame_ca_is_still_learned` 更新断言为 N=0 帧 CA **应当**被学(原 v1.10.2 测试名 `n_zero_dp_frame_does_not_pollute_unknown_ca` 改名以反映新语义)/ core: regression test `n_zero_dp_frame_ca_is_still_learned` updated to assert N=0 frame CA **must** be learned (renamed from v1.10.2's `n_zero_dp_frame_does_not_pollute_unknown_ca` to reflect new semantics).
+
 ## [1.10.2] - 2026-05-29
 
 ### Highlights / 亮点

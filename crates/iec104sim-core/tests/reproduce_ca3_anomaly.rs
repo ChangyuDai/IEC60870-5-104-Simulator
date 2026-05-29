@@ -316,9 +316,10 @@ async fn slave_replies_actcon_with_own_ca_master_learns_it() {
 /// 第三组测试:精确重现 Goldwind 现场 (2026-05-29 10:23:47) 通信日志里的
 /// `M_DP_NA_1 CA=3 N=0` 协议违反帧 —— 声称是 CA=3 的双点总召响应,但 N=0,
 /// 实际无任何 information object。
-/// v1.10.2 起,filter_unknown_ca 跳过 N=0 帧,所以 CA=3 不应被学。
+/// v1.10.3 起,N=0 数据帧的 CA 仍要学(让用户能在树里看到这个 CA,空节点
+/// 本身就是从站协议异常的可视化信号)。
 #[tokio::test]
-async fn n_zero_dp_frame_does_not_pollute_unknown_ca() {
+async fn n_zero_dp_frame_ca_is_still_learned() {
     let port = free_port();
     let listener = TcpListener::bind(format!("127.0.0.1:{}", port))
         .await
@@ -403,9 +404,12 @@ async fn n_zero_dp_frame_does_not_pollute_unknown_ca() {
     flushed.dedup();
 
     eprintln!("[n=0 test] flushed={:?}", flushed);
-    assert!(
-        flushed.is_empty(),
-        "v1.10.2+: N=0 frame must not pollute unknown-CA learning. flushed={:?}",
+    // v1.10.3 起:N=0 数据帧的 CA 仍要学,让用户能在树里看到这个 CA(即使没数据)。
+    // 空节点本身就是从站协议异常的可视化信号。
+    assert_eq!(
+        flushed,
+        vec![3],
+        "v1.10.3+: N=0 data frame CA must still be learned so the user can see the station node in the tree. flushed={:?}",
         flushed
     );
 }
