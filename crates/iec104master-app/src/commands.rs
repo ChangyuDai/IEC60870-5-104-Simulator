@@ -202,10 +202,15 @@ pub async fn create_connection(
             while let Some(ev) = flush_rx.recv().await {
                 let state: State<'_, AppState> = app.state();
                 let (added, all_cas) = {
-                    // 单次 read guard,保证 added 与 all_cas 来自同一连接快照
-                    let guard = state.connections.read().await;
-                    let Some(c) = guard.get(&id_clone) else { break };
+                    // 单次 write guard:同时扩 MasterConnection.configured_cas(供广播过滤)
+                    // 与 MasterConnectionState.common_addresses(供 list_connections 暴露给前端)。
+                    // 两边必须同步,否则 list_connections 不会看到新学到的 CA,前端连接树不刷出新节点。
+                    let mut guard = state.connections.write().await;
+                    let Some(c) = guard.get_mut(&id_clone) else { break };
                     let added = c.connection.extend_configured_cas(&ev.new_cas);
+                    if !added.is_empty() {
+                        c.common_addresses.extend(added.iter().copied());
+                    }
                     let all_cas = if added.is_empty() { Vec::new() } else { c.connection.configured_cas() };
                     (added, all_cas)
                 };

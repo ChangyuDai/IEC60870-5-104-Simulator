@@ -2,6 +2,17 @@
 
 本项目的所有重要变更记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.10.1] - 2026-05-29
+
+### Highlights / 亮点
+
+- 🐛 **修复广播应答中未配置 CA 不进连接树** / **Fix: unknown CAs from broadcast reply did not appear in connection tree** — v1.10.0 中 debouncer 已经把新 CA 学进 `MasterConnection.configured_cas`,但 `list_connections` 实际读的是另一份独立字段 `MasterConnectionState.common_addresses`,二者没同步,导致前端连接树永远只显示用户原始配置的 CA(如 `[1]`),广播回来的 CA=4 数据虽在内存但无节点可点 / In v1.10.0 the debouncer correctly extended `MasterConnection.configured_cas`, but `list_connections` reads a separate `MasterConnectionState.common_addresses` field; the two were never synced, so the connection tree only ever showed the user's original CAs (e.g. `[1]`) while CA=4 data sat in memory unreachable through the UI.
+- 🎯 **金风现场实测验证** / **Verified on Goldwind site** — 日志显示主站 GI 用 `CA=0xFFFF` 召唤后,从站正确按各自 CA(`CA=1` 整套点位 + `CA=4` 浮点)应答,本修复让 CA=4 节点在 ≤ 3 秒后自动出现在连接树中 / Logs show the master GI with `CA=0xFFFF` triggered correct per-CA replies (CA=1 full set + CA=4 float points); this hotfix makes the CA=4 node show up in the tree within 3 seconds automatically.
+
+### Fixed 修复
+
+- master-app:`create_connection` 内 ca_debouncer forward task 由 read guard 升级为 write guard,扩展 `MasterConnection.configured_cas` 的同时,**同步**把新 CA 追加到 `MasterConnectionState.common_addresses`,确保 `list_connections` 暴露给前端的 `common_addresses` 包含新学到的 CA;前端 `connection-cas-updated` 监听刷新连接树后即可见新节点 / master-app: `create_connection` ca_debouncer forward task upgraded from read guard to write guard; extending `MasterConnection.configured_cas` now also appends new CAs to `MasterConnectionState.common_addresses` in the same critical section, so `list_connections` exposes the new CAs to the frontend; the `connection-cas-updated` listener can then refresh the tree and reveal the new node.
+
 ## [1.10.0] - 2026-05-29
 
 > 本版本合并两组功能 — `v1.9.0` tag 历史上曾在本地 commit `752c8e7` 用过("单向被动接收"),但**没有**正式发版到 GitHub;本次合并到 `v1.10.0` 一并对外发布,避免版本号语义混乱。
