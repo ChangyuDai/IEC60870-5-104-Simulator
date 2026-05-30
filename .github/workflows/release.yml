@@ -115,9 +115,26 @@ jobs:
             done
             return 1
           }
+          case "${{ matrix.rust_target }}" in
+            aarch64-apple-darwin) ARCH=aarch64 ;;
+            x86_64-apple-darwin) ARCH=x64 ;;
+            *) ARCH="" ;;
+          esac
           fail=0
           while IFS= read -r f; do
             [ -n "$f" ] || continue
+            name="$(basename "$f")"
+            # macOS updater bundle sits on disk as <productName>.app.tar.gz (no
+            # arch); tauri-action uploads it arch-suffixed. Match that name so we
+            # don't create an unsuffixed duplicate asset.
+            case "$name" in
+              *.app.tar.gz|*.app.tar.gz.sig)
+                if [ -n "$ARCH" ]; then
+                  base="${name%%.app.tar.gz*}"; rest="${name#"$base"}"
+                  cp "$f" "$(dirname "$f")/${base}_${ARCH}${rest}"
+                  f="$(dirname "$f")/${base}_${ARCH}${rest}"
+                fi ;;
+            esac
             upload_one "$f" || { echo "::error::failed to upload $(basename "$f")"; fail=1; }
           done < <(find "$BUNDLE_DIR" -type f \( \
             -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.app.tar.gz.sig' \
@@ -263,9 +280,26 @@ jobs:
             done
             return 1
           }
+          case "${{ matrix.rust_target }}" in
+            aarch64-apple-darwin) ARCH=aarch64 ;;
+            x86_64-apple-darwin) ARCH=x64 ;;
+            *) ARCH="" ;;
+          esac
           fail=0
           while IFS= read -r f; do
             [ -n "$f" ] || continue
+            name="$(basename "$f")"
+            # macOS updater bundle sits on disk as <productName>.app.tar.gz (no
+            # arch); tauri-action uploads it arch-suffixed. Match that name so we
+            # don't create an unsuffixed duplicate asset.
+            case "$name" in
+              *.app.tar.gz|*.app.tar.gz.sig)
+                if [ -n "$ARCH" ]; then
+                  base="${name%%.app.tar.gz*}"; rest="${name#"$base"}"
+                  cp "$f" "$(dirname "$f")/${base}_${ARCH}${rest}"
+                  f="$(dirname "$f")/${base}_${ARCH}${rest}"
+                fi ;;
+            esac
             upload_one "$f" || { echo "::error::failed to upload $(basename "$f")"; fail=1; }
           done < <(find "$BUNDLE_DIR" -type f \( \
             -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.app.tar.gz.sig' \
