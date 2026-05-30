@@ -86,6 +86,48 @@ jobs:
           includeUpdaterJson: false
           args: ${{ matrix.args }}
 
+      # tauri-action 自身上传 bundle 无重试: 10 个 matrix job 并发上传到同一
+      # (draft) release 时,部分 PUT 输给 GitHub API race (delete-a-release-asset
+      # 404) 而静默丢失 —— v1.11.2 只上了 25/52。这里兜底重传本 job 产出的全部
+      # bundle: gh release upload --clobber + 5 次重试,幂等补齐 tauri-action 漏掉
+      # 的。各 job 的 bundle 文件名互不相同,不会互相 clobber。bash 3.2 兼容
+      # (macOS runner),故用 while-read 而非 mapfile。
+      - name: Re-upload bundles with retry (Slave)
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -n "${{ matrix.rust_target }}" ]; then
+            BUNDLE_DIR="target/${{ matrix.rust_target }}/release/bundle"
+          else
+            BUNDLE_DIR="target/release/bundle"
+          fi
+          if [ ! -d "$BUNDLE_DIR" ]; then
+            echo "::warning::bundle dir $BUNDLE_DIR not found — skipping bundle re-upload"
+            exit 0
+          fi
+          upload_one() {
+            for attempt in 1 2 3 4 5; do
+              if gh release upload "$GITHUB_REF_NAME" "$1" --clobber; then return 0; fi
+              echo "::warning::upload $(basename "$1") attempt $attempt failed, retrying in 15s"
+              sleep 15
+            done
+            return 1
+          }
+          fail=0
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            upload_one "$f" || { echo "::error::failed to upload $(basename "$f")"; fail=1; }
+          done < <(find "$BUNDLE_DIR" -type f \( \
+            -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.app.tar.gz.sig' \
+            -o -name '*-setup.exe' -o -name '*-setup.exe.sig' \
+            -o -name '*.msi' -o -name '*.msi.sig' \
+            -o -name '*.AppImage' -o -name '*.AppImage.sig' \
+            -o -name '*.deb' -o -name '*.deb.sig' \
+            -o -name '*.rpm' -o -name '*.rpm.sig' \) )
+          exit $fail
+
       # always() 让本步骤即使 tauri-action 因为 GitHub API 上传 race
       # (Not Found / delete-a-release-asset) 失败也继续: 此时 cargo 产物已
       # 经编译完成,便携 exe 仍可上传; job 整体状态仍会 failure 不掩盖问题。
@@ -195,6 +237,44 @@ jobs:
           # the source of the flaky "delete-a-release-asset" 404 race. Skip it.
           includeUpdaterJson: false
           args: ${{ matrix.args }}
+
+      # tauri-action bundle 上传无重试,并发竞态会丢包 (见 Slave 同名步骤注释)。
+      # 兜底重传本 job 全部 bundle: --clobber + 5 次重试,幂等补齐。
+      - name: Re-upload bundles with retry (Master)
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -n "${{ matrix.rust_target }}" ]; then
+            BUNDLE_DIR="target/${{ matrix.rust_target }}/release/bundle"
+          else
+            BUNDLE_DIR="target/release/bundle"
+          fi
+          if [ ! -d "$BUNDLE_DIR" ]; then
+            echo "::warning::bundle dir $BUNDLE_DIR not found — skipping bundle re-upload"
+            exit 0
+          fi
+          upload_one() {
+            for attempt in 1 2 3 4 5; do
+              if gh release upload "$GITHUB_REF_NAME" "$1" --clobber; then return 0; fi
+              echo "::warning::upload $(basename "$1") attempt $attempt failed, retrying in 15s"
+              sleep 15
+            done
+            return 1
+          }
+          fail=0
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            upload_one "$f" || { echo "::error::failed to upload $(basename "$f")"; fail=1; }
+          done < <(find "$BUNDLE_DIR" -type f \( \
+            -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.app.tar.gz.sig' \
+            -o -name '*-setup.exe' -o -name '*-setup.exe.sig' \
+            -o -name '*.msi' -o -name '*.msi.sig' \
+            -o -name '*.AppImage' -o -name '*.AppImage.sig' \
+            -o -name '*.deb' -o -name '*.deb.sig' \
+            -o -name '*.rpm' -o -name '*.rpm.sig' \) )
+          exit $fail
 
       # always() 让本步骤即使 tauri-action 失败也继续 (同 Slave 注释)。
       - name: Upload Windows portable exe (Master)
