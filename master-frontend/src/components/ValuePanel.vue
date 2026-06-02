@@ -2,7 +2,7 @@
 import { inject, computed, ref, type Ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import type { ReceivedDataPointInfo, ControlResult } from '../types'
-import { getControlConfig } from '../types'
+import { getControlConfig, asduHasTimestamp } from '../types'
 import QualityIndicator from '@shared/components/QualityIndicator.vue'
 import { useI18n, localizeCategoryLabel } from '@shared/i18n'
 
@@ -135,7 +135,7 @@ watch(firstPoint, (p) => {
           </div>
           <div class="detail-row">
             <span class="detail-label">{{ t('valuePanel.timestamp') }}</span>
-            <span class="detail-value mono">{{ point.timestamp ?? t('valuePanel.timestampNone') }}</span>
+            <span class="detail-value mono">{{ asduHasTimestamp(point.asdu_type) ? (point.timestamp ?? t('valuePanel.timestampNone')) : t('valuePanel.timestampNone') }}</span>
           </div>
           <div v-if="selectedPoints.length > 1" class="detail-divider"></div>
         </div>

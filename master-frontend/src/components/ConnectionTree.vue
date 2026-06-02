@@ -62,6 +62,19 @@ const DATA_CATEGORIES = [
   { key: 'integrated_totals', label: '累计量 (IT)' },
 ]
 
+// 每个监视方向 category 对应的 ASDU TypeId: 无时标 · CP56 时标
+// 与 crates/iec104sim-core/src/types.rs::AsduTypeId::category 一致, 与子站树展示对齐
+const CATEGORY_TYPEIDS: Record<string, string> = {
+  single_point: '1 · 30',
+  double_point: '3 · 31',
+  step_position: '5 · 32',
+  bitstring: '7 · 33',
+  normalized_measured: '9 · 34',
+  scaled_measured: '11 · 35',
+  float_measured: '13 · 36',
+  integrated_totals: '15 · 37',
+}
+
 interface TreeConnection {
   info: ConnectionInfo
   expanded: boolean
@@ -244,6 +257,7 @@ function stateClass(state: string): string {
                 @click="selectCategory(conn, cat, ca)"
               >
                 <span class="node-label">{{ t(`category.${cat.key}`) }}</span>
+                <span class="node-typeid">{{ CATEGORY_TYPEIDS[cat.key] }}</span>
                 <span class="node-count" v-if="countFor(conn.info.id, cat.label, ca) > 0">
                   {{ countFor(conn.info.id, cat.label, ca) }}
                 </span>
@@ -265,6 +279,7 @@ function stateClass(state: string): string {
             @click="selectCategory(conn, cat, null)"
           >
             <span class="node-label">{{ t(`category.${cat.key}`) }}</span>
+            <span class="node-typeid">{{ CATEGORY_TYPEIDS[cat.key] }}</span>
             <span class="node-count" v-if="countFor(conn.info.id, cat.label, null) > 0">
               {{ countFor(conn.info.id, cat.label, null) }}
             </span>
@@ -379,6 +394,22 @@ function stateClass(state: string): string {
 .node-ca {
   font-size: 10px;
   color: var(--c-overlay0);
+}
+
+.node-typeid {
+  margin-left: auto;
+  margin-right: 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--c-sapphire);
+  letter-spacing: 0.3px;
+  opacity: 0.85;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.tree-node.selected .node-typeid {
+  color: rgba(30, 30, 46, 0.7);
 }
 
 .node-count {

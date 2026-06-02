@@ -189,3 +189,13 @@ export function getControlConfig(category: string): ControlConfig | null {
       return null
   }
 }
+
+/**
+ * IEC 60870-5-104 命名约定：ASDU 类型名第二段以 T 开头表示携带 CP24/CP56 时标
+ * (e.g. M_SP_TB_1 / M_ME_TF_1)，否则不带时标 (e.g. M_SP_NA_1 / M_ME_NC_1)。
+ * 不带时标时,后端填入的 `timestamp` 仅为主站本地接收时间,不应作为报文时标展示。
+ */
+export function asduHasTimestamp(asduType: string): boolean {
+  const parts = asduType.split('_')
+  return parts.length >= 3 && parts[2].startsWith('T')
+}

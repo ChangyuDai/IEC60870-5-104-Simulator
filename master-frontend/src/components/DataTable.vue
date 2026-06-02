@@ -2,7 +2,7 @@
 import { ref, inject, watch, onMounted, onUnmounted, computed, shallowRef, nextTick, type Ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import type { ReceivedDataPointInfo, IncrementalDataResponse, CommandType, ControlResult, ChangedCategoriesMap, CategoryCountsMap } from '../types'
-import { getControlConfig } from '../types'
+import { getControlConfig, asduHasTimestamp } from '../types'
 import ControlDialog from './ControlDialog.vue'
 import QualityIndicator from '@shared/components/QualityIndicator.vue'
 import QualityLegend from '@shared/components/QualityLegend.vue'
@@ -388,7 +388,7 @@ function isCtxActiveOption(optValue: string): boolean {
                     compact
                   />
                 </td>
-                <td class="col-timestamp">{{ point.timestamp ?? '-' }}</td>
+                <td class="col-timestamp">{{ asduHasTimestamp(point.asdu_type) ? (point.timestamp ?? '-') : '' }}</td>
               </tr>
             </tbody>
           </table>
@@ -485,7 +485,7 @@ function isCtxActiveOption(optValue: string): boolean {
 }
 
 .col-ioa { font-family: var(--font-mono); width: 80px; color: var(--c-blue); }
-.col-type { font-family: var(--font-mono); width: 120px; }
+.col-type { font-family: var(--font-mono); width: 148px; }
 .col-value { font-family: var(--font-mono); transition: color 0.3s; }
 .col-value.value-highlight { color: var(--c-peach); font-weight: 700; }
 .col-quality { width: 96px; font-weight: 600; font-size: 11px; }
