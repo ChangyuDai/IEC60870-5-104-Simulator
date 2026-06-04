@@ -106,6 +106,19 @@ impl MasterStream {
             }
         }
     }
+
+    /// Force-close the underlying TCP socket (send FIN) immediately, instead of
+    /// relying on `Drop` ordering. STOPDT alone only halts data transfer at the
+    /// IEC 104 layer — it does NOT tear down TCP — so a real single-connection
+    /// RTU keeps the old session alive and refuses to answer a new TLS handshake,
+    /// which surfaces as a handshake timeout (WSAETIMEDOUT) on the reconnect.
+    /// Calling this in `disconnect()` makes the peer drop the old session at once.
+    fn shutdown_tcp(&self) {
+        let _ = match self {
+            MasterStream::Plain(s) => s.shutdown(std::net::Shutdown::Both),
+            MasterStream::Tls(s) => s.get_ref().shutdown(std::net::Shutdown::Both),
+        };
+    }
 }
 
 impl Read for MasterStream {
@@ -550,7 +563,63 @@ impl MasterConnection {
         if self.state() == MasterState::Connected {
             return Err(MasterError::AlreadyConnected);
         }
+        let result = self.connect_inner().await;
+        if result.is_err() {
+            // A failure partway through (TLS handshake, STARTDT write, stream
+            // clone) otherwise leaves state stuck at Connecting. Land it on
+            // Error so the UI doesn't sit on "connecting…" forever and the next
+            // retry starts from a clean state.
+            self.state_tx.send_replace(MasterState::Error);
+        }
+        result
+    }
 
+    /// Force-close and clear any residual stream left by a previous connection
+    /// before dialing again. The decisive case is an *unexpected* drop (t1/t3
+    /// timeout, read error, peer half-close) where `disconnect()` was never
+    /// called: the receive loop exits and sets state=Disconnected but the old
+    /// TCP socket stays alive inside `tls_stream_mutex`/`stream`. Without this,
+    /// the stale socket is only released *after* the next handshake, so a real
+    /// single-connection RTU — still holding the old session — refuses the
+    /// reconnect (WSAETIMEDOUT / "handshake interrupted"), which is the user's
+    /// "second connect just errors". Sending FIN here frees the peer's session
+    /// before we connect. No-op on a fresh connection.
+    async fn teardown_streams(&mut self) {
+        let has_residual = self.tls_stream_mutex.is_some()
+            || self.receiver_handle.is_some()
+            || self.periodic_handle.is_some()
+            || self.stream.read().await.is_some();
+        if !has_residual {
+            return;
+        }
+
+        // FIN the old socket first, independent of Arc-drop ordering.
+        if let Some(ref mutex) = self.tls_stream_mutex {
+            if let Ok(stream) = mutex.lock() {
+                stream.shutdown_tcp();
+            }
+        }
+        if let Some(stream) = self.stream.read().await.as_ref() {
+            stream.shutdown_tcp();
+        }
+
+        // Stop any lingering background tasks bound to the old socket.
+        self.shutdown_flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        if let Some(handle) = self.periodic_handle.take() {
+            handle.abort();
+        }
+        if let Some(handle) = self.receiver_handle.take() {
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(2), handle).await;
+        }
+        self.ack_notify.notify_waiters();
+        *self.stream.write().await = None;
+        self.tls_stream_mutex = None;
+    }
+
+    async fn connect_inner(&mut self) -> Result<(), MasterError> {
+        // Reconnecting after an unexpected drop? Release the stale socket before
+        // dialing so a single-connection peer drops the old session first.
+        self.teardown_streams().await;
         self.state_tx.send_replace(MasterState::Connecting);
         // Re-build from config so timer tweaks between reconnects take effect.
         *self.protocol.lock().unwrap() = ProtocolState::new(
@@ -871,19 +940,30 @@ impl MasterConnection {
             return Err(MasterError::NotConnected);
         }
 
-        // Send STOPDT ACT (best effort)
+        // Send STOPDT ACT (best effort), then force-close the TCP socket.
+        // STOPDT only stops data transfer at the IEC 104 layer — it does NOT
+        // tear down TCP — so a real single-connection RTU keeps the old session
+        // alive and refuses the next TLS handshake, which the reconnect sees as
+        // a handshake timeout (WSAETIMEDOUT on Windows/SChannel). An explicit
+        // shutdown sends FIN immediately so the peer drops the old session
+        // before we reconnect, instead of relying on Drop ordering.
         let stopdt = [0x68, 0x04, 0x13, 0x00, 0x00, 0x00];
         if let Some(ref mutex) = self.tls_stream_mutex {
             // TLS path
             if let Ok(mut stream) = mutex.lock() {
                 let _ = stream.write_all(&stopdt);
+                let _ = stream.flush();
+                stream.shutdown_tcp();
             }
         } else {
             // Plain TCP path
             let stream_guard = self.stream.read().await;
             if let Some(ref stream) = *stream_guard {
                 match stream {
-                    MasterStream::Plain(s) => { let _ = (&*s).write_all(&stopdt); }
+                    MasterStream::Plain(s) => {
+                        let _ = (&*s).write_all(&stopdt);
+                        let _ = s.shutdown(std::net::Shutdown::Both);
+                    }
                     MasterStream::Tls(_) => {}
                 }
             }
