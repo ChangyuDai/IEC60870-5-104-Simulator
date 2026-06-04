@@ -887,8 +887,10 @@ impl MasterConnection {
 
         // Load CA certificate if provided
         if !self.config.tls.ca_file.is_empty() {
-            let ca_pem = std::fs::read(&self.config.tls.ca_file)
-                .map_err(|e| MasterError::TlsError(format!("读取 CA 证书失败 {}: {}", self.config.tls.ca_file, e)))?;
+            // 剥掉 Windows「复制为路径」带来的包裹引号/空白(否则 os error 123)。
+            let ca_path = crate::tls_key::sanitize_fs_path(&self.config.tls.ca_file);
+            let ca_pem = std::fs::read(ca_path)
+                .map_err(|e| MasterError::TlsError(format!("读取 CA 证书失败 {}: {}", ca_path, e)))?;
             let ca_cert = native_tls::Certificate::from_pem(&ca_pem)
                 .map_err(|e| MasterError::TlsError(format!("解析 CA 证书失败: {}", e)))?;
             builder.add_root_certificate(ca_cert);
@@ -898,14 +900,16 @@ impl MasterConnection {
         // Prefer PKCS#12 (works on macOS Security framework with ECDSA keys);
         // fall back to PEM cert+key if no PKCS#12 is configured.
         if !self.config.tls.pkcs12_file.is_empty() {
-            let p12_bytes = std::fs::read(&self.config.tls.pkcs12_file)
-                .map_err(|e| MasterError::TlsError(format!("读取客户端 PKCS#12 失败 {}: {}", self.config.tls.pkcs12_file, e)))?;
+            let p12_path = crate::tls_key::sanitize_fs_path(&self.config.tls.pkcs12_file);
+            let p12_bytes = std::fs::read(p12_path)
+                .map_err(|e| MasterError::TlsError(format!("读取客户端 PKCS#12 失败 {}: {}", p12_path, e)))?;
             let identity = native_tls::Identity::from_pkcs12(&p12_bytes, &self.config.tls.pkcs12_password)
                 .map_err(|e| MasterError::TlsError(format!("加载客户端身份 (PKCS#12) 失败: {}", e)))?;
             builder.identity(identity);
         } else if !self.config.tls.cert_file.is_empty() && !self.config.tls.key_file.is_empty() {
-            let cert_pem = std::fs::read(&self.config.tls.cert_file)
-                .map_err(|e| MasterError::TlsError(format!("读取客户端证书失败 {}: {}", self.config.tls.cert_file, e)))?;
+            let cert_path = crate::tls_key::sanitize_fs_path(&self.config.tls.cert_file);
+            let cert_pem = std::fs::read(cert_path)
+                .map_err(|e| MasterError::TlsError(format!("读取客户端证书失败 {}: {}", cert_path, e)))?;
             // native-tls 的 from_pkcs8 严格只吃 PKCS#8 PEM,而很多证书包给的是
             // PKCS#1 (BEGIN RSA PRIVATE KEY)。helper 会按需做 PKCS#1 → PKCS#8 转换。
             let key_pem = crate::tls_key::load_key_as_pkcs8_pem(&self.config.tls.key_file)

@@ -1,6 +1,29 @@
 use rsa::pkcs1::DecodeRsaPrivateKey;
 use rsa::pkcs8::{EncodePrivateKey, LineEnding};
 
+/// 规范化用户提供的证书/密钥文件路径:去掉首尾空白,并剥掉**一对**包裹引号。
+///
+/// 动机:Windows 资源管理器「复制为路径 / Copy as path」会自动给路径套上双引号
+/// (`"C:\...\ca.crt"`),而 `"` 是 Windows 非法文件名字符,带引号直接交给
+/// `std::fs::read` 会得到 `os error 123` (ERROR_INVALID_NAME)。从配置文件或手工
+/// 粘贴而来的路径也常带尾随空白/换行。这里统一清洗,使这类路径开箱即用。
+///
+/// 仅剥掉**成对**的首尾引号,内部空格(如 `C:\my certs\ca.crt`)原样保留 ——
+/// 加引号本就是为了容纳空格。返回输入的子切片,不额外分配。
+pub fn sanitize_fs_path(raw: &str) -> &str {
+    let trimmed = raw.trim();
+    let bytes = trimmed.as_bytes();
+    if bytes.len() >= 2 {
+        let first = bytes[0];
+        let last = bytes[bytes.len() - 1];
+        // `"` / `'` 均为单字节 ASCII,首尾切片落在字符边界上,安全。
+        if (first == b'"' && last == b'"') || (first == b'\'' && last == b'\'') {
+            return trimmed[1..trimmed.len() - 1].trim();
+        }
+    }
+    trimmed
+}
+
 /// 读取客户端/服务端私钥 PEM 文件,统一规范化为 PKCS#8 PEM 字节,
 /// 以便交给 native-tls 的 `Identity::from_pkcs8`。
 ///
@@ -8,6 +31,7 @@ use rsa::pkcs8::{EncodePrivateKey, LineEnding};
 /// - `-----BEGIN RSA PRIVATE KEY-----` (PKCS#1): 解码后重新编码为 PKCS#8
 /// - 其它(EC/加密/未知): 返回明确错误
 pub fn load_key_as_pkcs8_pem(path: &str) -> Result<Vec<u8>, String> {
+    let path = sanitize_fs_path(path);
     let pem = std::fs::read_to_string(path)
         .map_err(|e| format!("读取密钥失败 {}: {}", path, e))?;
 
@@ -84,9 +108,68 @@ mod tests {
     }
 
     #[test]
+    fn quoted_path_is_accepted() {
+        // 模拟 Windows「复制为路径 / Copy as path」粘贴进来的带引号路径
+        // (`"..."`)。`"` 是 Windows 非法文件名字符,未清洗直接读取会得到
+        // os error 123。清洗后应正常读取。
+        let pkcs8 = gen_pkcs8_pem();
+        let f = write_tmp(&pkcs8);
+        let quoted = format!("\"{}\"", f.path().to_str().unwrap());
+        let out = load_key_as_pkcs8_pem(&quoted).unwrap();
+        assert_eq!(out, pkcs8.as_bytes());
+    }
+
+    #[test]
+    fn whitespace_wrapped_path_is_accepted() {
+        // 配置文件/粘贴常见的首尾空白与尾随换行。
+        let pkcs8 = gen_pkcs8_pem();
+        let f = write_tmp(&pkcs8);
+        let padded = format!("  {}\r\n", f.path().to_str().unwrap());
+        let out = load_key_as_pkcs8_pem(&padded).unwrap();
+        assert_eq!(out, pkcs8.as_bytes());
+    }
+
+    #[test]
     fn missing_file_returns_error_with_path() {
         let err = load_key_as_pkcs8_pem("/definitely/not/a/real/path.key").unwrap_err();
         assert!(err.contains("/definitely/not/a/real/path.key"));
+    }
+
+    #[test]
+    fn sanitize_strips_double_quotes() {
+        assert_eq!(sanitize_fs_path("\"C:\\certs\\ca.crt\""), "C:\\certs\\ca.crt");
+    }
+
+    #[test]
+    fn sanitize_strips_single_quotes() {
+        assert_eq!(sanitize_fs_path("'/etc/ssl/ca.pem'"), "/etc/ssl/ca.pem");
+    }
+
+    #[test]
+    fn sanitize_trims_whitespace_and_newline() {
+        assert_eq!(sanitize_fs_path("  /etc/ssl/ca.pem\r\n"), "/etc/ssl/ca.pem");
+        // 引号外侧 + 内侧的空白都应被清掉
+        assert_eq!(sanitize_fs_path(" \" /etc/ssl/ca.pem \" "), "/etc/ssl/ca.pem");
+    }
+
+    #[test]
+    fn sanitize_preserves_internal_spaces() {
+        // 路径内部空格(加引号的本意)必须保留
+        assert_eq!(sanitize_fs_path("\"C:\\my certs\\ca.crt\""), "C:\\my certs\\ca.crt");
+    }
+
+    #[test]
+    fn sanitize_leaves_plain_path_untouched() {
+        assert_eq!(sanitize_fs_path("/etc/ssl/ca.pem"), "/etc/ssl/ca.pem");
+    }
+
+    #[test]
+    fn sanitize_keeps_unmatched_or_lone_quote() {
+        // 仅单侧引号、或路径内含合法引号(非 Windows),不应被剥
+        assert_eq!(sanitize_fs_path("\"/etc/ssl/ca.pem"), "\"/etc/ssl/ca.pem");
+        assert_eq!(sanitize_fs_path("/etc/ssl/ca\".pem"), "/etc/ssl/ca\".pem");
+        assert_eq!(sanitize_fs_path("\""), "\"");
+        assert_eq!(sanitize_fs_path(""), "");
     }
 
     #[test]
