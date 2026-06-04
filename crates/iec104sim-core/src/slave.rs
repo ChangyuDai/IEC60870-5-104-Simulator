@@ -674,13 +674,16 @@ impl SlaveServer {
         let tls_acceptor: Option<Arc<native_tls::TlsAcceptor>> = if self.transport.tls.enabled {
             let cfg = &self.transport.tls;
             let identity = if !cfg.pkcs12_file.is_empty() {
-                let p12 = std::fs::read(&cfg.pkcs12_file)
-                    .map_err(|e| SlaveError::TlsError(format!("读取 PKCS12 {}: {}", cfg.pkcs12_file, e)))?;
+                // 剥掉 Windows「复制为路径」带来的包裹引号/空白(否则 os error 123)。
+                let p12_path = crate::tls_key::sanitize_fs_path(&cfg.pkcs12_file);
+                let p12 = std::fs::read(p12_path)
+                    .map_err(|e| SlaveError::TlsError(format!("读取 PKCS12 {}: {}", p12_path, e)))?;
                 native_tls::Identity::from_pkcs12(&p12, &cfg.pkcs12_password)
                     .map_err(|e| SlaveError::TlsError(format!("加载 PKCS12 身份: {}", e)))?
             } else {
-                let cert = std::fs::read(&cfg.cert_file)
-                    .map_err(|e| SlaveError::TlsError(format!("读取证书 {}: {}", cfg.cert_file, e)))?;
+                let cert_path = crate::tls_key::sanitize_fs_path(&cfg.cert_file);
+                let cert = std::fs::read(cert_path)
+                    .map_err(|e| SlaveError::TlsError(format!("读取证书 {}: {}", cert_path, e)))?;
                 // PKCS#1 → PKCS#8 自动转换,详见 master.rs 同段注释。
                 let key = crate::tls_key::load_key_as_pkcs8_pem(&cfg.key_file)
                     .map_err(SlaveError::TlsError)?;
