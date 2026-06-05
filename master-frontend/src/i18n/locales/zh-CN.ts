@@ -206,6 +206,10 @@ export type DictShape = {
     qulqlSetpoint: string
     qulqlBitstring: string
     cotLabel: string
+    controlMode: string
+    modeExecute: string
+    modeSelect: string
+    modeSbo: string
     cot6: string
     cot7: string
     cot8: string
@@ -500,6 +504,10 @@ const dict: DictShape = {
     qulqlSetpoint: 'QL: 0..127 (写入 QOS 低 7 位)',
     qulqlBitstring: '位串命令无 QU/QL,本字段忽略',
     cotLabel: 'COT 传送原因',
+    controlMode: '控制模式',
+    modeExecute: '仅执行 (Execute)',
+    modeSelect: '仅选择 (Select)',
+    modeSbo: '自动两步 (SBO)',
     cot6: '6 - 激活',
     cot7: '7 - 激活确认',
     cot8: '8 - 停止激活',
