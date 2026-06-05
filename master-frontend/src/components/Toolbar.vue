@@ -52,6 +52,17 @@ async function manualCheckUpdate() {
 const broadcastMenuOpen = ref(false)
 const broadcastAddrLabel = ref('FFFF')
 
+// 总召唤改为"选 CA"交互:多 CA 连接点按钮弹出菜单(全部 CA / 各 CA),
+// 单 CA 连接直接发。connCAs 缓存当前连接的 CA 列表,用于按钮 ▾ 提示。
+const giMenuOpen = ref(false)
+const giCAs = ref<number[]>([])
+const connCAs = ref<number[]>([])
+
+async function loadConnCAs() {
+  if (!selectedConnectionId.value) { connCAs.value = []; return }
+  try { connCAs.value = await getConnCAs() } catch { connCAs.value = [] }
+}
+
 async function loadBroadcastAddr() {
   if (!selectedConnectionId.value) return
   const conns = await invoke<any[]>('list_connections')
@@ -60,11 +71,12 @@ async function loadBroadcastAddr() {
   broadcastAddrLabel.value = v.toString(16).toUpperCase().padStart(4, '0')
 }
 
-watch(selectedConnectionId, () => { loadBroadcastAddr() }, { immediate: true })
+watch(selectedConnectionId, () => { loadBroadcastAddr(); loadConnCAs() }, { immediate: true })
 
 function closeBroadcastMenu(e: MouseEvent) {
   const el = e.target as HTMLElement
   if (!el.closest('.split-btn')) broadcastMenuOpen.value = false
+  if (!el.closest('.gi-btn-wrap')) giMenuOpen.value = false
 }
 onMounted(() => document.addEventListener('click', closeBroadcastMenu))
 onBeforeUnmount(() => document.removeEventListener('click', closeBroadcastMenu))
@@ -127,13 +139,8 @@ async function connectMaster() {
     await invoke('connect_master', { id: selectedConnectionId.value })
     selectedConnectionState.value = 'Connected'
     refreshTree()
-    try {
-      await fanOutCAs('send_interrogation')
-      refreshData()
-      setTimeout(() => refreshTree(), 3000)
-    } catch (e) {
-      console.warn('Auto GI after connect failed:', e)
-    }
+    // 连接后不再自动总召唤:旧逻辑对所有 CA 并发 GI,会触发远端对未配置的
+    // CA 报错甚至主动断链。改由用户手动点"总召唤"按钮按需选择 CA。
   } catch (e) {
     await showAlert(String(e))
   }
@@ -174,10 +181,32 @@ async function deleteMaster() {
   }
 }
 
+// 点"总召唤":单 CA 连接直接发;多 CA 连接弹出菜单让用户选具体 CA 或全部。
 async function sendGI() {
   if (!selectedConnectionId.value) return
   try {
-    await fanOutCAs('send_interrogation')
+    const cas = await getConnCAs()
+    giCAs.value = cas
+    if (cas.length <= 1) {
+      await doGI(cas[0] ?? null)
+    } else {
+      giMenuOpen.value = !giMenuOpen.value
+    }
+  } catch (e) {
+    await showAlert(String(e))
+  }
+}
+
+// 发送总召唤。ca 为具体公共地址;ca === null 表示对所有 CA 并发(菜单"全部 CA")。
+async function doGI(ca: number | null) {
+  giMenuOpen.value = false
+  if (!selectedConnectionId.value) return
+  try {
+    if (ca === null) {
+      await fanOutCAs('send_interrogation')
+    } else {
+      await invoke('send_interrogation', { id: selectedConnectionId.value, commonAddress: ca })
+    }
     refreshData()
     setTimeout(() => refreshTree(), 3000)
   } catch (e) {
@@ -292,9 +321,15 @@ async function sendBroadcastCounterRead() {
     <div class="toolbar-divider"></div>
 
     <div class="toolbar-group">
-      <button class="toolbar-btn" :disabled="!hasConnection() || !isConnected()" @click="sendGI">
-        {{ t('toolbar.sendGI') }}
-      </button>
+      <div class="gi-btn-wrap">
+        <button class="toolbar-btn" :disabled="!hasConnection() || !isConnected()" @click="sendGI">
+          {{ t('toolbar.sendGI') }}<span v-if="connCAs.length > 1" class="gi-caret">&#9662;</span>
+        </button>
+        <ul v-if="giMenuOpen" class="split-menu" @click.stop>
+          <li @click="doGI(null)">{{ t('toolbar.giAllCAs') }}</li>
+          <li v-for="ca in giCAs" :key="ca" @click="doGI(ca)">CA {{ ca }}</li>
+        </ul>
+      </div>
       <div class="split-btn" :class="{ disabled: !hasConnection() || !isConnected() }">
         <button
           class="toolbar-btn"
@@ -444,6 +479,9 @@ async function sendBroadcastCounterRead() {
   font-family: inherit;
 }
 .toolbar-title.as-button:hover { color: var(--c-text); }
+
+.gi-btn-wrap { position: relative; display: inline-flex; }
+.gi-caret { margin-left: 2px; font-size: 10px; opacity: 0.7; }
 
 .split-btn { position: relative; display: inline-flex; }
 .split-btn .split-toggle { padding: 0 6px; min-width: 0; }

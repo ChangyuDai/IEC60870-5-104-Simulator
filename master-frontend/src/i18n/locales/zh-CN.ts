@@ -39,6 +39,7 @@ export type DictShape = {
     broadcastClockSync: string
     broadcastCounterRead: string
     broadcastAddressLabel: string
+    giAllCAs: string
   }
   newConn: {
     title: string
@@ -285,6 +286,7 @@ const dict: DictShape = {
     broadcastClockSync: '广播对时',
     broadcastCounterRead: '广播计量召唤',
     broadcastAddressLabel: '当前广播地址',
+    giAllCAs: '全部 CA',
   },
   newConn: {
     title: '新建连接',

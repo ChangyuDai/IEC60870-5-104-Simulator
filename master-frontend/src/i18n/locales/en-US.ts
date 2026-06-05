@@ -41,6 +41,7 @@ const dict: DictShape = {
     broadcastClockSync: 'Broadcast Clock Sync',
     broadcastCounterRead: 'Broadcast Counter Read',
     broadcastAddressLabel: 'Current broadcast address',
+    giAllCAs: 'All CAs',
   },
   newConn: {
     title: 'New Connection',
