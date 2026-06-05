@@ -566,7 +566,8 @@ pub async fn send_control_command(
                     .map_err(|e| format!("failed to send command: {}", e))?;
             }
             "setpoint_normalized" => {
-                let value = request.value.parse::<f32>().map_err(|e| format!("{}", e))?;
+                // NVA 直传:value 为原始 16 位 NVA 整数;sel 透传 S/E 位(支持仅选择)。
+                let value = request.value.parse::<i16>().map_err(|e| format!("{}", e))?;
                 conn.connection.send_setpoint_normalized(ioa, value, sel, ca, qu, cot).await
                     .map_err(|e| format!("failed to send command: {}", e))?;
             }
@@ -651,7 +652,7 @@ pub async fn send_control_command(
             ).await.map_err(|e| format!("{}", e))
         }
         "setpoint_normalized" => {
-            let value = request.value.parse::<f32>().map_err(|e| format!("{}", e))?;
+            let value = request.value.parse::<i16>().map_err(|e| format!("{}", e))?;
             let select_frame = build_control_frames_setpoint_norm(ca, ioa, value, true, qu, cot);
             let execute_frame = build_control_frames_setpoint_norm(ca, ioa, value, false, qu, cot);
             let event = DetailEvent {
@@ -660,7 +661,7 @@ pub async fn send_control_command(
             };
             conn.connection.send_control_with_sbo_event(
                 select_frame, execute_frame, ioa,
-                &format!("归一化设定值 IOA={} val={:.4} QL={} COT={}", ioa, value, qu, cot),
+                &format!("归一化设定值 IOA={} val={} QL={} COT={}", ioa, value, qu, cot),
                 FrameLabel::SetpointNormalized, ca, Some(event),
             ).await.map_err(|e| format!("{}", e))
         }
@@ -820,11 +821,10 @@ fn build_control_frames_step(ca: u16, ioa: u32, value: u8, select: bool, qu: u8,
          ca_bytes[0], ca_bytes[1], ioa_bytes[0], ioa_bytes[1], ioa_bytes[2], rco]
 }
 
-fn build_control_frames_setpoint_norm(ca: u16, ioa: u32, value: f32, select: bool, ql: u8, cot: u8) -> Vec<u8> {
+fn build_control_frames_setpoint_norm(ca: u16, ioa: u32, value: i16, select: bool, ql: u8, cot: u8) -> Vec<u8> {
     let ca_bytes = ca.to_le_bytes();
     let ioa_bytes = ioa.to_le_bytes();
-    let nva = (value * 32767.0) as i16;
-    let nva_bytes = nva.to_le_bytes();
+    let nva_bytes = value.to_le_bytes();
     let mut qos = ql & 0x7F;
     if select { qos |= 0x80; }
     vec![0x68, 0x10, 0x00, 0x00, 0x00, 0x00, 48, 0x01, cot, 0x00,
@@ -858,6 +858,12 @@ fn build_control_frames_setpoint_float(ca: u16, ioa: u32, value: f32, select: bo
 // Data Commands
 // ---------------------------------------------------------------------------
 
+/// 主站侧把归一化值显示为线上原始 NVA 整数 (-32768..32767)，而非 [-1,1) 小数。
+/// `round(value * 32767)` 可无损还原原始 NVA：f32 往返误差 < 0.002，远小于 0.5。
+fn normalized_raw_string(value: f32) -> String {
+    ((value * 32767.0).round() as i16).to_string()
+}
+
 fn point_to_info(ca: u16, p: &iec104sim_core::data_point::DataPoint) -> ReceivedDataPointInfo {
     ReceivedDataPointInfo {
         ioa: p.ioa,
@@ -865,7 +871,10 @@ fn point_to_info(ca: u16, p: &iec104sim_core::data_point::DataPoint) -> Received
         asdu_type: p.asdu_type.name().to_string(),
         asdu_type_id: p.asdu_type as u8,
         category: p.asdu_type.category().name().to_string(),
-        value: p.value.display(),
+        value: match &p.value {
+            iec104sim_core::data_point::DataPointValue::Normalized { value } => normalized_raw_string(*value),
+            _ => p.value.display(),
+        },
         quality_ov: p.quality.ov,
         quality_bl: p.quality.bl,
         quality_sb: p.quality.sb,
@@ -1210,5 +1219,14 @@ mod tests {
         // value=true, select=false → SCO = 0x01
         let exe = build_control_frames_single(1, 1, true, false, 0, 6);
         assert_eq!(*exe.last().unwrap(), 0x01, "execute 帧 SCO 不应置 S/E 位");
+    }
+
+    #[test]
+    fn normalized_raw_string_recovers_wire_nva() {
+        // 主站把线上 NVA 解码为 `nva as f32 / 32767.0`；显示必须无损还原成原始整数。
+        for nva in [-32768i16, -32767, -16384, -1, 0, 1, 16384, 32766, 32767] {
+            let decoded = nva as f32 / 32767.0;
+            assert_eq!(super::normalized_raw_string(decoded), nva.to_string(), "nva={}", nva);
+        }
     }
 }
