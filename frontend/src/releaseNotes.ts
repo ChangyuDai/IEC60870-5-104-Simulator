@@ -4,6 +4,8 @@ export const RELEASES_URL = 'https://github.com/Karl-Dai/IEC60870-5-104-Simulato
 
 // Keep in sync with CHANGELOG.md — see `release` skill.
 export const RELEASE_NOTES: string[] = [
+  '证书路径修复: 子站读取证书/密钥/PKCS#12 前自动剥掉「复制为路径」带来的包裹引号与首尾空白, 根治 Windows 带引号路径报 os error 123',
+  '本版本 Slave 端其余为 Master 改动 (单连接 RTU 重连修复、数据节点显示 ASDU TypeID), 详见 CHANGELOG.md',
   '本版本 Slave 端无功能改动; Master 端: 数据表/详情面板点位类型显示十进制 TypeID, 详见 CHANGELOG.md',
   'GitHub 图标 / 关于对话框的主页·Releases 链接点击改为直接打开系统浏览器 (非 Tauri 环境回退到复制链接)',
   'Master 端: 命令类型下拉显示十进制 TypeID, 广播 GI 响应提速 (debouncer 3s→1s, 去 3500ms 兜底), 修复新学 CA 节点不出现, 详见 CHANGELOG.md',

@@ -2,6 +2,27 @@
 
 本项目的所有重要变更记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.11.3] - 2026-06-05
+
+### Highlights / 亮点
+
+- 🔒 **带引号的证书路径也能直接用**:主站/子站读取 CA、证书、密钥、PKCS#12 前会自动剥掉 Windows「复制为路径 / Copy as path」带来的包裹引号与首尾空白,根治带引号路径导致的 `os error 123`(文件名语法不正确)/ **Pasted certificate paths just work**: master and slave strip wrapping quotes (from Windows "Copy as path") and surrounding whitespace before reading CA/cert/key/PKCS#12 files, fixing the `os error 123` (invalid filename) that quoted paths caused.
+- 🔁 **单连接 RTU 重连不再失败**:主站非正常掉线后第二次 `connect` 报错(Windows 上为 `WSAETIMEDOUT`)的根因——掉线遗留的旧 socket——已根治,重连前先清理残留连接 / **Reliable reconnect to single-connection RTUs**: the failed second `connect` after an abnormal drop (`WSAETIMEDOUT` on Windows) is fixed by tearing down the stale socket before reconnecting.
+- 🔢 **数据节点显示 ASDU TypeID**:104Master 接收数据表的「类型」列与详情面板在 ASDU 类型名旁标出十进制 TypeID,并妥善处理无时标变体 / **Data nodes show the ASDU TypeID**: the 104Master received-data table and detail panel label each ASDU type with its decimal TypeID and handle untimed variants.
+
+### Added 新增
+
+- 104Master:接收数据表「类型」列与详情面板显示 ASDU 十进制 TypeID,并处理无时标变体 / 104Master: the received-data Type column and detail panel show the ASDU decimal TypeID and handle untimed variants.
+
+### Fixed 修复
+
+- 主站/子站 TLS:新增 `tls_key::sanitize_fs_path`,读取 `ca/cert/key/pkcs12` 前去首尾空白 + 剥**成对**包裹引号(`"`/`'`,内部空格保留),根治 Windows「复制为路径」粘贴路径报 `os error 123` / Master & slave TLS: new `tls_key::sanitize_fs_path` trims whitespace and strips a single pair of wrapping quotes (`"`/`'`, internal spaces kept) before reading `ca/cert/key/pkcs12`, fixing `os error 123` from Windows "Copy as path" pasted paths.
+- 主站:重连前 teardown 残留 socket,根治单连接 RTU 非正常掉线后第二次 `connect` 报错(Windows `WSAETIMEDOUT`)/ Master: tear down the stale socket before reconnecting, fixing the failed second `connect` (Windows `WSAETIMEDOUT`) to single-connection RTUs after an abnormal drop.
+
+### Internal 内部
+
+- CI:macOS `app.tar.gz` 兜底重传补 arch 后缀,避免重复资产 / CI: the fallback re-upload appends the arch suffix to macOS `app.tar.gz`, avoiding duplicate assets.
+
 ## [1.11.2] - 2026-05-29
 
 ### Highlights / 亮点

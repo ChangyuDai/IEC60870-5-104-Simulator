@@ -4,6 +4,9 @@ export const RELEASES_URL = 'https://github.com/Karl-Dai/IEC60870-5-104-Simulato
 
 // Keep in sync with CHANGELOG.md — see `release` skill.
 export const RELEASE_NOTES: string[] = [
+  '证书路径修复: 读取 CA/证书/密钥/PKCS#12 前自动剥掉「复制为路径」带来的包裹引号与首尾空白, 根治 Windows 带引号路径报 os error 123 (文件名语法不正确)',
+  '单连接 RTU 重连修复: 非正常掉线后第二次连接报错 (Windows WSAETIMEDOUT) 根因——遗留旧 socket——已根治, 重连前先清理残留连接',
+  '数据节点显示 ASDU 十进制 TypeID, 并妥善处理无时标变体',
   '数据表/详情面板的点位类型显示十进制 TypeID (如 M_SP_NA_1 · 1、M_ME_NC_1 · 13), 与命令类型下拉一致',
   'GitHub 图标 / 关于对话框的主页·Releases 链接点击改为直接打开系统浏览器 (非 Tauri 环境回退到复制链接)',
   '命令类型下拉显示十进制 TypeID: 发送控制命令对话框每个类型在缩写旁标出 IEC 104 TypeID (如 C_SC_NA_1 · 45), 对照报文/规约更直观',
