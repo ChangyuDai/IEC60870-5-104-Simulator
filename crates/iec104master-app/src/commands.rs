@@ -468,6 +468,9 @@ pub struct ControlCommandRequest {
     pub cot: Option<u8>,
     /// 32-bit payload for C_BO_NA_1 (51). Required when command_type == "bitstring".
     pub bitstring: Option<u32>,
+    /// 控制模式: "execute" | "select" | "sbo"。缺省时回退到旧 `select` 语义
+    /// (select==Some(true) → sbo,否则 execute)。
+    pub control_mode: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -475,6 +478,33 @@ pub struct ControlCommandRequest {
 pub struct RawApduRequest {
     pub connection_id: String,
     pub hex_payload: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ControlMode {
+    /// 仅执行:单发一条 S/E=0 的执行帧,发完即返回(默认,等同旧"直接执行")。
+    Execute,
+    /// 仅选择:单发一条 S/E=1 的选择帧,不自动跟发执行帧(供调试用)。
+    Select,
+    /// 自动两步 (Select-Before-Operate):发选择帧→等 ACT_CON→发执行帧→等 ACT_CON。
+    Sbo,
+}
+
+/// 解析控制模式。`control_mode` 优先;缺省时回退旧 `select` 字段语义。
+/// 未知的 `control_mode` 字符串也走回退分支(宽容处理)。
+fn resolve_control_mode(control_mode: Option<&str>, select: Option<bool>) -> ControlMode {
+    match control_mode {
+        Some("select") => ControlMode::Select,
+        Some("sbo") => ControlMode::Sbo,
+        Some("execute") => ControlMode::Execute,
+        _ => {
+            if select == Some(true) {
+                ControlMode::Sbo
+            } else {
+                ControlMode::Execute
+            }
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -1146,5 +1176,33 @@ mod tests {
         assert_eq!(info.key_file, "/etc/client-key.pem");
         assert!(info.accept_invalid_certs);
         assert_eq!(info.tls_version, "tls13_only");
+    }
+
+    #[test]
+    fn resolve_mode_explicit_wins() {
+        assert_eq!(resolve_control_mode(Some("select"), None), ControlMode::Select);
+        assert_eq!(resolve_control_mode(Some("execute"), None), ControlMode::Execute);
+        assert_eq!(resolve_control_mode(Some("sbo"), None), ControlMode::Sbo);
+        // 显式 control_mode 覆盖旧 select 字段
+        assert_eq!(resolve_control_mode(Some("execute"), Some(true)), ControlMode::Execute);
+    }
+
+    #[test]
+    fn resolve_mode_legacy_fallback() {
+        assert_eq!(resolve_control_mode(None, Some(true)), ControlMode::Sbo);
+        assert_eq!(resolve_control_mode(None, Some(false)), ControlMode::Execute);
+        assert_eq!(resolve_control_mode(None, None), ControlMode::Execute);
+        // 未知字符串回退看 select
+        assert_eq!(resolve_control_mode(Some("bogus"), Some(true)), ControlMode::Sbo);
+    }
+
+    #[test]
+    fn build_single_select_bit_set() {
+        // value=true, select=true, qu=0 → SCO = 0x80 | 0x01 = 0x81
+        let sel = build_control_frames_single(1, 1, true, true, 0, 6);
+        assert_eq!(*sel.last().unwrap(), 0x81, "select 帧 SCO 应置 S/E 位(bit7)");
+        // value=true, select=false → SCO = 0x01
+        let exe = build_control_frames_single(1, 1, true, false, 0, 6);
+        assert_eq!(*exe.last().unwrap(), 0x01, "execute 帧 SCO 不应置 S/E 位");
     }
 }
