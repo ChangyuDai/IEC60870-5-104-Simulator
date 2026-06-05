@@ -259,6 +259,7 @@ const dict: DictShape = {
     modeExecute: 'Execute only',
     modeSelect: 'Select only',
     modeSbo: 'Auto two-step (SBO)',
+    modeSelectHint: 'Sends only the Select frame (S/E=1); no execute frame follows',
     cot6: '6 - Activation',
     cot7: '7 - Activation Confirmation',
     cot8: '8 - Deactivation',

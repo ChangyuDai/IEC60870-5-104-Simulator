@@ -54,6 +54,10 @@ const legacySelectMode = (saved as { selectMode?: boolean }).selectMode
 const controlMode = ref<'execute' | 'select' | 'sbo'>(
   saved.controlMode ?? (legacySelectMode ? 'sbo' : 'execute'),
 )
+// 挂载时若命令类型为位串,强制控制模式为仅执行(位串 C_BO_NA_1 无 S/E 位)
+if (commandType.value === 'bitstring' && controlMode.value !== 'execute') {
+  controlMode.value = 'execute'
+}
 const errorMsg = ref('')
 const sending = ref(false)
 const lastResult = ref<ControlResult | null>(null)
@@ -343,7 +347,7 @@ const caSelectValue = computed<number>({
                 <option value="sbo">{{ t('control.modeSbo') }}</option>
               </select>
             </label>
-            <span class="toggle-hint">{{ isBitstring ? t('control.bitstringNoSbo') : (controlMode === 'sbo' ? t('control.sboTwoStep') : t('control.sboDirect')) }}</span>
+            <span class="toggle-hint">{{ isBitstring ? t('control.bitstringNoSbo') : (controlMode === 'sbo' ? t('control.sboTwoStep') : (controlMode === 'select' ? t('control.modeSelectHint') : t('control.sboDirect'))) }}</span>
           </div>
 
           <details class="advanced" :open="showAdvanced" @toggle="showAdvanced = ($event.target as HTMLDetailsElement).open">
@@ -505,11 +509,6 @@ const caSelectValue = computed<number>({
   flex: 1;
 }
 
-.toggle-label.is-disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
 .form-input {
   padding: 6px 10px;
   background: var(--c-surface0);
@@ -604,10 +603,6 @@ const caSelectValue = computed<number>({
   font-size: 12px;
   color: var(--c-text);
   cursor: pointer;
-}
-
-.toggle-checkbox {
-  accent-color: var(--c-blue);
 }
 
 .mode-select {

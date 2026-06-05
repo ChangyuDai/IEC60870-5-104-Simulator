@@ -210,6 +210,7 @@ export type DictShape = {
     modeExecute: string
     modeSelect: string
     modeSbo: string
+    modeSelectHint: string
     cot6: string
     cot7: string
     cot8: string
@@ -508,6 +509,7 @@ const dict: DictShape = {
     modeExecute: '仅执行 (Execute)',
     modeSelect: '仅选择 (Select)',
     modeSbo: '自动两步 (SBO)',
+    modeSelectHint: '仅发一条选择帧 (S/E=1),不自动跟发执行帧',
     cot6: '6 - 激活',
     cot7: '7 - 激活确认',
     cot8: '8 - 停止激活',
