@@ -533,54 +533,59 @@ pub async fn send_control_command(
         .get(&request.connection_id)
         .ok_or_else(|| format!("connection {} not found", request.connection_id))?;
 
-    let select = request.select.unwrap_or(false);
+    let mode = resolve_control_mode(request.control_mode.as_deref(), request.select);
     let ca = request.common_address;
     let ioa = request.ioa;
     let qu = request.qualifier.unwrap_or_else(|| default_qualifier(&request.command_type));
     let cot = request.cot.unwrap_or(6);
 
     eprintln!(
-        "[send_control_command] enter type={} ioa={} ca={} select={} | connections_read_lock={}ms",
-        request.command_type, ioa, ca, select, t_lock.as_millis()
+        "[send_control_command] enter type={} ioa={} ca={} mode={:?} | connections_read_lock={}ms",
+        request.command_type, ioa, ca, mode, t_lock.as_millis()
     );
 
-    // Direct execute: send command and return immediately
-    if !select {
+    // 仅执行 / 仅选择: 发一条命令并立即返回(不阻塞等待 ACT_CON)。
+    // sel 决定 S/E 位: 仅选择→true(S/E=1), 仅执行→false(S/E=0)。
+    if mode != ControlMode::Sbo {
+        let sel = mode == ControlMode::Select;
         let start = std::time::Instant::now();
         match request.command_type.as_str() {
             "single" => {
                 let value = parse_bool(&request.value)?;
-                conn.connection.send_single_command(ioa, value, false, ca, qu, cot).await
+                conn.connection.send_single_command(ioa, value, sel, ca, qu, cot).await
                     .map_err(|e| format!("failed to send command: {}", e))?;
             }
             "double" => {
                 let value = request.value.parse::<u8>().map_err(|e| format!("{}", e))?;
-                conn.connection.send_double_command(ioa, value, false, ca, qu, cot).await
+                conn.connection.send_double_command(ioa, value, sel, ca, qu, cot).await
                     .map_err(|e| format!("failed to send command: {}", e))?;
             }
             "step" => {
                 let value = request.value.parse::<u8>().map_err(|e| format!("{}", e))?;
-                conn.connection.send_step_command(ioa, value, false, ca, qu, cot).await
+                conn.connection.send_step_command(ioa, value, sel, ca, qu, cot).await
                     .map_err(|e| format!("failed to send command: {}", e))?;
             }
             "setpoint_normalized" => {
                 let value = request.value.parse::<f32>().map_err(|e| format!("{}", e))?;
-                conn.connection.send_setpoint_normalized(ioa, value, false, ca, qu, cot).await
+                conn.connection.send_setpoint_normalized(ioa, value, sel, ca, qu, cot).await
                     .map_err(|e| format!("failed to send command: {}", e))?;
             }
             "setpoint_scaled" => {
                 let value = request.value.parse::<i16>().map_err(|e| format!("{}", e))?;
-                conn.connection.send_setpoint_scaled(ioa, value, false, ca, qu, cot).await
+                conn.connection.send_setpoint_scaled(ioa, value, sel, ca, qu, cot).await
                     .map_err(|e| format!("failed to send command: {}", e))?;
             }
             "setpoint_float" => {
                 let value = request.value.parse::<f32>().map_err(|e| format!("{}", e))?;
                 let t_send = std::time::Instant::now();
-                conn.connection.send_setpoint_float(ioa, value, false, ca, qu, cot).await
+                conn.connection.send_setpoint_float(ioa, value, sel, ca, qu, cot).await
                     .map_err(|e| format!("failed to send command: {}", e))?;
                 eprintln!("[send_control_command] setpoint_float send_frame={}ms", t_send.elapsed().as_millis());
             }
             "bitstring" => {
+                if sel {
+                    return Err("位串命令 (C_BO_NA_1) 无 S/E 位,不支持「仅选择」,请改用「仅执行」".to_string());
+                }
                 let value = request.bitstring
                     .or_else(|| parse_u32_value(&request.value))
                     .ok_or_else(|| "bitstring 命令需要提供 32 位数值 (bitstring 字段或 value)".to_string())?;
@@ -589,9 +594,10 @@ pub async fn send_control_command(
             }
             _ => return Err(format!("unknown command type: {}", request.command_type)),
         }
+        let action = if sel { "select_sent" } else { "execute_sent" };
         return Ok(ControlResult {
             steps: vec![ControlStep {
-                action: "execute_sent".to_string(),
+                action: action.to_string(),
                 timestamp: chrono::Local::now().format("%H:%M:%S%.3f").to_string(),
             }],
             duration_ms: start.elapsed().as_millis() as u64,
