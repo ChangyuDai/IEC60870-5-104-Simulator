@@ -2,6 +2,23 @@
 
 本项目的所有重要变更记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.11.4] - 2026-06-05
+
+### Highlights / 亮点
+
+- 🔐 **TLS 证书路径编辑/存盘不再丢失**:主站连接的 CA/证书/密钥路径改完保存后真正生效,重开编辑、重启读盘都保留,后端成为唯一权威源(不再被共享 localStorage 旧值覆盖、不再多连接互相串值)/ **TLS cert paths persist across edit & restart**: a master connection's CA/cert/key paths survive save, re-edit and reload — the backend is the single source of truth (no stale localStorage clobber, no cross-connection bleed).
+- 🔁 **断开后重连 TLS 主站不再握手失败**:重连握手不再被接收轮询用的 100ms 读超时打断,根治 Windows `os error 10060`(WSAETIMEDOUT)与 macOS `the handshake process was interrupted` / **Reconnecting a TLS master no longer fails the handshake**: the 100 ms receive-poll read timeout no longer bounds the TLS handshake, fixing Windows `os error 10060` (WSAETIMEDOUT) and macOS `the handshake process was interrupted` on reconnect.
+
+### Fixed 修复
+
+- **主站 TLS 配置持久化**:`ca_file`/`cert_file`/`key_file`/`accept_invalid_certs`/`tls_version` 纳入 `ConnectionInfo` 与配置文件 schema(serde default,向后兼容旧文件),`create_connection`/`list_connections` 经统一 `from_config` 回吐,`save_config` 写入、`load_config` 透传,编辑框优先读连接自身真实路径——修复改证书路径"像没生效"、存盘丢 TLS 设置、多连接互相覆盖 / Master TLS settings are now first-class in `ConnectionInfo` and the on-disk schema (serde-default, backward compatible); editing a cert path takes effect, survives save/reload, and no longer bleeds across connections.
+- **主站重连 TLS 握手超时**:`connect_inner` 不再在握手前给 socket 设 100ms 读超时(该超时只服务于 plain TCP 接收循环 tick t1/t2/t3,TLS 接收循环握手后自行 `set_nonblocking`);TLS 握手期间改用充裕的握手超时(t0/timeout_ms),plain 路径保留 100ms——根治单连接 RTU 重连时握手某轮回应 >100ms 即超时(Windows `os error 10060` / macOS "handshake process was interrupted")/ Master reconnect: the TLS handshake is no longer bounded by the 100 ms receive-poll timeout (which only serves the plain-TCP receive loop); it now uses a generous handshake timeout while plain TCP keeps 100 ms, fixing reconnect handshake timeouts against single-connection RTUs.
+- 选「仅 TLS 1.3」且运行于 Windows 时给出 SChannel 不支持的非阻断提示 / A non-blocking notice is shown when "TLS 1.3 only" is selected on Windows (SChannel does not support it).
+
+### Tests 测试
+
+- 新增确定性复现测试 `tls_handshake_survives_server_slower_than_receive_poll`(慢握手 server:TCP accept 后延迟 250ms 再 TLS accept),修复前必现 "handshake process was interrupted",修复后通过;`iec104sim-core` 全套绿(lib 143 + 集成测试 0 失败,含 7 个 TLS 重连用例)/ Added a deterministic repro test with a slow-handshake server (delays the TLS accept 250 ms past TCP accept); fails before the fix, passes after; full `iec104sim-core` suite green (143 lib + integration, 0 failures, incl. 7 TLS reconnect cases).
+
 ## [1.11.3] - 2026-06-05
 
 ### Highlights / 亮点

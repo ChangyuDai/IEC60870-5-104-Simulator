@@ -4,6 +4,8 @@ export const RELEASES_URL = 'https://github.com/Karl-Dai/IEC60870-5-104-Simulato
 
 // Keep in sync with CHANGELOG.md — see `release` skill.
 export const RELEASE_NOTES: string[] = [
+  'TLS 配置编辑/存盘修复: 主站连接的 CA/证书/密钥路径改完保存后真正生效, 重开编辑、重启读盘都保留 (后端为唯一权威源, 不再被旧值覆盖或多连接互相串值)',
+  '断开重连 TLS 握手修复: 重连时握手不再被 100ms 接收轮询读超时打断, 根治 Windows os error 10060 (WSAETIMEDOUT) / macOS the handshake process was interrupted',
   '证书路径修复: 读取 CA/证书/密钥/PKCS#12 前自动剥掉「复制为路径」带来的包裹引号与首尾空白, 根治 Windows 带引号路径报 os error 123 (文件名语法不正确)',
   '单连接 RTU 重连修复: 非正常掉线后第二次连接报错 (Windows WSAETIMEDOUT) 根因——遗留旧 socket——已根治, 重连前先清理残留连接',
   '数据节点显示 ASDU 十进制 TypeID, 并妥善处理无时标变体',

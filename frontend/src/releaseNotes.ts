@@ -4,6 +4,7 @@ export const RELEASES_URL = 'https://github.com/Karl-Dai/IEC60870-5-104-Simulato
 
 // Keep in sync with CHANGELOG.md — see `release` skill.
 export const RELEASE_NOTES: string[] = [
+  '本版本 Slave 端无功能改动; Master 端: TLS 证书路径编辑/存盘持久化修复、断开重连 TLS 握手超时 (Windows os error 10060 / macOS handshake interrupted) 修复, 详见 CHANGELOG.md',
   '证书路径修复: 子站读取证书/密钥/PKCS#12 前自动剥掉「复制为路径」带来的包裹引号与首尾空白, 根治 Windows 带引号路径报 os error 123',
   '本版本 Slave 端其余为 Master 改动 (单连接 RTU 重连修复、数据节点显示 ASDU TypeID), 详见 CHANGELOG.md',
   '本版本 Slave 端无功能改动; Master 端: 数据表/详情面板点位类型显示十进制 TypeID, 详见 CHANGELOG.md',
