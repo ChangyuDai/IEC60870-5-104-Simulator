@@ -28,7 +28,7 @@ type Persisted = {
   ca: number
   ioa: number
   commandType: CommandType
-  selectMode: boolean
+  controlMode: 'execute' | 'select' | 'sbo'
   singleValue: string
   doubleValue: string
   stepValue: string
@@ -49,7 +49,11 @@ const saved = loadPersisted()
 const ioa = ref<number>(saved.ioa ?? 0)
 const ca = ref<number>(saved.ca ?? 1)
 const commandType = ref<CommandType>(saved.commandType ?? 'single')
-const selectMode = ref(saved.selectMode ?? false)
+// 兼容旧持久化字段 selectMode:true→'sbo',其余→'execute'。
+const legacySelectMode = (saved as { selectMode?: boolean }).selectMode
+const controlMode = ref<'execute' | 'select' | 'sbo'>(
+  saved.controlMode ?? (legacySelectMode ? 'sbo' : 'execute'),
+)
 const errorMsg = ref('')
 const sending = ref(false)
 const lastResult = ref<ControlResult | null>(null)
@@ -75,7 +79,7 @@ function savePersisted() {
     ca: ca.value,
     ioa: ioa.value,
     commandType: commandType.value,
-    selectMode: selectMode.value,
+    controlMode: controlMode.value,
     singleValue: singleValue.value,
     doubleValue: doubleValue.value,
     stepValue: stepValue.value,
@@ -106,6 +110,10 @@ watch(() => props.visible, (v) => {
 
 watch(commandType, () => {
   qualifier.value = 0
+  // 位串 C_BO_NA_1 无 S/E 位,只能仅执行
+  if (commandType.value === 'bitstring' && controlMode.value !== 'execute') {
+    controlMode.value = 'execute'
+  }
 })
 
 const currentValueStr = computed(() => {
@@ -165,7 +173,8 @@ async function send() {
       common_address: ca.value,
       command_type: commandType.value,
       value: currentValueStr.value,
-      select: selectMode.value,
+      control_mode: controlMode.value,
+      select: controlMode.value === 'sbo', // 兼容后端旧字段
       qualifier: qualifier.value,
       cot: cot.value,
     }
@@ -326,11 +335,15 @@ const caSelectValue = computed<number>({
           </div>
 
           <div class="toggle-row">
-            <label class="toggle-label" :class="{ 'is-disabled': isBitstring }">
-              <input type="checkbox" v-model="selectMode" class="toggle-checkbox" :disabled="isBitstring" />
-              <span>{{ t('control.sboLabel') }}</span>
+            <label class="toggle-label">
+              <span>{{ t('control.controlMode') }}</span>
+              <select v-model="controlMode" class="mode-select" :disabled="isBitstring">
+                <option value="execute">{{ t('control.modeExecute') }}</option>
+                <option value="select">{{ t('control.modeSelect') }}</option>
+                <option value="sbo">{{ t('control.modeSbo') }}</option>
+              </select>
             </label>
-            <span class="toggle-hint">{{ isBitstring ? t('control.bitstringNoSbo') : (selectMode ? t('control.sboTwoStep') : t('control.sboDirect')) }}</span>
+            <span class="toggle-hint">{{ isBitstring ? t('control.bitstringNoSbo') : (controlMode === 'sbo' ? t('control.sboTwoStep') : t('control.sboDirect')) }}</span>
           </div>
 
           <details class="advanced" :open="showAdvanced" @toggle="showAdvanced = ($event.target as HTMLDetailsElement).open">
@@ -595,6 +608,19 @@ const caSelectValue = computed<number>({
 
 .toggle-checkbox {
   accent-color: var(--c-blue);
+}
+
+.mode-select {
+  padding: 4px 8px;
+  background: var(--c-surface0);
+  border: 1px solid var(--c-surface1);
+  border-radius: 4px;
+  color: var(--c-text);
+  font-size: 12px;
+}
+.mode-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .toggle-hint {
