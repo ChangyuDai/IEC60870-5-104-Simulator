@@ -2,6 +2,43 @@
 
 本项目的所有重要变更记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.12.0] - 2026-06-07
+
+### Highlights / 亮点
+
+- 🎛️ **主站遥控支持三种控制模式**:发送控制命令对话框新增「仅执行 / 仅选择 / 自动两步」下拉,分别对应直接执行 (direct execute)、仅下发选择 (select-only)、自动「选择→执行」两步 (select-before-operate),所选模式持久化保存 / **Master remote control gains three command modes**: the control dialog now offers Direct-execute / Select-only / Auto select-before-operate, with the chosen mode persisted.
+- 🔢 **主站归一化值改用原始整数 (NVA i16) 直传**:归一化测量值在数据表按原始 16 位整数显示、归一化设定值按原始整数输入并直接下发,不再经工程值换算,避免量程/精度误差,可与报文逐字节对照 / **Master normalized values now use raw NVA i16**: normalized measurements display as raw 16-bit integers and normalized setpoints are entered/sent as raw integers (no engineering-value scaling), matching the wire bytes exactly.
+- 🎯 **主站总召唤改为按 CA 选择**:连接建立后不再自动对全部公共地址发起总召,改由用户按需选择目标 CA 召唤,减少无谓帧 / **Master general interrogation is now per-CA**: connecting no longer auto-interrogates every common address; you pick the target CA.
+- 🧰 **主从工具栏窄窗口不再挤掉状态区**:操作按钮区在窗口变窄时横向滚动,语言切换 / 版本 / 关于状态区始终常驻可见;主站总召/广播拆分菜单改为传送到 `<body>` 的固定定位浮层,不再被工具栏滚动容器裁剪 / **Toolbars stay usable on narrow windows**: the operations area scrolls horizontally while the language/version/about region stays pinned; master's GI/broadcast split menus are teleported to `<body>` and no longer clipped.
+- 🧹 **子站工具栏精简**:移除顶部「随机变化 / 周期发送」按钮及其 ms 间隔输入框 / **Slave toolbar trimmed**: the top "random mutation / cyclic send" buttons and their interval inputs are removed.
+- 🩹 **子站总召不再错误上送累积量**:总召唤 (GI) 仅上送遥测/遥信等过程信息,累积量 (M_IT) 改由计数量召唤 (C_CI) 上送,符合 IEC 60870-5-104 规约 / **Slave GI no longer ships integrated totals**: counter values (M_IT) are now sent only on counter interrogation (C_CI), per spec.
+
+### Added 新增
+
+- 主站遥控对话框新增「控制模式」下拉(仅执行 / 仅选择 / 自动两步),持久化到本地配置并含旧配置迁移逻辑 / Master control dialog: new "control mode" dropdown (direct-execute / select-only / auto select-before-operate), persisted with migration of older configs.
+- 主站 `send_control_command` 按 `control_mode` 分支,支持仅选择 (Select)、仅执行 (Execute)、自动两步;新增 `control_mode` 解析与单元测试 / Master `send_control_command` branches on `control_mode` (select-only / execute-only / auto two-step); added `control_mode` parsing with unit tests.
+- 主站归一化设定值对话框改为原始整数 (NVA i16) 输入框 / Master normalized setpoint dialog now takes a raw integer (NVA i16) input.
+
+### Changed 改进
+
+- 主站接收的归一化测量值在数据表显示为原始 NVA 整数,归一化设定值按原始整数直传(不再经工程值换算)/ Master shows received normalized measurements as raw NVA integers and sends normalized setpoints as raw integers (no engineering-value scaling).
+- 主站总召唤改为按 CA 选择,取消连接后自动对全部 CA 总召 / Master general interrogation is per-CA; no auto-interrogation of all CAs on connect.
+- 主、从站工具栏重构为「操作区横向滚动 + 状态区常驻」布局,窄窗口下语言/版本/关于不再被挤出视口 / Both toolbars refactored into a horizontally-scrolling operations area plus a pinned status region, so narrow windows never clip the language/version/about controls.
+- 主站总召/广播拆分下拉菜单改用 `<Teleport to="body">` + `position: fixed` 浮层定位,根治被工具栏滚动容器 (`overflow`) 裁剪 / Master's GI/broadcast split menus now teleport to `<body>` with fixed positioning, fixing clipping by the toolbar's overflow scroll container.
+- 主站遥控控制模式下 bitstring 挂载纠正,清理孤儿样式,select 模式专属提示 / Master: corrected bitstring mounting under control modes, removed orphan styles, added a select-mode-specific hint.
+
+### Removed 移除
+
+- 子站工具栏顶部「随机变化 / 周期发送」按钮及 ms 间隔输入框,连同 `useMutationTimer` / `useCyclicTransmission` 两个 composable / Removed the slave toolbar's "random mutation / cyclic send" buttons and interval inputs, along with the `useMutationTimer` / `useCyclicTransmission` composables.
+
+### Fixed 修复
+
+- 子站总召唤 (GI) 不再上送累积量 (M_IT):累积量仅由计数量召唤 (C_CI) 触发上送,符合 IEC 60870-5-104 规约对总召信息范围的约定 / Slave general interrogation no longer ships integrated totals (M_IT); counter values are sent only on counter interrogation (C_CI), per IEC 60870-5-104.
+
+### Tests 测试
+
+- 主站新增控制命令 `control_mode` 解析单元测试(仅选择 / 仅执行 / 自动两步)/ Added master unit tests for control-command `control_mode` parsing (select-only / execute-only / auto two-step).
+
 ## [1.11.4] - 2026-06-05
 
 ### Highlights / 亮点

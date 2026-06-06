@@ -10,15 +10,12 @@ import LangSwitch from '@shared/components/LangSwitch.vue'
 import VersionBadge from '@shared/components/VersionBadge.vue'
 import NewServerModal from './NewServerModal.vue'
 import { useI18n } from '@shared/i18n'
-import { useMutationTimer } from '../composables/useMutationTimer'
-import { useCyclicTransmission } from '../composables/useCyclicTransmission'
 
 const { t } = useI18n()
 const showAbout = ref(false)
 
 const selectedServerId = inject<Ref<string | null>>('selectedServerId')!
 const selectedServerState = inject<Ref<string>>('selectedServerState')!
-const selectedCA = inject<Ref<number | null>>('selectedCA')!
 const refreshTree = inject<() => void>('refreshTree')!
 const { showAlert, showPrompt, showConfirm } = inject<{
   showAlert: typeof ShowAlert
@@ -27,9 +24,6 @@ const { showAlert, showPrompt, showConfirm } = inject<{
 }>(dialogKey)!
 const openParseFrame = inject<(prefill?: string) => void>('openParseFrame')!
 const openRuntimeParamsDrawer = inject<() => void>('openRuntimeParamsDrawer')!
-
-const { active: mutationActive, rateMs: mutationRate, toggle: toggleMutation } = useMutationTimer()
-const { active: cyclicActive, intervalMs: cyclicInterval, toggle: toggleCyclic } = useCyclicTransmission()
 
 type UpdateMeta = { version: string; notes: string; pub_date?: string | null }
 const checkUpdate = inject<(force?: boolean) => Promise<UpdateMeta | null>>('checkUpdate')!
@@ -140,6 +134,7 @@ async function openConfig() {
 
 <template>
   <div class="toolbar">
+    <div class="toolbar-main">
     <div class="toolbar-group">
       <button class="toolbar-btn" @click="showNewServerModal = true" :title="t('toolbar.titleNewServer')">
         <span class="toolbar-icon">+</span>
@@ -177,52 +172,6 @@ async function openConfig() {
       </button>
     </div>
     <div class="toolbar-divider"></div>
-    <div class="toolbar-group interval-group">
-      <button
-        :class="['toolbar-btn', { 'btn-mutation-active': mutationActive }]"
-        @click="toggleMutation"
-        :disabled="!selectedServerId || selectedCA === null"
-        :title="t('toolbar.titleRandomMutation')"
-      >
-        <span class="toolbar-label">{{ mutationActive ? t('toolbar.stopMutation') : t('toolbar.randomMutation') }}</span>
-      </button>
-      <div class="interval-field">
-        <input
-          type="number"
-          class="interval-input"
-          min="100"
-          max="60000"
-          step="100"
-          v-model.number="mutationRate"
-          :title="t('toolbar.mutationInterval')"
-        />
-        <span class="rate-label">ms</span>
-      </div>
-    </div>
-    <div class="toolbar-divider"></div>
-    <div class="toolbar-group interval-group">
-      <button
-        :class="['toolbar-btn', { 'btn-cyclic-active': cyclicActive }]"
-        @click="toggleCyclic"
-        :disabled="!selectedServerId || selectedCA === null"
-        :title="t('toolbar.titleCyclicSend')"
-      >
-        <span class="toolbar-label">{{ cyclicActive ? t('toolbar.stopCyclic') : t('toolbar.cyclicSend') }}</span>
-      </button>
-      <div class="interval-field">
-        <input
-          type="number"
-          class="interval-input"
-          min="100"
-          max="60000"
-          step="100"
-          v-model.number="cyclicInterval"
-          :title="t('toolbar.sendInterval')"
-        />
-        <span class="rate-label">ms</span>
-      </div>
-    </div>
-    <div class="toolbar-divider"></div>
     <div class="toolbar-group">
       <button class="toolbar-btn" @click="openParseFrame()" :title="t('toolbar.parseFrame')">
         <span class="toolbar-label">{{ t('toolbar.parseFrame') }}</span>
@@ -249,12 +198,15 @@ async function openConfig() {
         <span class="toolbar-label">{{ t('toolbar.openConfig') }}</span>
       </button>
     </div>
-    <button class="toolbar-btn toolbar-btn-update" :disabled="updateChecking" @click="manualCheckUpdate">
-      {{ updateChecking ? t('toolbar.checkingUpdate') : t('toolbar.checkUpdate') }}
-    </button>
-    <LangSwitch />
-    <VersionBadge />
-    <button class="toolbar-title as-button" @click="showAbout = true" :title="t('toolbar.about')">{{ t('toolbar.appTitle') }}</button>
+    </div>
+    <div class="toolbar-aside">
+      <button class="toolbar-btn toolbar-btn-update" :disabled="updateChecking" @click="manualCheckUpdate">
+        {{ updateChecking ? t('toolbar.checkingUpdate') : t('toolbar.checkUpdate') }}
+      </button>
+      <LangSwitch />
+      <VersionBadge />
+      <button class="toolbar-title as-button" @click="showAbout = true" :title="t('toolbar.about')">{{ t('toolbar.appTitle') }}</button>
+    </div>
   </div>
 
   <AboutDialog :visible="showAbout" @close="showAbout = false" />
@@ -272,6 +224,31 @@ async function openConfig() {
   font-size: 13px;
 }
 
+/* Left operations region: shrinks and scrolls horizontally on narrow windows
+   so the right-side status region never gets clipped. */
+.toolbar-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+.toolbar-main::-webkit-scrollbar {
+  height: 6px;
+}
+
+/* Right status region: language / version / about — always visible. */
+.toolbar-aside {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-left: 2px;
+}
+
 .toolbar-group {
   display: flex;
   gap: 2px;
@@ -281,14 +258,15 @@ async function openConfig() {
   width: 1px;
   height: 24px;
   background: var(--c-surface0);
-  margin: 0 4px;
+  margin: 0 2px;
+  flex: none;
 }
 
 .toolbar-btn {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 10px;
+  padding: 4px 7px;
   border: none;
   background: var(--c-surface0);
   color: var(--c-text);
@@ -333,77 +311,9 @@ async function openConfig() {
   transform: rotate(45deg);
 }
 
-.toolbar-btn.btn-mutation-active {
-  background: var(--c-green);
-  color: var(--c-base);
-  font-weight: 600;
-}
-
-.toolbar-btn.btn-mutation-active:hover {
-  background: var(--c-teal);
-}
-
-.toolbar-btn.btn-cyclic-active {
-  background: var(--c-mauve);
-  color: var(--c-base);
-  font-weight: 600;
-}
-
-.toolbar-btn.btn-cyclic-active:hover {
-  background: var(--c-lavender);
-}
-
-/* button + value field read as one segmented control */
-.interval-group {
-  align-items: stretch;
-  gap: 0;
-}
-
-.interval-group .toolbar-btn {
-  border-radius: 4px 0 0 4px;
-}
-
-.interval-field {
-  display: flex;
-  align-items: center;
-  gap: 1px;
-  padding: 0 7px 0 2px;
-  background: var(--c-surface0);
-  border: 1px solid var(--c-surface1);
-  border-left: none;
-  border-radius: 0 4px 4px 0;
-}
-
-.interval-field:focus-within {
-  border-color: var(--c-blue);
-}
-
-.interval-input {
-  width: 44px;
-  padding: 2px;
-  background: transparent;
-  border: none;
-  color: var(--c-text);
-  font-size: 11px;
-  font-family: var(--font-mono);
-  text-align: right;
-  -moz-appearance: textfield;
-}
-
-.interval-input::-webkit-inner-spin-button,
-.interval-input::-webkit-outer-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
-
-.rate-label {
-  font-size: 10px;
-  color: var(--c-overlay0);
-  font-family: var(--font-mono);
-}
-
-.toolbar-btn-update {
-  margin-left: auto;
+.toolbar-main > .toolbar-group,
+.toolbar-main > .toolbar-divider {
+  flex: none;
 }
 
 .toolbar-title {

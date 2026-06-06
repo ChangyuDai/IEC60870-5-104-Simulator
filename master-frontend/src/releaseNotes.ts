@@ -4,6 +4,11 @@ export const RELEASES_URL = 'https://github.com/Karl-Dai/IEC60870-5-104-Simulato
 
 // Keep in sync with CHANGELOG.md — see `release` skill.
 export const RELEASE_NOTES: string[] = [
+  '主站遥控支持三种控制模式: 发送控制命令对话框新增「仅执行 / 仅选择 / 自动两步」下拉 (direct execute / select-only / 自动 select-before-operate 两步), 所选模式持久化',
+  '主站归一化值改用原始整数 (NVA i16): 测量值在数据表按原始 16 位整数显示, 设定值按原始整数输入并直传, 不再经工程值换算, 可与报文逐字节对照',
+  '主站总召唤改为按 CA 选择: 连接后不再自动对全部公共地址总召, 改由用户按需选择目标 CA',
+  '主站总召/广播拆分菜单改为传送到 body 的固定定位浮层, 不再被工具栏滚动容器裁剪',
+  '主从工具栏窄窗口优化: 操作按钮区横向滚动, 语言切换 / 版本 / 关于状态区始终常驻可见',
   'TLS 配置编辑/存盘修复: 主站连接的 CA/证书/密钥路径改完保存后真正生效, 重开编辑、重启读盘都保留 (后端为唯一权威源, 不再被旧值覆盖或多连接互相串值)',
   '断开重连 TLS 握手修复: 重连时握手不再被 100ms 接收轮询读超时打断, 根治 Windows os error 10060 (WSAETIMEDOUT) / macOS the handshake process was interrupted',
   '证书路径修复: 读取 CA/证书/密钥/PKCS#12 前自动剥掉「复制为路径」带来的包裹引号与首尾空白, 根治 Windows 带引号路径报 os error 123 (文件名语法不正确)',

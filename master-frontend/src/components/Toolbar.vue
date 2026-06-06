@@ -58,6 +58,21 @@ const giMenuOpen = ref(false)
 const giCAs = ref<number[]>([])
 const connCAs = ref<number[]>([])
 
+// Dropdown menus are teleported to <body> so the toolbar's horizontal-scroll
+// container can't clip them. That means fixed-positioning them from the
+// trigger's viewport rect, captured the moment the menu opens.
+const giMenuPos = ref({ top: 0, left: 0 })
+const broadcastMenuPos = ref({ top: 0, left: 0 })
+function anchorPos(el: HTMLElement) {
+  const r = el.getBoundingClientRect()
+  return { top: r.bottom + 2, left: r.left }
+}
+function toggleBroadcastMenu(e: MouseEvent) {
+  const wrap = (e.currentTarget as HTMLElement).closest('.split-btn') as HTMLElement | null
+  broadcastMenuPos.value = anchorPos(wrap ?? (e.currentTarget as HTMLElement))
+  broadcastMenuOpen.value = !broadcastMenuOpen.value
+}
+
 async function loadConnCAs() {
   if (!selectedConnectionId.value) { connCAs.value = []; return }
   try { connCAs.value = await getConnCAs() } catch { connCAs.value = [] }
@@ -182,7 +197,9 @@ async function deleteMaster() {
 }
 
 // 点"总召唤":单 CA 连接直接发;多 CA 连接弹出菜单让用户选具体 CA 或全部。
-async function sendGI() {
+async function sendGI(e: MouseEvent) {
+  // Capture the anchor synchronously — `currentTarget` is nulled after the await.
+  const anchor = anchorPos(e.currentTarget as HTMLElement)
   if (!selectedConnectionId.value) return
   try {
     const cas = await getConnCAs()
@@ -190,6 +207,7 @@ async function sendGI() {
     if (cas.length <= 1) {
       await doGI(cas[0] ?? null)
     } else {
+      giMenuPos.value = anchor
       giMenuOpen.value = !giMenuOpen.value
     }
   } catch (e) {
@@ -298,6 +316,7 @@ async function sendBroadcastCounterRead() {
 
 <template>
   <div class="toolbar">
+    <div class="toolbar-main">
     <div class="toolbar-group">
       <button class="toolbar-btn" @click="openNewConnection">
         <span class="btn-icon">+</span> {{ t('toolbar.newConnection') }}
@@ -325,10 +344,17 @@ async function sendBroadcastCounterRead() {
         <button class="toolbar-btn" :disabled="!hasConnection() || !isConnected()" @click="sendGI">
           {{ t('toolbar.sendGI') }}<span v-if="connCAs.length > 1" class="gi-caret">&#9662;</span>
         </button>
-        <ul v-if="giMenuOpen" class="split-menu" @click.stop>
-          <li @click="doGI(null)">{{ t('toolbar.giAllCAs') }}</li>
-          <li v-for="ca in giCAs" :key="ca" @click="doGI(ca)">CA {{ ca }}</li>
-        </ul>
+        <Teleport to="body">
+          <ul
+            v-if="giMenuOpen"
+            class="split-menu floating"
+            :style="{ top: giMenuPos.top + 'px', left: giMenuPos.left + 'px' }"
+            @click.stop
+          >
+            <li @click="doGI(null)">{{ t('toolbar.giAllCAs') }}</li>
+            <li v-for="ca in giCAs" :key="ca" @click="doGI(ca)">CA {{ ca }}</li>
+          </ul>
+        </Teleport>
       </div>
       <div class="split-btn" :class="{ disabled: !hasConnection() || !isConnected() }">
         <button
@@ -342,13 +368,20 @@ async function sendBroadcastCounterRead() {
         <button
           class="toolbar-btn split-toggle"
           :disabled="!hasConnection() || !isConnected()"
-          @click="broadcastMenuOpen = !broadcastMenuOpen"
+          @click="toggleBroadcastMenu"
         >&#9662;</button>
-        <ul v-if="broadcastMenuOpen" class="split-menu" @click.stop>
-          <li @click="sendBroadcastGI">{{ t('toolbar.broadcastGi') }}</li>
-          <li @click="sendBroadcastClockSync">{{ t('toolbar.broadcastClockSync') }}</li>
-          <li @click="sendBroadcastCounterRead">{{ t('toolbar.broadcastCounterRead') }}</li>
-        </ul>
+        <Teleport to="body">
+          <ul
+            v-if="broadcastMenuOpen"
+            class="split-menu floating"
+            :style="{ top: broadcastMenuPos.top + 'px', left: broadcastMenuPos.left + 'px' }"
+            @click.stop
+          >
+            <li @click="sendBroadcastGI">{{ t('toolbar.broadcastGi') }}</li>
+            <li @click="sendBroadcastClockSync">{{ t('toolbar.broadcastClockSync') }}</li>
+            <li @click="sendBroadcastCounterRead">{{ t('toolbar.broadcastCounterRead') }}</li>
+          </ul>
+        </Teleport>
       </div>
       <button class="toolbar-btn" :disabled="!hasConnection() || !isConnected()" @click="sendClockSync">
         {{ t('toolbar.clockSync') }}
@@ -380,15 +413,17 @@ async function sendBroadcastCounterRead() {
       </button>
     </div>
 
-    <div class="toolbar-spacer"></div>
-    <button class="toolbar-btn" :disabled="updateChecking" @click="manualCheckUpdate">
-      {{ updateChecking ? t('toolbar.checkingUpdate') : t('toolbar.checkUpdate') }}
-    </button>
-    <LangSwitch />
-    <VersionBadge />
-    <button class="toolbar-title as-button" @click="showAbout = true" :title="t('toolbar.about')">
-      {{ t('toolbar.appTitle') }}
-    </button>
+    </div>
+    <div class="toolbar-aside">
+      <button class="toolbar-btn" :disabled="updateChecking" @click="manualCheckUpdate">
+        {{ updateChecking ? t('toolbar.checkingUpdate') : t('toolbar.checkUpdate') }}
+      </button>
+      <LangSwitch />
+      <VersionBadge />
+      <button class="toolbar-title as-button" @click="showAbout = true" :title="t('toolbar.about')">
+        {{ t('toolbar.appTitle') }}
+      </button>
+    </div>
   </div>
 
   <AboutDialog :visible="showAbout" @close="showAbout = false" />
@@ -418,6 +453,36 @@ async function sendBroadcastCounterRead() {
   gap: 0;
 }
 
+/* Left operations region: shrinks and scrolls horizontally on narrow windows
+   so the right-side status region never gets clipped. Dropdown menus inside it
+   are teleported to <body> to avoid being clipped by this scroll container. */
+.toolbar-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+.toolbar-main::-webkit-scrollbar {
+  height: 6px;
+}
+
+/* Right status region: update / language / version / about — always visible. */
+.toolbar-aside {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-left: 4px;
+}
+
+.toolbar-main > .toolbar-group,
+.toolbar-main > .toolbar-divider {
+  flex: none;
+}
+
 .toolbar-group {
   display: flex;
   gap: 2px;
@@ -427,7 +492,7 @@ async function sendBroadcastCounterRead() {
   width: 1px;
   height: 20px;
   background: var(--c-surface0);
-  margin: 0 6px;
+  margin: 0 4px;
 }
 
 .toolbar-btn {
@@ -462,10 +527,6 @@ async function sendBroadcastCounterRead() {
 .btn-stop { color: var(--c-peach); }
 .btn-close { color: var(--c-red); }
 
-.toolbar-spacer {
-  flex: 1;
-}
-
 .toolbar-title {
   font-size: 13px;
   font-weight: 600;
@@ -492,6 +553,10 @@ async function sendBroadcastCounterRead() {
   border: 1px solid var(--c-surface0, #ccc);
   border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.12);
   min-width: 160px;
+}
+/* Teleported to <body>; positioned from the trigger's viewport rect. */
+.split-menu.floating {
+  position: fixed;
 }
 .split-menu li { padding: 6px 12px; cursor: pointer; white-space: nowrap; font-size: 12px; }
 .split-menu li:hover { background: var(--c-surface0, #f0f0f0); }
