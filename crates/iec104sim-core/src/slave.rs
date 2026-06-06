@@ -1104,8 +1104,12 @@ async fn handle_client_read_loop(
                             let (points_snapshot, ca_bytes_opt): (Vec<DataPoint>, Option<[u8; 2]>) = {
                                 let stations_read = stations.read().await;
                                 if let Some(station) = stations_read.get(&ca) {
+                                    // GI (C_IC_NA_1) 只召唤过程信息;累积量 (M_IT) 仅由
+                                    // 计数量召唤 (C_CI_NA_1) 上送,此处排除。
                                     let pts: Vec<DataPoint> = station.data_points.all_sorted()
-                                        .into_iter().cloned().collect();
+                                        .into_iter()
+                                        .filter(|p| !matches!(p.value, DataPointValue::IntegratedTotal { .. }))
+                                        .cloned().collect();
                                     (pts, Some(station.common_address.to_le_bytes()))
                                 } else {
                                     (Vec::new(), None)
@@ -2045,6 +2049,8 @@ async fn send_gi_response_blocking(
     {
         let mut s = seq.lock().await;
         for point in station.data_points.all_sorted() {
+            // GI 排除累积量 (M_IT);累积量仅由计数量召唤 (C_CI_NA_1) 上送。
+            if matches!(point.value, DataPointValue::IntegratedTotal { .. }) { continue; }
             batch.extend_from_slice(&encode_point_frame_ex(point, 20, &ca_bytes, &mut s, None));
             if ops.gi_include_timestamped
                 && should_derive_tb(&station.data_points, point.asdu_type, point.ioa)

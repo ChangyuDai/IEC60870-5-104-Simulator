@@ -74,16 +74,17 @@ async fn gi_then_ci_keeps_float_and_counter_at_same_ioa() {
     master.connect().await.unwrap();
     sleep(Duration::from_millis(300)).await;
 
-    // 1) General Interrogation — brings in both types.
+    // 1) General Interrogation — brings in floats only (counters are CI-only).
     master.send_interrogation(1).await.unwrap();
     sleep(Duration::from_millis(1500)).await;
     {
         let data = master.received_data.read().await;
         let map = data.ca_map(1).expect("CA=1 map missing after GI");
         assert!(map.get(100, AsduTypeId::MMeNc1).is_some(), "float@100 missing after GI");
-        assert!(map.get(100, AsduTypeId::MItNa1).is_some(), "counter@100 missing after GI");
         assert!(map.get(101, AsduTypeId::MMeNc1).is_some(), "float@101 missing after GI");
-        assert!(map.get(101, AsduTypeId::MItNa1).is_some(), "counter@101 missing after GI");
+        // GI 不召唤累积量 (M_IT) — counter 此时尚未到达。
+        assert!(map.get(100, AsduTypeId::MItNa1).is_none(), "counter@100 不应被 GI 带回");
+        assert!(map.get(101, AsduTypeId::MItNa1).is_none(), "counter@101 不应被 GI 带回");
     }
 
     // 2) Counter Interrogation — must NOT evict float entries at the same IOAs.

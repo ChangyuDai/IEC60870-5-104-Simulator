@@ -17,9 +17,10 @@ use iec104sim_core::slave::RemoteOperationConfig;
 use common::harness::{MasterBuilder, SlaveBuilder};
 use common::helpers::{wait_for_ioa_count, wait_for_log_event};
 
-/// 每类 5000 个点 × 8 NA 类型 = 40,000 点（默认不再预建 TB,故为 8 类而非 16）。
+/// 每类 5000 个点。GI 只返回 7 个过程量分类(累积量 M_IT 仅由计数量召唤上送),
+/// 故 GI 收到 7×5000 = 35,000 点（默认不再预建 TB）。
 const POINTS_PER_CATEGORY: u32 = 5000;
-const TOTAL_POINTS: usize = 8 * POINTS_PER_CATEGORY as usize;
+const GI_POINTS: usize = 7 * POINTS_PER_CATEGORY as usize;
 
 #[tokio::test]
 async fn gi_80k_points_completes_within_window() {
@@ -53,17 +54,17 @@ async fn gi_80k_points_completes_within_window() {
     .expect("4 万点 GI 应在 10s 内完成（远低于 t1=15s 阈值）");
     let gi_elapsed = start.elapsed();
 
-    // 等 master 收齐所有 IOA。with_default_points 把 8 NA 类型都用 IOA=1..=POINTS_PER_CATEGORY，
-    // master.received_data 内每个 (ioa, type) 是独立条目，总条目数 = TOTAL_POINTS。
+    // 等 master 收齐 GI 范围内的 IOA。with_default_points 建 8 NA 类型,但 GI 只召唤
+    // 7 个过程量分类(累积量除外),master.received_data 内 GI 条目数 = GI_POINTS。
     let count = wait_for_ioa_count(
         &master.conn,
         1,
-        TOTAL_POINTS,
+        GI_POINTS,
         Duration::from_secs(5),
     )
     .await
-    .expect("master 应收齐 40,000 个 (IOA, type) 条目");
-    assert!(count >= TOTAL_POINTS, "count = {} 应 >= {}", count, TOTAL_POINTS);
+    .expect("master 应收齐 35,000 个 (IOA, type) 条目");
+    assert!(count >= GI_POINTS, "count = {} 应 >= {}", count, GI_POINTS);
 
     // SQ=1 启用后实际 I 帧数应远低于点位数。8w 点理论上能压到几千帧以内。
     let rx_iframes = log
@@ -74,10 +75,10 @@ async fn gi_80k_points_completes_within_window() {
         .filter(|e| matches!(e.frame_label, FrameLabel::IFrame(_)))
         .count();
     assert!(
-        rx_iframes < TOTAL_POINTS / 4,
+        rx_iframes < GI_POINTS / 4,
         "I 帧数 {} 应远低于 {}（应启用 SQ=1）",
         rx_iframes,
-        TOTAL_POINTS / 4
+        GI_POINTS / 4
     );
 
     eprintln!(
