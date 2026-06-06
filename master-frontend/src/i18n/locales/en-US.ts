@@ -38,7 +38,6 @@ const dict: DictShape = {
     configLoadFailed: 'Open failed',
     broadcast: 'Broadcast',
     broadcastGi: 'Broadcast GI',
-    broadcastClockSync: 'Broadcast Clock Sync',
     broadcastCounterRead: 'Broadcast Counter Read',
     broadcastAddressLabel: 'Current broadcast address',
     giAllCAs: 'All CAs',

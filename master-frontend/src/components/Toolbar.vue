@@ -296,14 +296,6 @@ async function sendBroadcastGI() {
   broadcastMenuOpen.value = false
 }
 
-async function sendBroadcastClockSync() {
-  if (!selectedConnectionId.value) return
-  try {
-    await invoke('send_broadcast_clock_sync', { id: selectedConnectionId.value })
-  } catch (e) { await showAlert(String(e)) }
-  broadcastMenuOpen.value = false
-}
-
 async function sendBroadcastCounterRead() {
   if (!selectedConnectionId.value) return
   try {
@@ -378,7 +370,6 @@ async function sendBroadcastCounterRead() {
             @click.stop
           >
             <li @click="sendBroadcastGI">{{ t('toolbar.broadcastGi') }}</li>
-            <li @click="sendBroadcastClockSync">{{ t('toolbar.broadcastClockSync') }}</li>
             <li @click="sendBroadcastCounterRead">{{ t('toolbar.broadcastCounterRead') }}</li>
           </ul>
         </Teleport>

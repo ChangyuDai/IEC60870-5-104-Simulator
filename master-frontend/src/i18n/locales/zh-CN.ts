@@ -36,7 +36,6 @@ export type DictShape = {
     configLoadFailed: string
     broadcast: string
     broadcastGi: string
-    broadcastClockSync: string
     broadcastCounterRead: string
     broadcastAddressLabel: string
     giAllCAs: string
@@ -289,7 +288,6 @@ const dict: DictShape = {
     configLoadFailed: '打开失败',
     broadcast: '广播',
     broadcastGi: '广播总召',
-    broadcastClockSync: '广播对时',
     broadcastCounterRead: '广播计量召唤',
     broadcastAddressLabel: '当前广播地址',
     giAllCAs: '全部 CA',
