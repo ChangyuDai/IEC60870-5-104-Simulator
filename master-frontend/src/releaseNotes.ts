@@ -4,6 +4,7 @@ export const RELEASES_URL = 'https://github.com/Karl-Dai/IEC60870-5-104-Simulato
 
 // Keep in sync with CHANGELOG.md — see `release` skill.
 export const RELEASE_NOTES: string[] = [
+  '自动更新提速: 更新源 (updater.endpoints) 优先改用 GitHub 原始地址, 绕开带宽抽风的免费镜像 ghfast.top (此前排第一时曾把更新拖到 0.01MB/s 近乎卡死); 注意 endpoint 顺序固化在已装版本里, 装上本版后后续更新才走新顺序',
   '主站计量召唤改为按 CA 选择: 与总召一致, 多 CA 连接点「计量召唤」弹出菜单选具体 CA 或「全部 CA」, 单 CA 连接直接发, 不再无差别向所有已配置公共地址并发',
   '主站移除「广播对时」前端入口: 「广播 ▾」拆分菜单去掉「广播对时」项 (广播总召 / 广播计量召唤保留), 后端广播对时命令仍在、可经报文或脚本调用',
   '短浮点显示精度提升至 6 位小数: 数据表与报文解析器中 short float (M_ME_NC / M_ME_TF / C_SE_NC) 由 3 位改为 6 位, 更贴合 IEEE 754 单精度有效位',

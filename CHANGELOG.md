@@ -2,6 +2,17 @@
 
 本项目的所有重要变更记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.12.3] - 2026-06-08
+
+### Highlights / 亮点
+
+- 🚀 **修复自动更新极慢**:更新源(`updater.endpoints`)把 GitHub 原始 release 地址提到第一,绕开带宽抽风的免费镜像 `ghfast.top`(实测曾低至 0.01 MB/s,6MB 增量包要下近 10 分钟);GitHub 原始地址稳定 2 MB/s+,数秒完成 / **Fix painfully slow auto-update**: the GitHub release origin is now the first `updater.endpoints` entry, bypassing the flaky free mirror `ghfast.top` (measured as low as 0.01 MB/s — ~10 min for a 6 MB delta); the GitHub origin holds 2 MB/s+ and finishes in seconds.
+- ℹ️ **更新顺序固化在已装版本**:Tauri 更新器的 endpoint 顺序编译进 app,本次更新仍走旧顺序;装上 1.12.3 后,之后的更新才享受新顺序 / **Endpoint order is baked into the installed build**: this very update still uses the old order; subsequent updates benefit only after 1.12.3 is installed.
+
+### Fixed 修复
+
+- 主站与子站两个 app 的 `updater.endpoints` 重排为 `GitHub 原始 → gh-proxy → gh.idayer → ghfast(兜底)`。Tauri 更新器按顺序取第一个「清单可达」的源,且下载本身慢/挂**不会**自动换源,因此排第一的 `ghfast.top` 一旦带宽抽风就会拖死整个更新 / Reordered `updater.endpoints` in both the master and slave apps to `GitHub origin → gh-proxy → gh.idayer → ghfast (last-resort)`. Tauri's updater picks the first endpoint whose manifest is reachable and does **not** fall back to another source when the download itself stalls, so a flaky first mirror would drag down the whole update.
+
 ## [1.12.2] - 2026-06-08
 
 ### Highlights / 亮点
