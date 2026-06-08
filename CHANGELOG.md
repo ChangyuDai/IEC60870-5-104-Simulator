@@ -2,10 +2,11 @@
 
 本项目的所有重要变更记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
-## [1.12.1] - 2026-06-08
+## [1.12.2] - 2026-06-08
 
 ### Highlights / 亮点
 
+- ♻️ **本版为 1.12.1 的重新发布**:上一标签 CI 资产上传遇一次性网络抖动,本版为**同内容**的干净构建,功能与 1.12.1 完全一致 / **Re-release of 1.12.1**: the previous tag hit a one-off network blip during CI asset upload; this is a clean rebuild with identical functionality.
 - 🎯 **主站计量召唤改为按 CA 选择**:与总召一致,多 CA 连接点「计量召唤」弹出菜单选具体 CA 或「全部 CA」,单 CA 连接直接发,不再无差别向所有已配置公共地址并发计量召唤 / **Master counter interrogation is now per-CA selectable**: like GI, a multi-CA connection opens a menu to pick a specific CA or "all CAs" (single-CA connections send directly), instead of always fanning out to every configured common address.
 - 🗑️ **主站移除「广播对时」前端入口**:「广播 ▾」拆分菜单去掉「广播对时」项(广播总召 / 广播计量召唤保留),后端广播对时命令仍在、可经报文或脚本调用,仅收起易被误用的 UI 入口 / **Master drops the "broadcast clock sync" UI entry**: the "Broadcast ▾" split menu no longer lists broadcast time-sync (broadcast GI / counter interrogation stay); the backend command remains callable — only the easily-misused UI entry is removed.
 - 🔢 **短浮点显示精度提升至 6 位小数**:数据表与报文解析器中 short float(M_ME_NC / M_ME_TF / C_SE_NC)由 3 位小数改为 6 位,更贴合 IEEE 754 单精度有效位 / **Short-float values now show 6 decimals**: the data table and frame parser render short floats (M_ME_NC / M_ME_TF / C_SE_NC) with 6 decimals instead of 3, closer to the IEEE 754 single-precision significand.
