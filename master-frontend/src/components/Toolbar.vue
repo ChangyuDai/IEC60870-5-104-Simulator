@@ -56,12 +56,16 @@ const broadcastAddrLabel = ref('FFFF')
 // 单 CA 连接直接发。connCAs 缓存当前连接的 CA 列表,用于按钮 ▾ 提示。
 const giMenuOpen = ref(false)
 const giCAs = ref<number[]>([])
+// 计量召唤(C_CI)沿用与总召相同的"选 CA"交互:多 CA 弹菜单,单 CA 直发。
+const ccMenuOpen = ref(false)
+const ccCAs = ref<number[]>([])
 const connCAs = ref<number[]>([])
 
 // Dropdown menus are teleported to <body> so the toolbar's horizontal-scroll
 // container can't clip them. That means fixed-positioning them from the
 // trigger's viewport rect, captured the moment the menu opens.
 const giMenuPos = ref({ top: 0, left: 0 })
+const ccMenuPos = ref({ top: 0, left: 0 })
 const broadcastMenuPos = ref({ top: 0, left: 0 })
 function anchorPos(el: HTMLElement) {
   const r = el.getBoundingClientRect()
@@ -92,6 +96,7 @@ function closeBroadcastMenu(e: MouseEvent) {
   const el = e.target as HTMLElement
   if (!el.closest('.split-btn')) broadcastMenuOpen.value = false
   if (!el.closest('.gi-btn-wrap')) giMenuOpen.value = false
+  if (!el.closest('.cc-btn-wrap')) ccMenuOpen.value = false
 }
 onMounted(() => document.addEventListener('click', closeBroadcastMenu))
 onBeforeUnmount(() => document.removeEventListener('click', closeBroadcastMenu))
@@ -241,10 +246,35 @@ async function sendClockSync() {
   }
 }
 
-async function sendCounterRead() {
+// 点"计量召唤":单 CA 连接直接发;多 CA 连接弹出菜单让用户选具体 CA 或全部。
+async function sendCounterRead(e: MouseEvent) {
+  // Capture the anchor synchronously — `currentTarget` is nulled after the await.
+  const anchor = anchorPos(e.currentTarget as HTMLElement)
   if (!selectedConnectionId.value) return
   try {
-    await fanOutCAs('send_counter_read')
+    const cas = await getConnCAs()
+    ccCAs.value = cas
+    if (cas.length <= 1) {
+      await doCounterRead(cas[0] ?? null)
+    } else {
+      ccMenuPos.value = anchor
+      ccMenuOpen.value = !ccMenuOpen.value
+    }
+  } catch (e) {
+    await showAlert(String(e))
+  }
+}
+
+// 发送计量召唤。ca 为具体公共地址;ca === null 表示对所有 CA 并发(菜单"全部 CA")。
+async function doCounterRead(ca: number | null) {
+  ccMenuOpen.value = false
+  if (!selectedConnectionId.value) return
+  try {
+    if (ca === null) {
+      await fanOutCAs('send_counter_read')
+    } else {
+      await invoke('send_counter_read', { id: selectedConnectionId.value, commonAddress: ca })
+    }
     refreshData()
     setTimeout(() => refreshTree(), 3000)
   } catch (e) {
@@ -377,9 +407,22 @@ async function sendBroadcastCounterRead() {
       <button class="toolbar-btn" :disabled="!hasConnection() || !isConnected()" @click="sendClockSync">
         {{ t('toolbar.clockSync') }}
       </button>
-      <button class="toolbar-btn" :disabled="!hasConnection() || !isConnected()" @click="sendCounterRead">
-        {{ t('toolbar.counterRead') }}
-      </button>
+      <div class="gi-btn-wrap cc-btn-wrap">
+        <button class="toolbar-btn" :disabled="!hasConnection() || !isConnected()" @click="sendCounterRead">
+          {{ t('toolbar.counterRead') }}<span v-if="connCAs.length > 1" class="gi-caret">&#9662;</span>
+        </button>
+        <Teleport to="body">
+          <ul
+            v-if="ccMenuOpen"
+            class="split-menu floating"
+            :style="{ top: ccMenuPos.top + 'px', left: ccMenuPos.left + 'px' }"
+            @click.stop
+          >
+            <li @click="doCounterRead(null)">{{ t('toolbar.giAllCAs') }}</li>
+            <li v-for="ca in ccCAs" :key="ca" @click="doCounterRead(ca)">CA {{ ca }}</li>
+          </ul>
+        </Teleport>
+      </div>
       <button class="toolbar-btn" :disabled="!hasConnection() || !isConnected()" @click="openCustomControl">
         {{ t('toolbar.customControl') }}
       </button>
