@@ -4,6 +4,9 @@ export const RELEASES_URL = 'https://github.com/Karl-Dai/IEC60870-5-104-Simulato
 
 // Keep in sync with CHANGELOG.md — see `release` skill.
 export const RELEASE_NOTES: string[] = [
+  '主站计量召唤改为按 CA 选择: 与总召一致, 多 CA 连接点「计量召唤」弹出菜单选具体 CA 或「全部 CA」, 单 CA 连接直接发, 不再无差别向所有已配置公共地址并发',
+  '主站移除「广播对时」前端入口: 「广播 ▾」拆分菜单去掉「广播对时」项 (广播总召 / 广播计量召唤保留), 后端广播对时命令仍在、可经报文或脚本调用',
+  '短浮点显示精度提升至 6 位小数: 数据表与报文解析器中 short float (M_ME_NC / M_ME_TF / C_SE_NC) 由 3 位改为 6 位, 更贴合 IEEE 754 单精度有效位',
   '主站遥控支持三种控制模式: 发送控制命令对话框新增「仅执行 / 仅选择 / 自动两步」下拉 (direct execute / select-only / 自动 select-before-operate 两步), 所选模式持久化',
   '主站归一化值改用原始整数 (NVA i16): 测量值在数据表按原始 16 位整数显示, 设定值按原始整数输入并直传, 不再经工程值换算, 可与报文逐字节对照',
   '主站总召唤改为按 CA 选择: 连接后不再自动对全部公共地址总召, 改由用户按需选择目标 CA',

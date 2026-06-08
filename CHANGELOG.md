@@ -2,6 +2,27 @@
 
 本项目的所有重要变更记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.12.1] - 2026-06-08
+
+### Highlights / 亮点
+
+- 🎯 **主站计量召唤改为按 CA 选择**:与总召一致,多 CA 连接点「计量召唤」弹出菜单选具体 CA 或「全部 CA」,单 CA 连接直接发,不再无差别向所有已配置公共地址并发计量召唤 / **Master counter interrogation is now per-CA selectable**: like GI, a multi-CA connection opens a menu to pick a specific CA or "all CAs" (single-CA connections send directly), instead of always fanning out to every configured common address.
+- 🗑️ **主站移除「广播对时」前端入口**:「广播 ▾」拆分菜单去掉「广播对时」项(广播总召 / 广播计量召唤保留),后端广播对时命令仍在、可经报文或脚本调用,仅收起易被误用的 UI 入口 / **Master drops the "broadcast clock sync" UI entry**: the "Broadcast ▾" split menu no longer lists broadcast time-sync (broadcast GI / counter interrogation stay); the backend command remains callable — only the easily-misused UI entry is removed.
+- 🔢 **短浮点显示精度提升至 6 位小数**:数据表与报文解析器中 short float(M_ME_NC / M_ME_TF / C_SE_NC)由 3 位小数改为 6 位,更贴合 IEEE 754 单精度有效位 / **Short-float values now show 6 decimals**: the data table and frame parser render short floats (M_ME_NC / M_ME_TF / C_SE_NC) with 6 decimals instead of 3, closer to the IEEE 754 single-precision significand.
+
+### Changed 改进
+
+- 主站计量召唤(C_CI)入口由"对所有已配置 CA 并发"改为"选 CA":前端 `sendCounterRead` / `doCounterRead` 复用总召的菜单逻辑(单 CA 直发、多 CA 弹 teleport 菜单);后端 `send_counter_read(common_address)` 早已按 CA,本次仅补齐前端选择 UI / Master counter interrogation (C_CI) changed from fanning out to all configured CAs to per-CA selection: frontend `sendCounterRead` / `doCounterRead` reuse the GI menu logic (single-CA sends directly, multi-CA opens a teleported menu); the backend `send_counter_read` was already per-CA, so only the frontend selection UI was added.
+- 短浮点显示由 3 位小数改为 6 位:后端 `DataPointValue::display()` `{:.3}` → `{:.6}`,前端报文解析器 `formatValue()` `toFixed(3)` → `toFixed(6)`;仅显示格式变化,底层 f32 数据与线上传输不变 / Short-float display changed from 3 to 6 decimals (backend `DataPointValue::display()` and the frame parser's `toFixed`). Display-only; underlying f32 data and wire bytes are unchanged.
+
+### Removed 移除
+
+- 主站「广播 ▾」菜单中的「广播对时」入口(后端广播对时命令保留)/ The "broadcast clock sync" item in the master's "Broadcast ▾" menu (the backend broadcast time-sync command is kept).
+
+### Tests 测试
+
+- 更新 `data_point` display 单测断言以匹配 6 位小数输出(改用 f32 可精确表示的 `25.125` → `"25.125000"`,避免 f32 舍入歧义)/ Updated the `data_point` display unit-test assertion for 6-decimal output (uses f32-exact `25.125` → `"25.125000"`).
+
 ## [1.12.0] - 2026-06-07
 
 ### Highlights / 亮点

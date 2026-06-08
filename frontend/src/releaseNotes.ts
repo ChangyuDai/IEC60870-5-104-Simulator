@@ -4,6 +4,8 @@ export const RELEASES_URL = 'https://github.com/Karl-Dai/IEC60870-5-104-Simulato
 
 // Keep in sync with CHANGELOG.md — see `release` skill.
 export const RELEASE_NOTES: string[] = [
+  '短浮点显示精度提升至 6 位小数: 数据表与报文解析器中 short float (M_ME_NC / M_ME_TF / C_SE_NC) 由 3 位改为 6 位',
+  '本版主站另有: 计量召唤改为按 CA 选择、移除「广播对时」前端入口 (后端广播对时命令保留), 详见 CHANGELOG.md',
   '子站工具栏精简: 移除顶部「随机变化 / 周期发送」按钮及其 ms 间隔输入框',
   '子站总召唤 (GI) 不再上送累积量 (M_IT): 累积量仅由计数量召唤 (C_CI) 上送, 符合 IEC 60870-5-104 规约',
   '子站工具栏窄窗口优化: 操作按钮区横向滚动, 语言 / 版本 / 关于状态区常驻',
