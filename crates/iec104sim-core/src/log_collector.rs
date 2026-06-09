@@ -40,8 +40,9 @@ impl LogCollector {
     }
 
     /// Add a log entry.
-    pub async fn add(&self, entry: LogEntry) {
+    pub async fn add(&self, mut entry: LogEntry) {
         if !self.is_enabled() { return; }
+        enrich_detail(&mut entry);
         let mut entries = self.entries.write().await;
         if entries.len() >= MAX_LOG_ENTRIES {
             entries.remove(0);
@@ -50,8 +51,9 @@ impl LogCollector {
     }
 
     /// Add a log entry (blocking version).
-    pub fn add_blocking(&self, entry: LogEntry) {
+    pub fn add_blocking(&self, mut entry: LogEntry) {
         if !self.is_enabled() { return; }
+        enrich_detail(&mut entry);
         let mut entries = self.entries.blocking_write();
         if entries.len() >= MAX_LOG_ENTRIES {
             entries.remove(0);
@@ -60,8 +62,9 @@ impl LogCollector {
     }
 
     /// Add a log entry (non-blocking, safe to call from sync code within async runtime).
-    pub fn try_add(&self, entry: LogEntry) {
+    pub fn try_add(&self, mut entry: LogEntry) {
         if !self.is_enabled() { return; }
+        enrich_detail(&mut entry);
         if let Ok(mut entries) = self.entries.try_write() {
             if entries.len() >= MAX_LOG_ENTRIES {
                 entries.remove(0);
@@ -139,6 +142,23 @@ impl LogCollector {
     }
 }
 
+/// 给单对象数据帧的日志在汇总头后追加解析出的具体值(IOA/值/品质/时标)。
+///
+/// 一处覆盖主/子站、收/发的所有 I 帧数据日志(它们都带 `raw_bytes`):
+///   - 无 `raw_bytes`(连接事件等)→ 原样;
+///   - 多对象帧 / U / S / 解析失败 → `format_single_object_detail` 返回 `None`,原样;
+///   - detail 已含增强分隔符 `▸` → 幂等跳过,不二次追加。
+fn enrich_detail(entry: &mut LogEntry) {
+    if entry.detail.contains('▸') {
+        return;
+    }
+    let Some(raw) = entry.raw_bytes.as_ref() else { return };
+    if let Some(values) = crate::decode::format_single_object_detail(raw) {
+        entry.detail.push_str(" ▸ ");
+        entry.detail.push_str(&values);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -181,5 +201,60 @@ mod tests {
 
         collector.clear().await;
         assert!(collector.is_empty().await);
+    }
+
+    /// 单对象数据帧:汇总头后追加具体值。
+    fn m_me_nc_single() -> Vec<u8> {
+        // M_ME_NC_1 IOA=1 float=1.5 QDS=0
+        let mut bytes = vec![0x68, 0x10, 0x00, 0x00, 0x00, 0x00];
+        bytes.extend_from_slice(&[0x0D, 0x01, 0x03, 0x00, 0x01, 0x00]);
+        bytes.extend_from_slice(&[0x01, 0x00, 0x00]);
+        bytes.extend_from_slice(&1.5f32.to_le_bytes());
+        bytes.push(0x00);
+        bytes
+    }
+
+    #[tokio::test]
+    async fn add_appends_single_object_values_to_detail() {
+        let collector = LogCollector::new();
+        collector.add(LogEntry::with_raw_bytes(
+            Direction::Rx, FrameLabel::IFrame("M_ME_NC_1".into()),
+            "M_ME_NC_1 CA=1 n=1 COT=3 SQ=0", m_me_nc_single(),
+        )).await;
+        let logs = collector.get_all().await;
+        assert_eq!(logs[0].detail, "M_ME_NC_1 CA=1 n=1 COT=3 SQ=0 ▸ IOA=1 val=1.500000 q=OK");
+    }
+
+    #[tokio::test]
+    async fn multi_object_and_no_raw_detail_unchanged() {
+        let collector = LogCollector::new();
+        // 多对象 SQ 帧 → 不增强(仅汇总)
+        let mut multi = vec![0x68, 0x0E, 0x00, 0x00, 0x00, 0x00];
+        multi.extend_from_slice(&[0x01, 0x83, 0x14, 0x00, 0x01, 0x00]);
+        multi.extend_from_slice(&[0x0A, 0x00, 0x00]);
+        multi.extend_from_slice(&[0x01, 0x00, 0x01]);
+        collector.add(LogEntry::with_raw_bytes(
+            Direction::Rx, FrameLabel::IFrame("M_SP_NA_1".into()),
+            "M_SP_NA_1 CA=1 n=3 COT=20 SQ=1", multi,
+        )).await;
+        // 无 raw_bytes → 不增强
+        collector.add(LogEntry::new(
+            Direction::Tx, FrameLabel::GeneralInterrogation, "GI CA=1",
+        )).await;
+        let logs = collector.get_all().await;
+        assert_eq!(logs[0].detail, "M_SP_NA_1 CA=1 n=3 COT=20 SQ=1");
+        assert_eq!(logs[1].detail, "GI CA=1");
+    }
+
+    #[tokio::test]
+    async fn enrich_is_idempotent() {
+        // detail 已含增强分隔符 → 不再二次追加
+        let collector = LogCollector::new();
+        collector.add(LogEntry::with_raw_bytes(
+            Direction::Rx, FrameLabel::IFrame("M_ME_NC_1".into()),
+            "pre ▸ IOA=1 val=already", m_me_nc_single(),
+        )).await;
+        let logs = collector.get_all().await;
+        assert_eq!(logs[0].detail, "pre ▸ IOA=1 val=already");
     }
 }

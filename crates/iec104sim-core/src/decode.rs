@@ -340,6 +340,47 @@ pub fn parse_frame_full(data: &[u8]) -> Result<ParsedFrame, String> {
     })
 }
 
+/// 把单信息对象数据帧解析成紧凑的具体值串,供通信日志在汇总头后追加。
+///
+/// 仅当帧是 I 帧 ASDU 且**恰含 1 个信息对象**时返回
+/// `Some("IOA=.. val=.. q=.. t=..")`;多对象帧(GI 批量 / SQ 连续)、U/S 帧、
+/// 解析失败均返回 `None`(调用方据此保持汇总头不变)。
+pub fn format_single_object_detail(data: &[u8]) -> Option<String> {
+    let asdu = parse_frame_full(data).ok()?.asdu?;
+    if asdu.objects.len() != 1 {
+        return None; // 多对象帧仅汇总,不逐点
+    }
+    let obj = &asdu.objects[0];
+    let mut s = format!("IOA={}", obj.ioa);
+    if let Some(v) = &obj.value {
+        s.push_str(" val=");
+        s.push_str(&v.display());
+    }
+    if let Some(q) = &obj.quality {
+        s.push_str(" q=");
+        s.push_str(&format_quality(q));
+    }
+    if let Some(t) = &obj.timestamp {
+        s.push_str(&format!(
+            " t={:02}-{:02} {:02}:{:02}:{:02}.{:03}",
+            t.month, t.day, t.hour, t.minute,
+            t.millisecond / 1000, t.millisecond % 1000
+        ));
+    }
+    Some(s)
+}
+
+/// 把品质描述词压成紧凑串:只列置位的标志,全清为 `OK`。
+fn format_quality(q: &QualityFlags) -> String {
+    let mut flags = Vec::new();
+    if q.ov { flags.push("OV"); }
+    if q.bl { flags.push("BL"); }
+    if q.sb { flags.push("SB"); }
+    if q.nt { flags.push("NT"); }
+    if q.iv { flags.push("IV"); }
+    if flags.is_empty() { "OK".to_string() } else { flags.join(",") }
+}
+
 /// Parse the ASDU portion of an I-frame, starting at byte 6.
 fn parse_asdu(data: &[u8], warnings: &mut Vec<String>) -> ParsedAsdu {
     // ASDU header is 6 bytes: type / VSQ / COT / OA / CA(2)
@@ -486,6 +527,67 @@ mod tests {
         }
         assert!(obj.quality.is_some());
         assert!(obj.timestamp.is_none());
+    }
+
+    // ---- format_single_object_detail: 通信日志「具体值」拼接 ----
+
+    #[test]
+    fn single_object_detail_float_no_quality_flags() {
+        // M_ME_NC_1 IOA=1 float=1.5 QDS=0 → q=OK,无时标
+        let mut bytes = vec![0x68, 0x10, 0x00, 0x00, 0x00, 0x00];
+        bytes.extend_from_slice(&[0x0D, 0x01, 0x03, 0x00, 0x01, 0x00]);
+        bytes.extend_from_slice(&[0x01, 0x00, 0x00]);
+        bytes.extend_from_slice(&1.5f32.to_le_bytes());
+        bytes.push(0x00);
+        assert_eq!(
+            format_single_object_detail(&bytes).as_deref(),
+            Some("IOA=1 val=1.500000 q=OK")
+        );
+    }
+
+    #[test]
+    fn single_object_detail_single_point_with_iv_quality() {
+        // M_SP_NA_1 IOA=7 SIQ=0x81 (SPI=ON + IV)
+        let mut bytes = vec![0x68, 0x0E, 0x00, 0x00, 0x00, 0x00];
+        bytes.extend_from_slice(&[0x01, 0x01, 0x03, 0x00, 0x01, 0x00]);
+        bytes.extend_from_slice(&[0x07, 0x00, 0x00]);
+        bytes.push(0x81);
+        assert_eq!(
+            format_single_object_detail(&bytes).as_deref(),
+            Some("IOA=7 val=ON q=IV")
+        );
+    }
+
+    #[test]
+    fn single_object_detail_with_cp56time2a() {
+        // M_ME_TF_1 IOA=5 float=3.14 QDS=0 + CP56 ms=1000 min=30 hour=12 day=29 month=4
+        let mut bytes = vec![0x68, 0x17, 0x00, 0x00, 0x00, 0x00];
+        bytes.extend_from_slice(&[0x24, 0x01, 0x03, 0x00, 0x01, 0x00]);
+        bytes.extend_from_slice(&[0x05, 0x00, 0x00]);
+        bytes.extend_from_slice(&3.14f32.to_le_bytes());
+        bytes.push(0x00);
+        bytes.extend_from_slice(&[0xE8, 0x03, 30, 12, 29, 4, 26]);
+        // ms=1000 → 秒=1 余=0
+        assert_eq!(
+            format_single_object_detail(&bytes).as_deref(),
+            Some("IOA=5 val=3.140000 q=OK t=04-29 12:30:01.000")
+        );
+    }
+
+    #[test]
+    fn multi_object_frame_returns_none() {
+        // SQ M_SP_NA_1 3 点 → 多对象,仅汇总(None)
+        let mut bytes = vec![0x68, 0x0E, 0x00, 0x00, 0x00, 0x00];
+        bytes.extend_from_slice(&[0x01, 0x83, 0x14, 0x00, 0x01, 0x00]);
+        bytes.extend_from_slice(&[0x0A, 0x00, 0x00]);
+        bytes.extend_from_slice(&[0x01, 0x00, 0x01]);
+        assert_eq!(format_single_object_detail(&bytes), None);
+    }
+
+    #[test]
+    fn u_and_s_frames_return_none() {
+        assert_eq!(format_single_object_detail(&[0x68, 0x04, 0x07, 0x00, 0x00, 0x00]), None);
+        assert_eq!(format_single_object_detail(&[0x68, 0x04, 0x01, 0x00, 0x0A, 0x00]), None);
     }
 
     #[test]
