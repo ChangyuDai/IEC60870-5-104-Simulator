@@ -129,18 +129,6 @@ impl Default for RandomMutationPacing {
     fn default() -> Self { Self { batch_size: 2000, delay_ms: 50 } }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct FixedMutationConfig {
-    pub enabled: bool,
-    pub ioa: u32,
-    pub asdu_type: AsduTypeId,
-    pub period_ms: u32,
-}
-
-impl Default for FixedMutationConfig {
-    fn default() -> Self { Self { enabled: false, ioa: 1, asdu_type: AsduTypeId::MSpNa1, period_ms: 1000 } }
-}
-
 /// 按分类的「变位同步上送 TB」开关。变位/周期上送时,开启的分类会在 NA 帧之后
 /// 额外派生并上送对应的带时标 (TB) 帧。累计量 (IT) 靠召唤上送而非变位,不提供此开关。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -203,7 +191,6 @@ pub struct RemoteOperationConfig {
     pub cancel_ack_cot: CommandAckCot,
     pub random_pacing: RandomMutationPacing,
     pub auto_packing: bool,
-    pub fixed_mutation: FixedMutationConfig,
 }
 
 impl Default for RemoteOperationConfig {
@@ -221,7 +208,6 @@ impl Default for RemoteOperationConfig {
             cancel_ack_cot: CommandAckCot::DeactivationCon,
             random_pacing: RandomMutationPacing::default(),
             auto_packing: false,
-            fixed_mutation: FixedMutationConfig::default(),
         }
     }
 }
@@ -540,9 +526,10 @@ pub struct SlaveServer {
     shutdown_flag: Arc<std::sync::atomic::AtomicBool>,
     server_handle: Option<tokio::task::JoinHandle<()>>,
     cyclic_handle: Option<tokio::task::JoinHandle<()>>,
-    /// 固定变位后台任务句柄。`set_fixed_mutation` 在 enabled 切换时 abort 旧任务。
-    #[allow(dead_code)]
-    fixed_mutation_handle: tokio::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
+    /// 按 (ca, ioa, asdu_type) 维护的周期变位任务句柄。每个点位独立启停;
+    /// `start_point_mutation` 对同一 key 重复调用会先 abort 旧任务。
+    point_mutation_handles:
+        tokio::sync::Mutex<HashMap<(u16, u32, AsduTypeId), tokio::task::JoinHandle<()>>>,
     connections: SharedConnections,
 }
 
@@ -558,7 +545,7 @@ impl SlaveServer {
             shutdown_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             server_handle: None,
             cyclic_handle: None,
-            fixed_mutation_handle: tokio::sync::Mutex::new(None),
+            point_mutation_handles: tokio::sync::Mutex::new(HashMap::new()),
             connections: Arc::new(RwLock::new(HashMap::new())),
         }
     }
@@ -621,46 +608,67 @@ impl SlaveServer {
         ).await;
     }
 
-    /// 启停固定变位后台任务。enabled=true 时启动周期翻转任务;enabled=false 时
-    /// 仅 abort 旧任务。再次调用 enabled=true 会先 abort 旧任务再启新的。
-    pub async fn set_fixed_mutation(&self, config: FixedMutationConfig) {
-        let mut guard = self.fixed_mutation_handle.lock().await;
-        if let Some(h) = guard.take() { h.abort(); }
-        {
-            let mut ops = self.remote_ops.write().await;
-            ops.fixed_mutation = config;
-        }
-        if !config.enabled { return; }
+    /// 启动单个点位的周期变位。同 (ca, ioa, asdu_type) 已有任务则先 abort 再起新的。
+    /// period_ms 下限 50ms。任务周期性 flip_value 该点并上送 spontaneous。
+    pub async fn start_point_mutation(
+        &self,
+        ca: u16,
+        ioa: u32,
+        asdu_type: AsduTypeId,
+        period_ms: u32,
+    ) {
+        let key = (ca, ioa, asdu_type);
+        let mut guard = self.point_mutation_handles.lock().await;
+        if let Some(h) = guard.remove(&key) { h.abort(); }
+
         let stations = self.stations.clone();
         let connections = self.connections.clone();
         let remote_ops = self.remote_ops.clone();
         let log_collector = self.log_collector.clone();
         let shutdown_flag = self.shutdown_flag.clone();
         let handle = tokio::spawn(async move {
-            let period = std::time::Duration::from_millis(config.period_ms.max(50) as u64);
+            let period = std::time::Duration::from_millis(period_ms.max(50) as u64);
             let mut interval = tokio::time::interval(period);
             interval.tick().await; // 跳过 immediate first tick
             loop {
                 interval.tick().await;
                 if shutdown_flag.load(std::sync::atomic::Ordering::SeqCst) { break; }
-                let mut changed_per_ca: Vec<(u16, u32, AsduTypeId)> = Vec::new();
-                {
+                let flipped = {
                     let mut st_guard = stations.write().await;
-                    for (ca, station) in st_guard.iter_mut() {
-                        if let Some(p) = station.data_points.get_mut(config.ioa, config.asdu_type) {
+                    if let Some(station) = st_guard.get_mut(&ca) {
+                        if let Some(p) = station.data_points.get_mut(ioa, asdu_type) {
                             p.value = flip_value(&p.value);
                             p.timestamp = Some(chrono::Utc::now());
-                            station.data_points.mark_changed(config.ioa, config.asdu_type);
-                            changed_per_ca.push((*ca, config.ioa, config.asdu_type));
+                            // p 的可变借用到此结束(NLL),mark_changed 可重新借 data_points。
+                            station.data_points.mark_changed(ioa, asdu_type);
+                            true
+                        } else {
+                            false
                         }
+                    } else {
+                        false
                     }
-                }
-                for (ca, ioa, t) in changed_per_ca {
-                    do_queue_spontaneous(&stations, &connections, &remote_ops, &log_collector, ca, &[(ioa, t)]).await;
+                };
+                if flipped {
+                    do_queue_spontaneous(
+                        &stations, &connections, &remote_ops, &log_collector,
+                        ca, &[(ioa, asdu_type)],
+                    ).await;
                 }
             }
         });
-        *guard = Some(handle);
+        guard.insert(key, handle);
+    }
+
+    /// 停止单个点位的周期变位。
+    pub async fn stop_point_mutation(&self, ca: u16, ioa: u32, asdu_type: AsduTypeId) {
+        let mut guard = self.point_mutation_handles.lock().await;
+        if let Some(h) = guard.remove(&(ca, ioa, asdu_type)) { h.abort(); }
+    }
+
+    /// 返回当前活跃的周期变位点位 (ca, ioa, asdu_type)。
+    pub async fn list_point_mutations(&self) -> Vec<(u16, u32, AsduTypeId)> {
+        self.point_mutation_handles.lock().await.keys().copied().collect()
     }
 
     pub async fn start(&mut self) -> Result<(), SlaveError> {
@@ -938,6 +946,10 @@ impl SlaveServer {
         let _ = tokio::net::TcpStream::connect(&addr).await;
         if let Some(h) = self.server_handle.take() { let _ = h.await; }
         if let Some(h) = self.cyclic_handle.take() { let _ = h.await; }
+        {
+            let mut handles = self.point_mutation_handles.lock().await;
+            for (_k, h) in handles.drain() { h.abort(); }
+        }
         self.state = ServerState::Stopped;
         if let Some(ref lc) = self.log_collector {
             lc.try_add(LogEntry::new(
@@ -2417,7 +2429,7 @@ fn flip_value(value: &DataPointValue) -> DataPointValue {
 }
 
 /// 模块级 `queue_spontaneous` 实现,供 `SlaveServer.queue_spontaneous` 和
-/// `set_fixed_mutation` 后台任务共用。
+/// `start_point_mutation` 后台任务共用。
 async fn do_queue_spontaneous(
     stations: &SharedStations,
     connections: &SharedConnections,
