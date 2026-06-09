@@ -92,14 +92,6 @@ export interface RandomMutationPacing {
   delay_ms: number
 }
 
-export interface FixedMutationConfig {
-  enabled: boolean
-  ioa: number
-  /** snake_case ASDU type identifier matching Rust serde enum, e.g. "m_sp_na_1". */
-  asdu_type: string
-  period_ms: number
-}
-
 /** 按分类的「变位同步上送 TB」开关。变位/周期上送时,开启的分类会额外派生 TB 帧。
  *  累计量 (IT) 靠召唤上送,不提供此开关。字段名与后端 serde 对齐。 */
 export interface SyncTbByCategory {
@@ -125,7 +117,12 @@ export interface RemoteOperationConfig {
   cancel_ack_cot: CommandAckCot
   random_pacing: RandomMutationPacing
   auto_packing: boolean
-  fixed_mutation: FixedMutationConfig
+}
+
+/** list_point_mutations 返回项。asdu_type 为大写显示名（与 DataPointInfo.asdu_type 一致）。 */
+export interface PointMutationInfo {
+  ioa: number
+  asdu_type: string
 }
 
 export const DEFAULT_PROTOCOL_TIMING: ProtocolTimingConfig = {
@@ -145,5 +142,4 @@ export const DEFAULT_REMOTE_OPS: RemoteOperationConfig = {
   cancel_ack_cot: 'deactivation_con',
   random_pacing: { batch_size: 2000, delay_ms: 50 },
   auto_packing: false,
-  fixed_mutation: { enabled: false, ioa: 1, asdu_type: 'm_sp_na_1', period_ms: 1000 },
 }

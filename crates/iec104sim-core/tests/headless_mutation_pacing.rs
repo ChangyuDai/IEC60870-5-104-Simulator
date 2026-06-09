@@ -1,7 +1,7 @@
-//! 验证固定变位后台任务的起停,以及随机变位的 batch_size/delay_ms 分批节奏。
+//! 验证点位周期变位的起停、多点并发独立性,以及句柄登记 (list_point_mutations)。
 //!
-//! 注:随机变位的 Tauri 命令在 app crate;core 层只暴露了 `set_fixed_mutation`
-//! 和 `queue_spontaneous` 的分批节奏配置。本文件覆盖 core 层能直接观测的部分。
+//! 注:周期变位的 Tauri 命令在 app crate;core 层暴露
+//! `start_point_mutation` / `stop_point_mutation` / `list_point_mutations`。
 
 mod common;
 use common::harness::Pair;
@@ -9,115 +9,96 @@ use common::helpers::{count_iframes, wait_for_ioa_count, DEFAULT_TIMEOUT};
 
 use iec104sim_core::data_point::DataPointValue;
 use iec104sim_core::log_entry::Direction;
-use iec104sim_core::slave::{FixedMutationConfig, RemoteOperationConfig};
+use iec104sim_core::slave::RemoteOperationConfig;
 use iec104sim_core::types::AsduTypeId;
 use tokio::time::{sleep, Duration};
 
-/// 固定变位 enabled=true 启动后,master 在 1 秒内应收到至少 3 帧 M_SP_NA_1 自发帧。
-/// 然后 disable,继续观察 500 ms 内不再有新增。
+/// 单点周期变位:启动后 1 秒内 master 应收到至少 3 帧 M_SP_NA_1 自发帧;
+/// 停止后不再新增,且 list_point_mutations 清空。
 #[tokio::test]
-async fn fixed_mutation_starts_and_stops() {
+async fn point_mutation_starts_and_stops() {
     let pair = Pair::spawn(RemoteOperationConfig::default()).await;
 
-    // 先 GI 让 master 进入数据传输 + 填充 baseline。
     pair.master.conn.send_interrogation(1).await.unwrap();
     let _ = wait_for_ioa_count(&pair.master.conn, 1, 1, DEFAULT_TIMEOUT).await;
     pair.log.clear().await;
 
-    // 启动固定变位:IOA=1 / M_SP_NA_1 / 周期 200 ms。
     pair.slave.server
-        .set_fixed_mutation(FixedMutationConfig {
-            enabled: true,
-            ioa: 1,
-            asdu_type: AsduTypeId::MSpNa1,
-            period_ms: 200,
-        })
+        .start_point_mutation(1, 1, AsduTypeId::MSpNa1, 200)
         .await;
+    assert_eq!(pair.slave.server.list_point_mutations().await.len(), 1);
 
-    // 1 秒应至少 3 次翻转 → 至少 3 帧 spontaneous。
     sleep(Duration::from_secs(1)).await;
     let count_during = count_iframes(&pair.log, Direction::Rx, "M_SP_NA_1").await;
     assert!(count_during >= 3, "1 秒应至少 3 帧 M_SP_NA_1,实际 {}", count_during);
 
-    // 停止
-    pair.slave.server
-        .set_fixed_mutation(FixedMutationConfig { enabled: false, ..FixedMutationConfig::default() })
-        .await;
+    pair.slave.server.stop_point_mutation(1, 1, AsduTypeId::MSpNa1).await;
+    assert!(pair.slave.server.list_point_mutations().await.is_empty());
+
     sleep(Duration::from_millis(300)).await;
     let baseline = count_iframes(&pair.log, Direction::Rx, "M_SP_NA_1").await;
     sleep(Duration::from_millis(500)).await;
     let after_stop = count_iframes(&pair.log, Direction::Rx, "M_SP_NA_1").await;
-    assert_eq!(baseline, after_stop, "禁用后不应再增加 M_SP_NA_1 帧");
+    assert_eq!(baseline, after_stop, "停止后不应再增加 M_SP_NA_1 帧");
 
     pair.shutdown().await;
 }
 
-/// 重新调用 `set_fixed_mutation` 应 abort 上一个任务,新参数立即生效。
+/// 多点并发:IOA=1 与 IOA=2 同时变位,各自独立产生帧;停 IOA=1 后,
+/// IOA=2 继续而 IOA=1 停止增长。
 #[tokio::test]
-async fn fixed_mutation_reconfigure_aborts_previous() {
+async fn multi_point_mutation_independent() {
     let pair = Pair::spawn(RemoteOperationConfig::default()).await;
     pair.master.conn.send_interrogation(1).await.unwrap();
-    let _ = wait_for_ioa_count(&pair.master.conn, 1, 1, DEFAULT_TIMEOUT).await;
+    let _ = wait_for_ioa_count(&pair.master.conn, 1, 2, DEFAULT_TIMEOUT).await;
 
-    // 第一次:200 ms 周期。
-    pair.slave.server
-        .set_fixed_mutation(FixedMutationConfig {
-            enabled: true,
-            ioa: 1,
-            asdu_type: AsduTypeId::MSpNa1,
-            period_ms: 200,
-        })
-        .await;
-    sleep(Duration::from_millis(400)).await;
-    // 切换为不同 IOA,旧任务应 abort。
-    pair.log.clear().await;
-    pair.slave.server
-        .set_fixed_mutation(FixedMutationConfig {
-            enabled: true,
-            ioa: 2,
-            asdu_type: AsduTypeId::MSpNa1,
-            period_ms: 300,
-        })
-        .await;
-    sleep(Duration::from_millis(900)).await;
+    pair.slave.server.start_point_mutation(1, 1, AsduTypeId::MSpNa1, 150).await;
+    pair.slave.server.start_point_mutation(1, 2, AsduTypeId::MSpNa1, 150).await;
+    assert_eq!(pair.slave.server.list_point_mutations().await.len(), 2);
 
-    // 验证 IOA=2 收到至少 1 帧;IOA=1 在切换后应停止增长 (此处粗略不严格验证)。
+    let count_ioa = |frames: &Vec<iec104sim_core::log_entry::LogEntry>, ioa: &str| {
+        frames.iter().filter(|e| {
+            matches!(&e.frame_label, iec104sim_core::log_entry::FrameLabel::IFrame(s) if s.contains("M_SP_NA_1"))
+                && e.detail.contains(ioa)
+        }).count()
+    };
+
+    sleep(Duration::from_millis(600)).await;
     let frames = pair.log.get_all().await;
-    let saw_ioa2 = frames.iter().any(|e| matches!(&e.frame_label, iec104sim_core::log_entry::FrameLabel::IFrame(s) if s.contains("M_SP_NA_1")) && e.detail.contains("IOA=2"));
-    assert!(saw_ioa2, "新任务应针对 IOA=2 触发上送");
+    assert!(count_ioa(&frames, "IOA=1") >= 2, "IOA=1 应已多次变位");
+    assert!(count_ioa(&frames, "IOA=2") >= 2, "IOA=2 应已多次变位");
 
-    // 收尾
-    pair.slave.server
-        .set_fixed_mutation(FixedMutationConfig { enabled: false, ..FixedMutationConfig::default() })
-        .await;
+    // 停 IOA=1,保留 IOA=2。
+    pair.slave.server.stop_point_mutation(1, 1, AsduTypeId::MSpNa1).await;
+    let active = pair.slave.server.list_point_mutations().await;
+    assert_eq!(active, vec![(1u16, 2u32, AsduTypeId::MSpNa1)]);
+
+    pair.log.clear().await;
+    sleep(Duration::from_millis(600)).await;
+    let frames2 = pair.log.get_all().await;
+    assert_eq!(count_ioa(&frames2, "IOA=1"), 0, "停止后 IOA=1 不应再变位");
+    assert!(count_ioa(&frames2, "IOA=2") >= 2, "IOA=2 应继续变位");
+
+    pair.slave.server.stop_point_mutation(1, 2, AsduTypeId::MSpNa1).await;
     pair.shutdown().await;
 }
 
-/// 验证翻转值确实变化:SP 点应在两次 tick 间从 false↔true 切换。
+/// 翻转值确实变化:SP 点首次 tick 后从 false↔true 切换。
 #[tokio::test]
-async fn fixed_mutation_actually_flips_value() {
+async fn point_mutation_actually_flips_value() {
     let pair = Pair::spawn(RemoteOperationConfig::default()).await;
     pair.master.conn.send_interrogation(1).await.unwrap();
     let _ = wait_for_ioa_count(&pair.master.conn, 1, 1, DEFAULT_TIMEOUT).await;
 
-    // 取 IOA=1 的初始值。
-    let initial = {
+    let init_b = {
         let stations = pair.slave.server.stations.read().await;
-        stations.get(&1).unwrap().data_points.get(1, AsduTypeId::MSpNa1).unwrap().value.clone()
-    };
-    let init_b = match initial {
-        DataPointValue::SinglePoint { value } => value,
-        _ => panic!("默认应是 SinglePoint"),
+        match stations.get(&1).unwrap().data_points.get(1, AsduTypeId::MSpNa1).unwrap().value {
+            DataPointValue::SinglePoint { value } => value,
+            _ => panic!("默认应是 SinglePoint"),
+        }
     };
 
-    pair.slave.server
-        .set_fixed_mutation(FixedMutationConfig {
-            enabled: true,
-            ioa: 1,
-            asdu_type: AsduTypeId::MSpNa1,
-            period_ms: 150,
-        })
-        .await;
+    pair.slave.server.start_point_mutation(1, 1, AsduTypeId::MSpNa1, 150).await;
     sleep(Duration::from_millis(200)).await;
     let after_one = {
         let stations = pair.slave.server.stations.read().await;
@@ -128,8 +109,6 @@ async fn fixed_mutation_actually_flips_value() {
     };
     assert_ne!(init_b, after_one, "首次 tick 后值应已翻转");
 
-    pair.slave.server
-        .set_fixed_mutation(FixedMutationConfig { enabled: false, ..FixedMutationConfig::default() })
-        .await;
+    pair.slave.server.stop_point_mutation(1, 1, AsduTypeId::MSpNa1).await;
     pair.shutdown().await;
 }

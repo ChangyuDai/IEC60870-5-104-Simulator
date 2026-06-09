@@ -47,7 +47,9 @@ pub fn run() {
             commands::get_protocol_timing,
             commands::set_remote_operation_config,
             commands::get_remote_operation_config,
-            commands::set_fixed_mutation,
+            commands::start_point_mutation,
+            commands::stop_point_mutation,
+            commands::list_point_mutations,
             // Config file save/open
             commands::save_config,
             commands::load_config,

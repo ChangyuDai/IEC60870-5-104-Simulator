@@ -3,7 +3,7 @@ import { ref, inject, watch, computed, nextTick, onMounted, onUnmounted, shallow
 import { invoke } from '@tauri-apps/api/core'
 import { dialogKey } from '@shared/composables/useDialog'
 import type { showAlert as ShowAlert } from '@shared/composables/useDialog'
-import type { DataPointInfo, IncrementalDataResponse } from '../types'
+import type { DataPointInfo, IncrementalDataResponse, PointMutationInfo } from '../types'
 import DataPointModal from './DataPointModal.vue'
 import BatchAddModal from './BatchAddModal.vue'
 import { useI18n, localizeCategoryLabel } from '@shared/i18n'
@@ -47,6 +47,10 @@ const showBatchModal = ref(false)
 // an IOA-only key would flash every type on that IOA when only one changed.
 const changedKeys = ref<Set<string>>(new Set())
 const changeTimers = new Map<string, number>()
+// 当前 (server, CA) 下正在周期变位的点位 key 集合（`ioa:asdu_type`）。
+const activeMutations = ref<Set<string>>(new Set())
+// 右键菜单内的周期输入，组件内记住上次值。
+const mutationPeriod = ref(1000)
 
 // === Virtual scroll (same pattern as master DataTable) ===
 const ROW_HEIGHT = 28
@@ -190,6 +194,7 @@ function startPolling() {
   pollTimer = setInterval(() => {
     if (currentServerId && currentCA !== null) {
       loadDataPoints()
+      refreshActiveMutations()
     }
   }, 2000)
 }
@@ -408,6 +413,7 @@ function showContextMenu(e: MouseEvent, point: DataPointInfo) {
     emitSelection()
   }
   contextMenu.value = { show: true, x: e.clientX, y: e.clientY }
+  refreshActiveMutations()
 }
 
 function closeContextMenu() {
@@ -435,6 +441,69 @@ async function deleteSelectedPoints() {
     emitSelection()
     updateDisplay()
     await loadDataPoints()
+  } catch (e) {
+    await showAlert(String(e))
+  }
+}
+
+// 拉取当前 (server, CA) 的活跃周期变位集合。
+async function refreshActiveMutations() {
+  const srvId = selectedServerId.value
+  const ca = selectedCA.value
+  if (!srvId || ca === null) { activeMutations.value = new Set(); return }
+  try {
+    const list = await invoke<PointMutationInfo[]>('list_point_mutations', {
+      serverId: srvId,
+      commonAddress: ca,
+    })
+    activeMutations.value = new Set(list.map(m => pointKey(m.ioa, m.asdu_type)))
+  } catch (e) {
+    console.error('Failed to load point mutations:', e)
+  }
+}
+
+// 选中点位里是否有正在变位的（决定是否显示「停止」项）。
+const anySelectedMutating = computed(() =>
+  selectedRows.value.some(r => activeMutations.value.has(pointKey(r.ioa, r.asdu_type)))
+)
+
+async function startMutationForSelection() {
+  contextMenu.value.show = false
+  const srvId = selectedServerId.value
+  if (!srvId || currentCA === null) return
+  const period = Math.min(60000, Math.max(50, mutationPeriod.value || 1000))
+  const targets = selectedRows.value.map(r => ({ ioa: r.ioa, asdu_type: r.asdu_type }))
+  try {
+    for (const tgt of targets) {
+      await invoke('start_point_mutation', {
+        serverId: srvId,
+        commonAddress: currentCA,
+        ioa: tgt.ioa,
+        asduType: tgt.asdu_type,
+        periodMs: period,
+      })
+    }
+    await refreshActiveMutations()
+  } catch (e) {
+    await showAlert(String(e))
+  }
+}
+
+async function stopMutationForSelection() {
+  contextMenu.value.show = false
+  const srvId = selectedServerId.value
+  if (!srvId || currentCA === null) return
+  const targets = selectedRows.value.map(r => ({ ioa: r.ioa, asdu_type: r.asdu_type }))
+  try {
+    for (const tgt of targets) {
+      await invoke('stop_point_mutation', {
+        serverId: srvId,
+        commonAddress: currentCA,
+        ioa: tgt.ioa,
+        asduType: tgt.asdu_type,
+      })
+    }
+    await refreshActiveMutations()
   } catch (e) {
     await showAlert(String(e))
   }
@@ -524,12 +593,15 @@ defineExpose({ loadData: loadDataPoints })
               :key="point.ioa + ':' + point.asdu_type"
               :class="{
                 selected: isSelected(point),
-                'value-changed': changedKeys.has(point.ioa + ':' + point.asdu_type)
+                'value-changed': changedKeys.has(point.ioa + ':' + point.asdu_type),
+                mutating: activeMutations.has(point.ioa + ':' + point.asdu_type)
               }"
               @click="selectRow($event, point)"
               @contextmenu.prevent="showContextMenu($event, point)"
             >
-              <td class="col-ioa">{{ point.ioa }}</td>
+              <td class="col-ioa">
+                <span v-if="activeMutations.has(point.ioa + ':' + point.asdu_type)" class="mut-dot" />{{ point.ioa }}
+              </td>
               <td class="col-type">{{ point.asdu_type }}</td>
               <td class="col-name">{{ point.name || '-' }}</td>
               <td :class="['col-value', { 'value-highlight': changedKeys.has(point.ioa + ':' + point.asdu_type) }]" @dblclick.stop="startEdit(point)">
@@ -570,6 +642,25 @@ defineExpose({ loadData: loadDataPoints })
       :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }"
       @click.stop
     >
+      <label class="context-menu-period" @click.stop>
+        <span>{{ t('table.mutationPeriod') }}</span>
+        <input
+          type="number"
+          min="50"
+          max="60000"
+          v-model.number="mutationPeriod"
+          @keydown.enter="startMutationForSelection"
+          @click.stop
+        />
+        <span class="cm-unit">ms</span>
+      </label>
+      <div class="context-menu-item" @click="startMutationForSelection">
+        {{ selectedCount > 1 ? `${t('table.startMutation')} (${selectedCount})` : t('table.startMutation') }}
+      </div>
+      <div v-if="anySelectedMutating" class="context-menu-item" @click="stopMutationForSelection">
+        {{ t('table.stopMutation') }}
+      </div>
+      <div class="context-menu-sep" />
       <div class="context-menu-item danger" @click="deleteSelectedPoints">
         {{ selectedCount > 1 ? `${t('table.deletePoint')} (${selectedCount})` : t('table.deletePoint') }}
       </div>
@@ -820,5 +911,52 @@ defineExpose({ loadData: loadDataPoints })
 
 .context-menu-item.danger:hover {
   background: #3d2a30;
+}
+
+.context-menu-period {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--c-subtext0);
+}
+.context-menu-period input {
+  width: 64px;
+  height: 22px;
+  padding: 0 6px;
+  background: var(--c-base);
+  border: 1px solid var(--c-surface0);
+  border-radius: 4px;
+  color: var(--c-text);
+  font: 500 12px/1 ui-monospace, "SF Mono", Menlo, monospace;
+  text-align: right;
+}
+.context-menu-period input:focus {
+  outline: none;
+  border-color: var(--c-blue);
+}
+.cm-unit {
+  color: var(--c-overlay0);
+  font-size: 11px;
+}
+.context-menu-sep {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--c-surface0);
+}
+.mut-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--c-green);
+  vertical-align: middle;
+  animation: mut-pulse 1s ease-in-out infinite;
+}
+@keyframes mut-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
 }
 </style>

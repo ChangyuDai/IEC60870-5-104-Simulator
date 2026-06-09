@@ -141,6 +141,9 @@ const dict: DictShape = {
     qualityCol: 'Quality',
     timestampCol: 'Timestamp',
     deletePoint: 'Delete Point',
+    startMutation: 'Start Mutation',
+    stopMutation: 'Stop Mutation',
+    mutationPeriod: 'Period',
   },
   pointModal: {
     title: 'Add Data Point',

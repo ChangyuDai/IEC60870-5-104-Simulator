@@ -3,7 +3,6 @@ import { invoke } from '@tauri-apps/api/core'
 import {
   type ProtocolTimingConfig,
   type RemoteOperationConfig,
-  type FixedMutationConfig,
   DEFAULT_PROTOCOL_TIMING,
   DEFAULT_REMOTE_OPS,
 } from '../types'
@@ -61,18 +60,7 @@ export function useRemoteParams(selectedServerId: Ref<string | null>) {
     }
   }
 
-  async function setFixedMutation(config: FixedMutationConfig) {
-    const id = selectedServerId.value
-    if (!id) return
-    try {
-      await invoke('set_fixed_mutation', { request: { server_id: id, config } })
-      ops.value.fixed_mutation = { ...config }
-    } catch (e) {
-      lastError.value = String(e)
-    }
-  }
-
   watch(selectedServerId, load, { immediate: true })
 
-  return { timing, ops, loading, lastError, load, applyTiming, applyOps, setFixedMutation }
+  return { timing, ops, loading, lastError, load, applyTiming, applyOps }
 }

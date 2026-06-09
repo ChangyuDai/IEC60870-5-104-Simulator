@@ -3,7 +3,7 @@ use iec104sim_core::data_point::{DataPoint, DataPointValue, InformationObjectDef
 use iec104sim_core::log_collector::LogCollector;
 use iec104sim_core::log_entry::LogEntry;
 use iec104sim_core::slave::{
-    FixedMutationConfig, ProtocolTimingConfig, RemoteOperationConfig, SlaveServer,
+    ProtocolTimingConfig, RemoteOperationConfig, SlaveServer,
     SlaveTransportConfig, Station,
 };
 use iec104sim_core::types::{AsduTypeId, QualityFlags};
@@ -1052,24 +1052,70 @@ pub async fn get_remote_operation_config(
     Ok(srv.server.get_remote_ops().await)
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub struct FixedMutationRequest {
-    pub server_id: String,
-    pub config: FixedMutationConfig,
+#[tauri::command]
+pub async fn start_point_mutation(
+    state: State<'_, AppState>,
+    server_id: String,
+    common_address: u16,
+    ioa: u32,
+    asdu_type: String,
+    period_ms: u32,
+) -> Result<(), String> {
+    let asdu = parse_asdu_type(&asdu_type)?;
+    let servers = state.servers.read().await;
+    let srv = servers
+        .get(&server_id)
+        .ok_or_else(|| format!("server {} not found", server_id))?;
+    srv.server
+        .start_point_mutation(common_address, ioa, asdu, period_ms)
+        .await;
+    Ok(())
 }
 
 #[tauri::command]
-pub async fn set_fixed_mutation(
+pub async fn stop_point_mutation(
     state: State<'_, AppState>,
-    request: FixedMutationRequest,
+    server_id: String,
+    common_address: u16,
+    ioa: u32,
+    asdu_type: String,
 ) -> Result<(), String> {
+    let asdu = parse_asdu_type(&asdu_type)?;
     let servers = state.servers.read().await;
     let srv = servers
-        .get(&request.server_id)
-        .ok_or_else(|| format!("server {} not found", request.server_id))?;
-    srv.server.set_fixed_mutation(request.config).await;
+        .get(&server_id)
+        .ok_or_else(|| format!("server {} not found", server_id))?;
+    srv.server
+        .stop_point_mutation(common_address, ioa, asdu)
+        .await;
     Ok(())
+}
+
+/// list_point_mutations 返回项。asdu_type 用 .name() 大写显示名,
+/// 与 list_data_points 的 DataPointInfo.asdu_type 一致,前端可直接拼 key。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct PointMutationInfo {
+    pub ioa: u32,
+    pub asdu_type: String,
+}
+
+#[tauri::command]
+pub async fn list_point_mutations(
+    state: State<'_, AppState>,
+    server_id: String,
+    common_address: u16,
+) -> Result<Vec<PointMutationInfo>, String> {
+    let servers = state.servers.read().await;
+    let srv = servers
+        .get(&server_id)
+        .ok_or_else(|| format!("server {} not found", server_id))?;
+    let active = srv.server.list_point_mutations().await;
+    Ok(active
+        .into_iter()
+        .filter(|(ca, _, _)| *ca == common_address)
+        .map(|(_, ioa, t)| PointMutationInfo { ioa, asdu_type: t.name().to_string() })
+        .collect())
 }
 
 // ---------------------------------------------------------------------------

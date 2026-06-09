@@ -22,7 +22,7 @@ const emit = defineEmits<{
 const localServerId = ref<string | null>(props.serverId)
 watch(() => props.serverId, v => { localServerId.value = v })
 
-const { timing, ops, loading, lastError, applyTiming, applyOps, setFixedMutation } =
+const { timing, ops, loading, lastError, applyTiming, applyOps } =
   useRemoteParams(localServerId)
 
 const isSaving = ref(false)
@@ -35,8 +35,6 @@ async function handleSave() {
     await applyTiming()
     if (lastError.value) return
     await applyOps()
-    if (lastError.value) return
-    await setFixedMutation({ ...ops.value.fixed_mutation })
     if (lastError.value) return
     emit('saved')
     emit('close')
@@ -80,19 +78,7 @@ watch(() => props.visible, (v) => {
 
           <div class="modal-body">
             <div v-if="loading" class="muted">{{ t('runtimeParams.loading') }}</div>
-            <RemoteParamsForm v-else :timing="timing" :ops="ops">
-              <template #actions-fixed="{ enabled }">
-                <label class="fixed-enable">
-                  <input type="checkbox" v-model="ops.fixed_mutation.enabled" />
-                  <span class="track" :class="{ on: enabled }">
-                    <span class="thumb" />
-                  </span>
-                  <span class="fixed-enable-label">
-                    保存后<strong>{{ enabled ? '运行' : '停止' }}</strong>
-                  </span>
-                </label>
-              </template>
-            </RemoteParamsForm>
+            <RemoteParamsForm v-else :timing="timing" :ops="ops" />
             <p v-if="lastError" class="error">{{ lastError }}</p>
           </div>
 
