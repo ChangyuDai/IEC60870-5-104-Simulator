@@ -1809,6 +1809,7 @@ fn process_received_frame<W: RawWrite>(
         log_frame(data, log_collector);
         if ctrl1 == 0x43 {
             let _ = writer.write_raw(&TESTFR_CON);
+            log_tx_control_frame(log_collector, FrameLabel::UTestCon, &TESTFR_CON, || "TESTFR CON".to_string());
         }
     } else if ctrl1 & 0x01 == 0x01 {
         log_frame(data, log_collector);
