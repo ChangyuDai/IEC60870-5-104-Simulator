@@ -119,6 +119,12 @@ export interface RemoteOperationConfig {
   auto_packing: boolean
 }
 
+/** list_point_mutations 返回项。asdu_type 为大写显示名（与 DataPointInfo.asdu_type 一致）。 */
+export interface PointMutationInfo {
+  ioa: number
+  asdu_type: string
+}
+
 export const DEFAULT_PROTOCOL_TIMING: ProtocolTimingConfig = {
   t0: 30, t1: 15, t2: 10, t3: 20, k: 12, w: 8,
 }
