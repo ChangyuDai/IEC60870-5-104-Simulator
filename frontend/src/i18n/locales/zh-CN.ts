@@ -139,6 +139,9 @@ export type DictShape = {
     qualityCol: string
     timestampCol: string
     deletePoint: string
+    startMutation: string
+    stopMutation: string
+    mutationPeriod: string
   }
   pointModal: {
     title: string
@@ -391,6 +394,9 @@ const dict: DictShape = {
     qualityCol: '品质',
     timestampCol: '时间戳',
     deletePoint: '删除数据点',
+    startMutation: '启动周期变位',
+    stopMutation: '停止周期变位',
+    mutationPeriod: '周期',
   },
   pointModal: {
     title: '添加数据点',
