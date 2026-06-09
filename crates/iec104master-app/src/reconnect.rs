@@ -1,0 +1,105 @@
+//! 主站连接的状态督导任务(state supervisor)。
+//!
+//! 在 `create_connection` 里随每个连接 spawn 一个本任务,职责有二:
+//!   1. 把 core 的 `MasterState` 变化转发给前端(`emit`);
+//!   2. 一旦连接**建立过之后**掉线(Disconnected/Error),按 T0 间隔自动重连
+//!      (`on_drop`,内部封装"等 T0 + 调 connect")。
+//!
+//! 督导只在**首次 Connected 之后**才武装重连:首次连接失败(填错 IP/端口)
+//! 仍按 Error 暴露给用户,不静默无限重试。武装之后,任何进入 Disconnected/
+//! Error 都触发重连(含用户手动断开 —— 唯一停止办法是删除连接)。
+//!
+//! 决策逻辑与 Tauri 解耦,纯靠注入的 `emit`/`on_drop` 闭包驱动,便于无头测试。
+
+use iec104sim_core::master::MasterState;
+use std::future::Future;
+use tokio::sync::watch;
+
+/// 驱动一个连接的状态督导循环。`state_rx` 关闭(连接被删除)时返回。
+pub async fn run_state_supervisor<E, R, RF>(
+    mut state_rx: watch::Receiver<MasterState>,
+    mut emit: E,
+    mut on_drop: R,
+) where
+    E: FnMut(MasterState),
+    R: FnMut() -> RF,
+    RF: Future<Output = ()>,
+{
+    let mut armed = false;
+    while state_rx.changed().await.is_ok() {
+        let state = *state_rx.borrow_and_update();
+        emit(state);
+        match state {
+            MasterState::Connected => armed = true,
+            MasterState::Disconnected | MasterState::Error if armed => {
+                // on_drop 内部封装"等 T0 + 重连";其间 connect() 驱动的
+                // Connecting/Connected 变化会在下一轮 changed() 被取到。
+                on_drop().await;
+            }
+            _ => {}
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::sync::mpsc;
+
+    /// 首次 Connected 之前的 Error 不触发重连;Connected 之后的 Disconnected/
+    /// Error 各触发一次;state 通道关闭后督导退出。
+    #[tokio::test]
+    async fn arms_after_connected_then_reconnects_on_every_drop() {
+        let (state_tx, state_rx) = watch::channel(MasterState::Disconnected);
+        let (emit_tx, mut emit_rx) = mpsc::unbounded_channel();
+        let (drop_tx, mut drop_rx) = mpsc::unbounded_channel();
+        let drop_count = Arc::new(AtomicUsize::new(0));
+
+        let dc = drop_count.clone();
+        let sup = tokio::spawn(run_state_supervisor(
+            state_rx,
+            move |s| {
+                let _ = emit_tx.send(s);
+            },
+            move || {
+                let dc = dc.clone();
+                let drop_tx = drop_tx.clone();
+                async move {
+                    dc.fetch_add(1, Ordering::SeqCst);
+                    let _ = drop_tx.send(());
+                }
+            },
+        ));
+
+        // 首次 Connected 之前的 Error:转发,但不武装重连。
+        state_tx.send_replace(MasterState::Error);
+        assert_eq!(emit_rx.recv().await.unwrap(), MasterState::Error);
+        assert_eq!(drop_count.load(Ordering::SeqCst), 0);
+
+        // 首次成功 Connected 武装督导。
+        state_tx.send_replace(MasterState::Connected);
+        assert_eq!(emit_rx.recv().await.unwrap(), MasterState::Connected);
+
+        // 掉线触发一次重连。
+        state_tx.send_replace(MasterState::Disconnected);
+        assert_eq!(emit_rx.recv().await.unwrap(), MasterState::Disconnected);
+        drop_rx.recv().await.unwrap();
+        assert_eq!(drop_count.load(Ordering::SeqCst), 1);
+
+        // 重连失败落到 Error,再触发一次。
+        state_tx.send_replace(MasterState::Error);
+        assert_eq!(emit_rx.recv().await.unwrap(), MasterState::Error);
+        drop_rx.recv().await.unwrap();
+        assert_eq!(drop_count.load(Ordering::SeqCst), 2);
+
+        // 连接被删除(state 通道关闭)→ 督导退出。
+        drop(state_tx);
+        tokio::time::timeout(Duration::from_secs(1), sup)
+            .await
+            .expect("supervisor should exit when state channel closes")
+            .unwrap();
+    }
+}

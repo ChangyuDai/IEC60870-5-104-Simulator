@@ -1,4 +1,5 @@
 mod commands;
+pub mod reconnect;
 mod state;
 pub mod update;
 

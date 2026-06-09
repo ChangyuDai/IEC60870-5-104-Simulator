@@ -196,23 +196,52 @@ pub async fn create_connection(
         .with_ca_inbox(ca_inbox);
     connection.set_configured_cas(common_addresses.clone());
 
-    // Forward state-change notifications from the core connection to the frontend.
-    // Exits when the connection is dropped (`delete_connection`) and its `state_tx` closes.
-    let mut state_rx = connection.subscribe_state();
-    let id_for_task = id.clone();
-    let app_handle_for_task = app_handle.clone();
-    tokio::spawn(async move {
-        while state_rx.changed().await.is_ok() {
-            let new_state = *state_rx.borrow_and_update();
-            let _ = app_handle_for_task.emit(
+    // 状态督导任务:把 core 的状态变化转发给前端,并在连接建立过之后异常
+    // 掉线时按 T0 间隔自动重连。连接被删除(`delete_connection`)→ state_tx
+    // 关闭 → 任务退出。重连决策逻辑见 `crate::reconnect`。
+    let state_rx = connection.subscribe_state();
+    let emit_handle = app_handle.clone();
+    let emit_id = id.clone();
+    let reconnect_handle = app_handle.clone();
+    let reconnect_id = id.clone();
+    tokio::spawn(crate::reconnect::run_state_supervisor(
+        state_rx,
+        move |new_state| {
+            let _ = emit_handle.emit(
                 "connection-state",
                 ConnectionStateEvent {
-                    id: id_for_task.clone(),
+                    id: emit_id.clone(),
                     state: format!("{:?}", new_state),
                 },
             );
-        }
-    });
+        },
+        move || {
+            let app = reconnect_handle.clone();
+            let id = reconnect_id.clone();
+            async move {
+                use iec104sim_core::master::MasterState;
+                use tauri::Manager;
+                // 掉线后实时取当前 T0(跟随配置变更),等 T0 再重连。读 t0 时
+                // 不持锁过 sleep,避免阻塞其他连接操作。
+                let t0 = {
+                    let st: State<'_, AppState> = app.state();
+                    let conns = st.connections.read().await;
+                    match conns.get(&id) {
+                        Some(c) => c.connection.config().t0,
+                        None => return,
+                    }
+                };
+                tokio::time::sleep(std::time::Duration::from_secs(t0 as u64)).await;
+                let st: State<'_, AppState> = app.state();
+                let mut conns = st.connections.write().await;
+                if let Some(c) = conns.get_mut(&id) {
+                    if c.connection.state() != MasterState::Connected {
+                        let _ = c.connection.connect().await;
+                    }
+                }
+            }
+        },
+    ));
 
     let info = ConnectionInfo::from_config(
         id.clone(),
