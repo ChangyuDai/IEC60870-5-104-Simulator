@@ -2422,6 +2422,54 @@ mod tests {
         assert!(!p.quality.iv && !p.quality.ov && !p.quality.bl && !p.quality.sb, "未置位品质应为 false");
     }
 
+    #[tokio::test]
+    async fn master_logs_tx_testfr_con_on_received_testfr_act() {
+        // 回归:主站收到 TESTFR ACT(0x43)会回发 TESTFR CON(0x83),
+        // 这条 TX 帧必须出现在通信日志里(此前 write_raw 后漏记)。
+        struct VecWriter(Vec<u8>);
+        impl RawWrite for VecWriter {
+            fn write_raw(&mut self, frame: &[u8]) -> std::io::Result<()> {
+                self.0.extend_from_slice(frame);
+                Ok(())
+            }
+        }
+
+        let received: SharedReceivedData = Arc::new(RwLock::new(MasterReceivedData::new()));
+        let collector = Arc::new(LogCollector::new());
+        let log: Option<Arc<LogCollector>> = Some(collector.clone());
+        let mut writer = VecWriter(Vec::new());
+        let protocol = Arc::new(std::sync::Mutex::new(ProtocolState::new(
+            std::time::Duration::from_secs(15),
+            std::time::Duration::from_secs(10),
+            std::time::Duration::from_secs(20),
+            12,
+            8,
+        )));
+        let ack_notify = Arc::new(tokio::sync::Notify::new());
+        let (control_tx, _rx) = tokio::sync::broadcast::channel(8);
+        let configured_cas = Arc::new(std::sync::RwLock::new(Vec::<u16>::new()));
+
+        let testfr_act = [0x68u8, 0x04, 0x43, 0x00, 0x00, 0x00];
+        process_received_frame(
+            &testfr_act, &received, &log, &mut writer, &protocol,
+            &ack_notify, &control_tx, &None, &configured_cas, 0xFFFF,
+        );
+
+        // 链路上确实回发了 TESTFR CON
+        assert_eq!(writer.0, vec![0x68, 0x04, 0x83, 0x00, 0x00, 0x00], "应回发 TESTFR CON");
+
+        // 通信日志里必须有一条 Tx / UTestCon
+        let logs = collector.get_all().await;
+        assert!(
+            logs.iter().any(|e| matches!(e.direction, Direction::Tx)
+                && matches!(e.frame_label, FrameLabel::UTestCon)),
+            "通信日志应记录 TX TESTFR CON,实际: {:?}",
+            logs.iter()
+                .map(|e| (format!("{:?}", e.direction), e.frame_label.name()))
+                .collect::<Vec<_>>()
+        );
+    }
+
     #[test]
     fn test_master_config_protocol_defaults() {
         let cfg = MasterConfig::default();
