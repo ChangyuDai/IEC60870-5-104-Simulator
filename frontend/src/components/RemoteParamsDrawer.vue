@@ -13,19 +13,15 @@ const emit = defineEmits<{
 
 const selectedServerId = inject<Ref<string | null>>('selectedServerId') as Ref<string | null>
 
-const { timing, ops, loading, lastError, load, applyTiming, applyOps, setFixedMutation } =
+const { timing, ops, loading, lastError, load, applyTiming, applyOps } =
   useRemoteParams(selectedServerId)
 
 const saving = ref(false)
 const savedFlash = ref(false)
 let flashTimer: ReturnType<typeof setTimeout> | null = null
 
-// Dirty 基线忽略 fixed_mutation.enabled —— 启停由独立按钮即时生效, 不应被算作"未保存修改"
 function snapshot(t: ProtocolTimingConfig, o: RemoteOperationConfig): string {
-  return JSON.stringify({
-    t,
-    o: { ...o, fixed_mutation: { ...o.fixed_mutation, enabled: false } },
-  })
+  return JSON.stringify({ t, o })
 }
 
 const baselineKey = ref<string>('')
@@ -60,8 +56,6 @@ async function saveAll() {
     if (lastError.value) return
     await applyOps()
     if (lastError.value) return
-    await setFixedMutation({ ...ops.value.fixed_mutation })
-    if (lastError.value) return
     baselineKey.value = snapshot(timing.value, ops.value)
     savedFlash.value = true
     flashTimer = setTimeout(() => {
@@ -77,13 +71,6 @@ async function discardChanges() {
   if (saving.value) return
   await load()
   baselineKey.value = snapshot(timing.value, ops.value)
-}
-
-async function startFixed() {
-  await setFixedMutation({ ...ops.value.fixed_mutation, enabled: true })
-}
-async function stopFixed() {
-  await setFixedMutation({ ...ops.value.fixed_mutation, enabled: false })
 }
 
 function close() {
@@ -163,20 +150,7 @@ watch(() => props.visible, (v) => {
             </div>
 
             <template v-else>
-              <RemoteParamsForm :timing="timing" :ops="ops">
-                <template #actions-fixed="{ enabled }">
-                  <div class="rp-fixed-actions">
-                    <button class="rp-tag-btn rp-tag-start" @click="startFixed" :disabled="enabled">
-                      <span class="rp-pulse" v-if="!enabled" /> 启动
-                    </button>
-                    <button class="rp-tag-btn rp-tag-stop" @click="stopFixed" :disabled="!enabled">停止</button>
-                    <span class="rp-fixed-state" :class="{ on: enabled }">
-                      <span class="rp-state-dot" />
-                      {{ enabled ? '运行中' : '空闲' }}
-                    </span>
-                  </div>
-                </template>
-              </RemoteParamsForm>
+              <RemoteParamsForm :timing="timing" :ops="ops" />
 
               <p v-if="lastError" class="rp-error">{{ lastError }}</p>
               <p v-if="loading" class="rp-muted">载入中…</p>
@@ -378,69 +352,6 @@ watch(() => props.visible, (v) => {
   border-left: 2px solid var(--c-surface1);
   background: var(--c-base);
   border-radius: 0 3px 3px 0;
-}
-
-/* —— 固定变位启停 —— */
-.rp-fixed-actions {
-  margin-top: 8px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.rp-tag-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  background: var(--c-base);
-  color: var(--c-text);
-  border: 1px solid var(--c-surface1);
-  border-radius: 3px;
-  font: 600 11px/1 -apple-system, BlinkMacSystemFont, sans-serif;
-  cursor: pointer;
-}
-
-.rp-tag-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.rp-tag-start:not(:disabled):hover { border-color: var(--c-green); color: var(--c-green); }
-.rp-tag-stop:not(:disabled):hover { border-color: var(--c-red); color: var(--c-red); }
-
-.rp-fixed-state {
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font: 600 10.5px/1 ui-monospace, "SF Mono", Menlo, monospace;
-  letter-spacing: 0.06em;
-  color: var(--c-overlay0);
-  text-transform: uppercase;
-}
-
-.rp-state-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--c-overlay0);
-}
-
-.rp-fixed-state.on { color: var(--c-green); }
-.rp-fixed-state.on .rp-state-dot {
-  background: var(--c-green);
-  box-shadow: 0 0 6px var(--c-green);
-  animation: rp-pulse 1.4s ease-in-out infinite;
-}
-
-.rp-pulse {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--c-green);
-  animation: rp-pulse 1.4s ease-in-out infinite;
-}
-
-@keyframes rp-pulse {
-  0%, 100% { opacity: 0.55; transform: scale(1); }
-  50%      { opacity: 1;    transform: scale(1.2); }
 }
 
 /* —— 进出场动画 —— */

@@ -40,11 +40,6 @@ const modeOptions: { value: UploadMode; label: string }[] = [
   { value: 'continuous', label: '连续 SQ=1' },
   { value: 'discrete', label: '离散 SQ=0' },
 ]
-const asduTypeOptions = [
-  'm_sp_na_1', 'm_dp_na_1', 'm_st_na_1', 'm_bo_na_1',
-  'm_me_na_1', 'm_me_nb_1', 'm_me_nc_1', 'm_it_na_1',
-]
-
 // 按分类的「变位同步上送 TB」开关(IT 不在内——靠召唤而非变位)。
 type SyncTbKey = keyof RemoteOperationConfig['sync_tb_by_category']
 const syncTbCategories: { key: SyncTbKey; map: string }[] = [
@@ -191,7 +186,7 @@ const timingMeta: { key: 't0' | 't1' | 't2' | 't3' | 'k' | 'w'; hint: string; un
   <section class="rp-sec">
     <header class="rp-sec-head">
       <h4>变位仿真</h4>
-      <span class="rp-sec-sub">随机变位 · 固定变位</span>
+      <span class="rp-sec-sub">随机变位节流</span>
     </header>
 
     <div class="rp-group">
@@ -214,29 +209,6 @@ const timingMeta: { key: 't0' | 't1' | 't2' | 't3' | 'k' | 'w'; hint: string; un
       </div>
     </div>
 
-    <div class="rp-group">
-      <span class="rp-group-label">固定变位</span>
-      <div class="rp-fixed">
-        <div class="rp-field">
-          <label>IOA</label>
-          <input type="number" min="0" max="16777215" v-model.number="ops.fixed_mutation.ioa" />
-        </div>
-        <div class="rp-field">
-          <label>类型</label>
-          <select v-model="ops.fixed_mutation.asdu_type">
-            <option v-for="t in asduTypeOptions" :key="t" :value="t">{{ t }}</option>
-          </select>
-        </div>
-        <div class="rp-field">
-          <label>周期</label>
-          <div class="rp-inline">
-            <input type="number" min="50" max="60000" v-model.number="ops.fixed_mutation.period_ms" />
-            <span class="rp-unit">ms</span>
-          </div>
-        </div>
-      </div>
-      <slot name="actions-fixed" :enabled="ops.fixed_mutation.enabled" />
-    </div>
   </section>
 
 </template>
@@ -465,11 +437,8 @@ const timingMeta: { key: 't0' | 't1' | 't2' | 't3' | 'k' | 'w'; hint: string; un
   color: var(--c-overlay0);
 }
 
-.rp-pacing,
-.rp-fixed {
+.rp-pacing {
   display: grid;
   gap: 6px;
 }
-
-.rp-fixed { grid-template-columns: 1fr; }
 </style>
