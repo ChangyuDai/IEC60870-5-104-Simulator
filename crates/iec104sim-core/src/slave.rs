@@ -864,6 +864,14 @@ impl SlaveServer {
                             // dedicated write task and pass read half to the read loop.
                             let (rh, wh) = tokio::io::split(stream);
 
+                            // 对端关闭信号:读任务检测到 EOF/读错误退出后置位,用于让
+                            // 写任务一并退出并 drop WriteHalf。否则空队列时写任务会无限
+                            // 空转、永不感知对端 FIN,socket 永远停在 CLOSE_WAIT(FD 泄漏,
+                            // 累积到 RLIMIT_NOFILE 后 accept 失败 → 新主站连不上)。
+                            let conn_closed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+                            let conn_closed_for_writer = Arc::clone(&conn_closed);
+                            let conn_closed_for_reader = Arc::clone(&conn_closed);
+
                             let queue: SharedQueue = Arc::new(tokio::sync::Mutex::new(Vec::new()));
                             let seq: SharedSeq = Arc::new(tokio::sync::Mutex::new(SeqState::default()));
                             let started = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -891,6 +899,8 @@ impl SlaveServer {
                                 let mut wh = wh;
                                 loop {
                                     if flag_for_writer.load(std::sync::atomic::Ordering::SeqCst) { break; }
+                                    // 读任务已检测到对端关闭 → 退出并 drop WriteHalf,彻底关闭 socket。
+                                    if conn_closed_for_writer.load(std::sync::atomic::Ordering::SeqCst) { break; }
                                     // Atomically drain pending bytes under lock, then write outside lock
                                     let snapshot = {
                                         let mut bytes = queue_for_writer.lock().await;
@@ -919,6 +929,8 @@ impl SlaveServer {
                             // Spawn read task (owns ReadHalf + queue for enqueueing responses).
                             tokio::spawn(async move {
                                 handle_client_read_loop(rh, stations_for_reader, lc_for_reader, flag, connections, queue_for_reader, seq_for_reader, started_for_reader, addr_for_read, conn_remote_ops, conn_protocol_timing).await;
+                                // 读循环退出 = 对端已断开,通知写任务退出以释放 WriteHalf。
+                                conn_closed_for_reader.store(true, std::sync::atomic::Ordering::SeqCst);
                             });
                         }
                     }
