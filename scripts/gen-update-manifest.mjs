@@ -20,6 +20,7 @@ const PLATFORM_PATTERNS = [
 // 与 `crates/*/tauri.conf.json` 的 `updater.endpoints` 顺序保持一致(proxy 在前,
 // github 兜底)。修改顺序请同步两个 tauri.conf.json。
 export const MANIFEST_VARIANTS = [
+  { suffix: '-cn0', prefix: 'https://gh.daichangyu.com/' },
   { suffix: '-cn1', prefix: 'https://ghfast.top/' },
   { suffix: '-cn2', prefix: 'https://gh-proxy.com/' },
   { suffix: '-cn3', prefix: 'https://gh.idayer.com/' },

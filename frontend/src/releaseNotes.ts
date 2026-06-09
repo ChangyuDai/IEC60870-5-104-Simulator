@@ -4,6 +4,7 @@ export const RELEASES_URL = 'https://github.com/Karl-Dai/IEC60870-5-104-Simulato
 
 // Keep in sync with CHANGELOG.md — see `release` skill.
 export const RELEASE_NOTES: string[] = [
+  '新增自建加速更新源: gh.daichangyu.com (新加坡服务器 nginx 反代 GitHub, 含 302 改写让安装包下载也走加速) 作为更新源第一顺位, 国内更新稳定约 1.8MB/s 且可控, 不再赌免费镜像; 仍需装上本版后后续更新才走新源',
   '自动更新提速: 更新源 (updater.endpoints) 优先改用 GitHub 原始地址, 绕开带宽抽风的免费镜像 ghfast.top (此前排第一时曾把更新拖到 0.01MB/s 近乎卡死); 注意 endpoint 顺序固化在已装版本里, 装上本版后后续更新才走新顺序',
   '短浮点显示精度提升至 6 位小数: 数据表与报文解析器中 short float (M_ME_NC / M_ME_TF / C_SE_NC) 由 3 位改为 6 位',
   '本版主站另有: 计量召唤改为按 CA 选择、移除「广播对时」前端入口 (后端广播对时命令保留), 详见 CHANGELOG.md',

@@ -2,6 +2,18 @@
 
 本项目的所有重要变更记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.12.4] - 2026-06-09
+
+### Highlights / 亮点
+
+- 🌐 **新增自建加速更新源 `gh.daichangyu.com`**:新加坡服务器 nginx 反代 GitHub release,作为更新源**第一顺位**,国内自动更新稳定约 1.8 MB/s 且完全可控,不再依赖时好时坏的免费公共镜像(此前 `ghfast.top` 曾抽风到 0.006 MB/s 直接 `error decoding response body`)/ **New self-hosted update mirror `gh.daichangyu.com`**: an nginx reverse proxy in Singapore fronting GitHub releases, now the **first** updater endpoint — China auto-updates run at a stable ~1.8 MB/s under our control, no longer at the mercy of flaky public mirrors.
+- ℹ️ endpoint 顺序固化在已装版本,本次更新仍走旧顺序;装上 1.12.4 后,之后的更新才走自建源 / Endpoint order is baked into the installed build; this update still uses the old order, only later updates benefit.
+
+### Added 新增
+
+- `updater.endpoints` 新增自建反代源 `gh.daichangyu.com`(cn0)置于第一,完整顺序:自建源 → GitHub 原始 → gh-proxy → gh.idayer → ghfast(兜底)。反代用 `proxy_redirect` 把 GitHub 的 302 跳转改写回经本代理,使**安装包下载也走加速**(不只清单)/ Added the self-hosted proxy `gh.daichangyu.com` (cn0) as the first `updater.endpoints` entry; full order: self-host → GitHub origin → gh-proxy → gh.idayer → ghfast (last-resort). The proxy rewrites GitHub's 302 redirects back through itself so the installer download is accelerated too, not just the manifest.
+- CI:`gen-update-manifest.mjs` 新增 cn0 变体生成 `latest-{slave,master}-cn0.json`,`release.yml` 同步上传 / CI: `gen-update-manifest.mjs` now emits the cn0 variant `latest-{slave,master}-cn0.json`, uploaded by `release.yml`.
+
 ## [1.12.3] - 2026-06-08
 
 ### Highlights / 亮点
