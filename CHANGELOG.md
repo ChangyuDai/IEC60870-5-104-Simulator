@@ -2,6 +2,38 @@
 
 本项目的所有重要变更记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.12.5] - 2026-06-10
+
+### Highlights / 亮点
+
+- 🎯 **周期变位下沉到点位**:在数据表里右键任意(多)点位即可启停周期变位,行内脉冲指示,支持多点并发独立启停 / **Periodic mutation moved onto data points**: right-click any point(s) in the table to start/stop, with an in-row pulse indicator; multiple points mutate concurrently and independently.
+- 🐛 **根治「固定变位」从未生效**:旧独立面板发送的 ASDU 类型串与后端 serde 名不匹配,反序列化必失败;类型现取自点位本身,问题从根上消失 / **Fixes the fixed-mutation panel that never worked**: its ASDU-type string never matched the backend serde name; type now comes from the point itself.
+- 🔌 **主站掉线自动重连**:链路断开后按 T0 间隔自动重连 / **Master auto-reconnects** at the T0 interval after a link drop.
+- 🧯 **修复 socket 泄漏致新主站连不上**:子站空队列写任务永不感知对端 FIN,socket 停在 CLOSE_WAIT 造成 FD 泄漏,累积后 accept 失败 / **Fixes a socket FD leak** (CLOSE_WAIT) that eventually blocked new master connections.
+- 🪵 **通信日志更完整**:体现单对象数据帧的解析值,并补记主站回发的 TESTFR CON / **Richer comms log**: shows decoded single-object frame values and the master's TESTFR CON reply.
+
+### Added 新增
+
+- 点表右键启停周期变位 + 脉冲指示,多点并发;后端按 `(ca, ioa, asdu_type)` 多任务管理(`start_point_mutation` / `stop_point_mutation` / `list_point_mutations`),周期下限 50ms / Right-click start/stop periodic mutation with a pulse indicator, multi-point concurrent; backend manages one task per `(ca, ioa, asdu_type)` (`start/stop/list_point_mutation`), 50 ms floor.
+- 主站掉线后按 T0 间隔自动重连(新增 `reconnect` 模块 + `auto_reconnect` 集成测试) / Master auto-reconnects at the T0 interval after a drop (new `reconnect` module + `auto_reconnect` integration tests).
+
+### Changed 改进
+
+- 通信日志体现单对象数据帧的解析值(`decode` / `log_collector`) / Comms log now surfaces the decoded value of single-object ASDU frames.
+- 主站收到 TESTFR ACT 回发 TESTFR CON 时补记 TX 日志(此前 `write_raw` 后漏记) / Master now logs the TESTFR CON it sends back on TESTFR ACT (previously missing after `write_raw`).
+
+### Fixed 修复
+
+- 子站读循环 EOF 后通知写任务退出并 drop `WriteHalf`,杜绝空队列写任务无限空转、永不感知对端 FIN 导致 socket 停在 `CLOSE_WAIT` 的 FD 泄漏(累积到 `RLIMIT_NOFILE` 后 `accept` 失败、新主站连不上);新增 `socket_leak_repro` 复现守门 / Slave read loop now signals the write task to exit and drop its `WriteHalf` on EOF, eliminating an FD leak where an idle write task never noticed the peer FIN and left sockets in `CLOSE_WAIT` (eventually exhausting `RLIMIT_NOFILE` and blocking new master connections); guarded by a new `socket_leak_repro` test.
+
+### Removed 移除
+
+- 子站独立「固定变位」面板(手填 IOA/类型/周期)及其前后端接线,统一迁移到点表右键 / Removed the standalone slave "fixed mutation" panel (manual IOA/type/period) and its wiring; folded into the data-point table's right-click menu.
+
+### Tests 测试
+
+- 新增 `socket_leak_repro`(socket 泄漏复现)、`master_logs_tx_testfr_con_on_received_testfr_act`(TESTFR CON 日志回归)、`auto_reconnect`(主站重连);`headless_mutation_pacing` 重写为按点位 API(3 测试)。核心层 152 单测 + 全部集成测试,0 失败 / Added `socket_leak_repro`, `master_logs_tx_testfr_con_on_received_testfr_act`, and `auto_reconnect`; rewrote `headless_mutation_pacing` to the per-point API (3 tests). Core suite: 152 unit + all integration, 0 failures.
+
 ## [1.12.4] - 2026-06-09
 
 ### Highlights / 亮点

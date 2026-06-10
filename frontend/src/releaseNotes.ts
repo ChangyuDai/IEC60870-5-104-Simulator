@@ -4,6 +4,10 @@ export const RELEASES_URL = 'https://github.com/Karl-Dai/IEC60870-5-104-Simulato
 
 // Keep in sync with CHANGELOG.md — see `release` skill.
 export const RELEASE_NOTES: string[] = [
+  '周期变位下沉到点位: 数据表里右键选中点位即可启停周期变位 (行内脉冲指示, 支持多点并发独立启停), 取代原独立「固定变位」面板; 类型/IOA 取自点位本身, 根治旧面板因 ASDU 类型串与后端 serde 名不匹配而从未生效的问题',
+  '修复 socket 泄漏: 子站读循环检测到对端断开 (EOF) 后通知写任务退出释放 socket, 杜绝空闲连接停在 CLOSE_WAIT 累积 FD 泄漏 (此前累积到上限后会 accept 失败、新主站连不上)',
+  '通信日志更完整: 体现单对象数据帧的解析值; 主站收到 TESTFR ACT 回发 TESTFR CON 时补记发送日志',
+  '本版主站另有: 掉线后按 T0 间隔自动重连, 详见 CHANGELOG.md',
   '新增自建加速更新源: gh.daichangyu.com (新加坡服务器 nginx 反代 GitHub, 含 302 改写让安装包下载也走加速) 作为更新源第一顺位, 国内更新稳定约 1.8MB/s 且可控, 不再赌免费镜像; 仍需装上本版后后续更新才走新源',
   '自动更新提速: 更新源 (updater.endpoints) 优先改用 GitHub 原始地址, 绕开带宽抽风的免费镜像 ghfast.top (此前排第一时曾把更新拖到 0.01MB/s 近乎卡死); 注意 endpoint 顺序固化在已装版本里, 装上本版后后续更新才走新顺序',
   '短浮点显示精度提升至 6 位小数: 数据表与报文解析器中 short float (M_ME_NC / M_ME_TF / C_SE_NC) 由 3 位改为 6 位',
