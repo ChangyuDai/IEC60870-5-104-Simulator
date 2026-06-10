@@ -23,7 +23,7 @@ jobs:
         run: |
           gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate \
             --jq '.[].assets[] | select(.name | test("\\.(exe|msi|dmg|deb|rpm|AppImage)$")) | {id, name, download_count}' \
-            | jq -s 'sort_by(.id)' > current.json
+            | jq -sc 'sort_by(.id)' > current.json
           echo "assets tracked: $(jq length current.json)"
 
       - name: Load previous snapshot
@@ -76,8 +76,8 @@ jobs:
             exit 0
           fi
           sha=$(gh api "repos/${GITHUB_REPOSITORY}/contents/counts.json?ref=download-stats" --jq .sha 2>/dev/null || true)
-          gh api -X PUT "repos/${GITHUB_REPOSITORY}/contents/counts.json" \
-            -f branch=download-stats \
-            -f message="chore: download snapshot $(date -u +%FT%TZ)" \
-            -f content="$(base64 -w0 current.json)" \
-            ${sha:+-f sha="$sha"}
+          base64 -w0 current.json > current.b64
+          jq -n --rawfile content current.b64 --arg sha "$sha" --arg msg "chore: download snapshot $(date -u +%FT%TZ)" \
+            '{branch: "download-stats", message: $msg, content: $content}
+             + (if $sha != "" then {sha: $sha} else {} end)' > body.json
+          gh api -X PUT "repos/${GITHUB_REPOSITORY}/contents/counts.json" --input body.json
