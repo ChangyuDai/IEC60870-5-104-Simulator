@@ -4,6 +4,8 @@ export const RELEASES_URL = 'https://github.com/Karl-Dai/IEC60870-5-104-Simulato
 
 // Keep in sync with CHANGELOG.md — see `release` skill.
 export const RELEASE_NOTES: string[] = [
+  '通信日志面板高度可拖拽: 展开后拖动顶部分隔条调节高度 (上限为窗口 70%), 高度持久化、重启恢复',
+  '匿名使用统计: 检查更新经 cn0 加速源携带匿名安装 ID 与版本/平台参数, 聚合数据公开在 daichangyu.com/iec104; 不收集任何个人信息',
   '周期变位下沉到点位: 数据表里右键选中点位即可启停周期变位 (行内脉冲指示, 支持多点并发独立启停), 取代原独立「固定变位」面板; 类型/IOA 取自点位本身, 根治旧面板因 ASDU 类型串与后端 serde 名不匹配而从未生效的问题',
   '修复 socket 泄漏: 子站读循环检测到对端断开 (EOF) 后通知写任务退出释放 socket, 杜绝空闲连接停在 CLOSE_WAIT 累积 FD 泄漏 (此前累积到上限后会 accept 失败、新主站连不上)',
   '通信日志更完整: 体现单对象数据帧的解析值; 主站收到 TESTFR ACT 回发 TESTFR CON 时补记发送日志',

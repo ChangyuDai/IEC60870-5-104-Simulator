@@ -4,6 +4,10 @@ export const RELEASES_URL = 'https://github.com/Karl-Dai/IEC60870-5-104-Simulato
 
 // Keep in sync with CHANGELOG.md — see `release` skill.
 export const RELEASE_NOTES: string[] = [
+  '匿名使用统计: 检查更新经 cn0 加速源携带匿名安装 ID 与版本/平台参数, 聚合数据公开在 daichangyu.com/iec104; 不收集任何个人信息',
+  '本版子站另有: 通信日志面板高度可拖拽调节并持久化, 详见 CHANGELOG.md',
+  '主站掉线自动重连: 链路断开后按 T0 间隔自动重连 (v1.12.5)',
+  '通信日志更完整: 体现单对象数据帧的解析值, 并补记主站回发的 TESTFR CON (v1.12.5)',
   '新增自建加速更新源: gh.daichangyu.com (新加坡服务器 nginx 反代 GitHub, 含 302 改写让安装包下载也走加速) 作为更新源第一顺位, 国内更新稳定约 1.8MB/s 且可控, 不再赌免费镜像; 仍需装上本版后后续更新才走新源',
   '自动更新提速: 更新源 (updater.endpoints) 优先改用 GitHub 原始地址, 绕开带宽抽风的免费镜像 ghfast.top (此前排第一时曾把更新拖到 0.01MB/s 近乎卡死); 注意 endpoint 顺序固化在已装版本里, 装上本版后后续更新才走新顺序',
   '主站计量召唤改为按 CA 选择: 与总召一致, 多 CA 连接点「计量召唤」弹出菜单选具体 CA 或「全部 CA」, 单 CA 连接直接发, 不再无差别向所有已配置公共地址并发',

@@ -2,6 +2,23 @@
 
 本项目的所有重要变更记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.12.6] - 2026-06-12
+
+### Highlights / 亮点
+
+- 🪵 **子站日志面板高度可拖拽**:展开通信日志后可上下拖动调节高度(上限为窗口 70%),高度持久化、重启恢复 / **Slave log panel is now resizable**: drag the splitter to adjust the expanded comms-log height (capped at 70% of the window); the height persists across restarts.
+- 📊 **匿名使用统计上线**:更新检查经 cn0 加速源携带匿名安装 ID 与版本/平台参数,聚合数据公开在 [daichangyu.com/iec104](https://daichangyu.com/zh/iec104);不收集任何个人信息,仅 cn0 流量可见 / **Anonymous usage telemetry**: update checks via the cn0 mirror now carry an anonymous install ID plus version/platform params; aggregated stats are public at [daichangyu.com/iec104](https://daichangyu.com/en/iec104). No personal data is collected.
+
+### Added 新增
+
+- 子站通信日志面板顶部新增横向 Splitter,可拖拽调节展开高度(下限 80px,上限窗口高度 70%),写入 localStorage 持久化 / Slave comms-log panel gains a horizontal splitter: drag to resize the expanded height (min 80 px, max 70% of window height), persisted via localStorage.
+- 更新检查匿名遥测:cn0 endpoint 附 `app/v/target/arch` 参数,updater 请求携带 `X-Install-Id`(首启生成 UUID,存于 `update_state.json`,与个人身份无关);服务端经 nginx mirror 聚合出活跃实例/版本/平台/地域统计 / Anonymous update-check telemetry: the cn0 endpoint carries `app/v/target/arch` and an `X-Install-Id` header (a UUID generated on first launch, stored in `update_state.json`, tied to nothing personal); the server aggregates active instances / versions / platforms / regions via an nginx mirror.
+
+### Internal 内部
+
+- 修复 release CI 快照步骤 `Argument list too long`(快照内容改走 `--input` 传递) / Fixed `Argument list too long` in the release CI snapshot step by passing content via `--input`.
+- 新增下载通知 workflow:每小时轮询安装包下载量并经 Bark 推送 / Added a download-notify workflow polling installer download counts hourly with Bark push.
+
 ## [1.12.5] - 2026-06-10
 
 ### Highlights / 亮点
