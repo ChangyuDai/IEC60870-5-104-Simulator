@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, provide, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, provide, onMounted, onUnmounted, watch } from 'vue'
 import { listen } from '@tauri-apps/api/event'
 import Toolbar from './components/Toolbar.vue'
 import ConnectionTree from './components/ConnectionTree.vue'
@@ -48,6 +48,15 @@ watch(treeWidth, (v) => {
 })
 watch(panelWidth, (v) => {
   try { localStorage.setItem(LS_PANEL_W, String(Math.round(v))) } catch { /* ignore */ }
+})
+
+// 通信日志面板展开后的高度,可拖拽调节并持久化。上限随窗口高度动态变化。
+const LS_LOG_H = 'iec104.layout.logHeight'
+const LOG_MIN = 80, LOG_DEFAULT = 200
+const logHeight = ref(loadWidth(LS_LOG_H, LOG_DEFAULT, LOG_MIN, 100000))
+const logMax = computed(() => Math.max(LOG_MIN, Math.floor(window.innerHeight * 0.7)))
+watch(logHeight, (v) => {
+  try { localStorage.setItem(LS_LOG_H, String(Math.round(v))) } catch { /* ignore */ }
 })
 
 // Provide shared state to children
@@ -203,6 +212,7 @@ provide('openRuntimeParamsDrawer', openRuntimeParamsDrawer)
     :style="{
       '--tree-w': treeWidth + 'px',
       '--panel-w': panelWidth + 'px',
+      '--log-h': logHeight + 'px',
     }"
   >
     <header class="toolbar-area">
@@ -242,6 +252,15 @@ provide('openRuntimeParamsDrawer', openRuntimeParamsDrawer)
       <ValuePanel />
     </aside>
 
+    <Splitter
+      v-show="logExpanded"
+      class="splitter-log"
+      axis="y"
+      :min="LOG_MIN"
+      :max="logMax"
+      v-model="logHeight"
+      reverse
+    />
     <footer class="log-area">
       <LogPanel :expanded="logExpanded" @toggle="toggleLog" />
     </footer>
@@ -325,17 +344,18 @@ body {
 .app-layout {
   display: grid;
   grid-template-columns: var(--tree-w, 240px) 4px 1fr 4px var(--panel-w, 280px);
-  grid-template-rows: 42px 1fr 32px;
+  grid-template-rows: 42px 1fr 0 32px;
   grid-template-areas:
     "toolbar toolbar toolbar toolbar toolbar"
     "tree    sp-l    content sp-r    panel"
+    "splog   splog   splog   splog   splog"
     "log     log     log     log     log";
   height: 100vh;
   width: 100vw;
 }
 
 .app-layout.log-expanded {
-  grid-template-rows: 42px 1fr 200px;
+  grid-template-rows: 42px 1fr 4px var(--log-h, 200px);
 }
 
 .toolbar-area {
@@ -362,6 +382,10 @@ body {
 
 .splitter-panel {
   grid-area: sp-r;
+}
+
+.splitter-log {
+  grid-area: splog;
 }
 
 .panel-area {
