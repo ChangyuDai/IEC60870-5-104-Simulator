@@ -48,7 +48,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://gh.daichangyu.com/https://github.com/Karl-Dai/IEC60870-5-104-Simulator/releases/latest/download/latest-master-cn0.json",
+        "https://gh.daichangyu.com/https://github.com/Karl-Dai/IEC60870-5-104-Simulator/releases/latest/download/latest-master-cn0.json?app=master&v={{current_version}}&target={{target}}&arch={{arch}}",
         "https://github.com/Karl-Dai/IEC60870-5-104-Simulator/releases/latest/download/latest-master.json",
         "https://gh-proxy.com/https://github.com/Karl-Dai/IEC60870-5-104-Simulator/releases/latest/download/latest-master-cn2.json",
         "https://gh.idayer.com/https://github.com/Karl-Dai/IEC60870-5-104-Simulator/releases/latest/download/latest-master-cn3.json",

@@ -8,6 +8,7 @@ const STORE_FILE: &str = "update_state.json";
 const KEY_LAST_CHECK: &str = "last_check_at";
 const KEY_SNOOZED_VER: &str = "snoozed_version";
 const KEY_SNOOZED_UNTIL: &str = "snoozed_until";
+const KEY_INSTALL_ID: &str = "install_id";
 const THROTTLE_HOURS: i64 = 6;
 const SNOOZE_HOURS: i64 = 24;
 
@@ -35,6 +36,25 @@ fn parse_ts(s: Option<String>) -> Option<DateTime<Utc>> {
         .map(|dt| dt.with_timezone(&Utc))
 }
 
+// 匿名安装 ID:首次启动生成 UUID 并持久化,随更新检查经 X-Install-Id 头
+// 上报到 cn0 加速源做匿名活跃统计,不含任何个人信息。
+fn install_id(app: &AppHandle) -> String {
+    if let Some(id) = read_str(app, KEY_INSTALL_ID) {
+        return id;
+    }
+    let id = uuid::Uuid::new_v4().to_string();
+    write_str(app, KEY_INSTALL_ID, &id);
+    id
+}
+
+fn build_updater(app: &AppHandle) -> Result<tauri_plugin_updater::Updater, String> {
+    app.updater_builder()
+        .header("X-Install-Id", install_id(app))
+        .map_err(|e| e.to_string())?
+        .build()
+        .map_err(|e| e.to_string())
+}
+
 // `force = true` (toolbar button) bypasses the 6h throttle and 24h snooze.
 // Startup auto-checks pass `force = None / false`.
 #[tauri::command]
@@ -52,7 +72,7 @@ pub async fn check_for_update(
     }
     write_str(&app, KEY_LAST_CHECK, &now.to_rfc3339());
 
-    let updater = app.updater().map_err(|e| e.to_string())?;
+    let updater = build_updater(&app)?;
     // Surface fetch / parse failures to the caller so the UI can distinguish
     // "already on latest" (Ok(None)) from "endpoint unreachable / 404"; the
     // frontend silences this only for the startup auto-check.
@@ -76,7 +96,7 @@ pub async fn check_for_update(
 
 #[tauri::command]
 pub async fn install_update(app: AppHandle) -> Result<(), String> {
-    let updater = app.updater().map_err(|e| e.to_string())?;
+    let updater = build_updater(&app)?;
     let update = updater
         .check()
         .await
