@@ -2,6 +2,29 @@
 
 本项目的所有重要变更记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.12.7] - 2026-06-12
+
+### Highlights / 亮点
+
+- 🔼 **周期变位支持递增/递减(三角波)** / **Periodic mutation gains increment/decrement (triangle wave)**:启动时设步长与上下限,值在区间内到边界自动掉头来回往复;数据表行内以 ↑/↓/⇅ 标识当前方式 / set a step and bounds at start; the value ramps and bounces at the limits, with an in-row ↑/↓/⇅ indicator.
+- 🐛 **修复模拟量零值变位「值不变」** / **Fixed analog zero-value mutation showing no change**:浮点/归一化/标度化值为 0 时取反得 -0.0,在 0/-0 间振荡显示恒为零;现零值翻到可见非零量 / negating 0.0 yielded -0.0 (always displays zero); zero now flips to a visible non-zero value.
+- 🛠 **停止态可改服务器监听地址/端口** / **Edit a server's listen address/port while stopped**:无需删除重建,运行参数面板直接改端口(运行中拒绝,需先停止) / change the port in the runtime-params panel without delete-and-recreate (rejected while running).
+- 🎯 **归一化编码 round 往返修正** / **Normalized encoding round-trip fix**:M_ME_NA/ND 编码改 round 替代截断,与解码对称,修整数往返 off-by-one / encode via round instead of truncation, symmetric with decode, fixing integer round-trip off-by-one.
+
+### Added 新增
+
+- 周期变位新增「递增 / 递减」模式(原仅「翻转」):三角波到上/下限自动掉头;右键启动时填步长与上下限(按点位类型预填默认),数据表行内 ↑/↓/⇅ 显示当前方式;仅模拟量 (M_ME_NA/NB/NC) 与累计量 (M_IT) 支持步进,离散量回退翻转 / Periodic mutation adds increment/decrement modes (was flip-only): a triangle wave bouncing at min/max; step and bounds entered at start (type-aware defaults), with an in-row mode glyph. Only analog (M_ME_NA/NB/NC) and counters (M_IT) step; discrete points fall back to flip.
+- 新增 `update_server_transport` 命令与运行参数「连接参数」面板:停止状态下直接修改服务器监听地址 / 端口,免去删除重建(运行中端口被监听占用,拒绝并提示先停止) / New `update_server_transport` command and a connection-params panel: edit a stopped server's listen address/port in place (rejected while running since the port is bound).
+
+### Fixed 修复
+
+- 模拟量周期变位零值不变:`flip_value` 对浮点/归一化/标度化用取反实现变位,值为 0 时 -0.0 仍是零、在 0/-0 间振荡显示恒为零;零值改翻到可见非零量 / Analog periodic mutation stuck at zero: `flip_value` negated floats/normalized/scaled, so 0.0 → -0.0 oscillated as a constant zero; zero now flips to a visible non-zero value.
+- 归一化编码 off-by-one:M_ME_NA / M_ME_ND 编码由截断改 round,与解码 `nva / 32767` 对称,保证整数原样往返(如 0.5 → 16384) / Normalized encoding off-by-one: M_ME_NA/ND now round instead of truncate, symmetric with decode `nva/32767`, so integers round-trip exactly (e.g. 0.5 → 16384).
+
+### Tests 测试
+
+- 新增 `apply_mutation` 单测(三角波掉头 / 各类型 round·saturating / 离散量回退)与 ME_NC 递增端到端集成测试 `point_mutation_increment_raises_float_value`;`validate_transport_change` 纯函数单测 / Added `apply_mutation` unit tests (triangle bounce, per-type round/saturating, discrete fallback), an end-to-end ME_NC increment integration test, and `validate_transport_change` unit tests.
+
 ## [1.12.6] - 2026-06-12
 
 ### Highlights / 亮点
