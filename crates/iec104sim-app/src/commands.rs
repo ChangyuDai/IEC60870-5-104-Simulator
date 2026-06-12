@@ -3,7 +3,7 @@ use iec104sim_core::data_point::{DataPoint, DataPointValue, InformationObjectDef
 use iec104sim_core::log_collector::LogCollector;
 use iec104sim_core::log_entry::LogEntry;
 use iec104sim_core::slave::{
-    ProtocolTimingConfig, RemoteOperationConfig, SlaveServer,
+    ProtocolTimingConfig, RemoteOperationConfig, ServerState, SlaveServer,
     SlaveTransportConfig, Station,
 };
 use iec104sim_core::types::{AsduTypeId, QualityFlags};
@@ -204,6 +204,60 @@ pub async fn list_servers(
     }
 
     Ok(result)
+}
+
+/// 校验传输配置(监听地址 / 端口)改动是否被允许。纯函数,便于单测:
+/// 端口 0 非法;运行中的服务器端口被监听 socket 占用,必须先停止再改。
+fn validate_transport_change(state: ServerState, port: u16) -> Result<(), String> {
+    if port == 0 {
+        return Err("端口必须在 1–65535 之间".to_string());
+    }
+    if state == ServerState::Running {
+        return Err("请先停止服务器再修改监听地址 / 端口".to_string());
+    }
+    Ok(())
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UpdateServerTransportRequest {
+    pub server_id: String,
+    pub bind_address: String,
+    pub port: u16,
+}
+
+/// 修改已存在服务器的监听地址 / 端口。传输配置原本只在 `create_server` 时设定,
+/// 本命令让用户无需删除重建即可改端口。运行中拒绝(端口被监听占用,见
+/// `validate_transport_change`),需先 `stop_server`。
+#[tauri::command]
+pub async fn update_server_transport(
+    state: State<'_, AppState>,
+    request: UpdateServerTransportRequest,
+) -> Result<ServerInfo, String> {
+    let mut servers = state.servers.write().await;
+    let srv = servers
+        .get_mut(&request.server_id)
+        .ok_or_else(|| format!("server {} not found", request.server_id))?;
+
+    validate_transport_change(srv.server.state(), request.port)?;
+
+    // 空地址回落到 0.0.0.0(与 create_server 默认一致),避免 bind 到空串失败。
+    let bind = {
+        let b = request.bind_address.trim();
+        if b.is_empty() { "0.0.0.0".to_string() } else { b.to_string() }
+    };
+    srv.server.transport.bind_address = bind;
+    srv.server.transport.port = request.port;
+
+    let station_count = srv.server.stations.read().await.len();
+    Ok(ServerInfo {
+        id: request.server_id.clone(),
+        bind_address: srv.server.transport.bind_address.clone(),
+        port: srv.server.transport.port,
+        state: format!("{:?}", srv.server.state()),
+        station_count,
+        use_tls: srv.server.transport.tls.enabled,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -479,8 +533,10 @@ fn parse_value_for(point: &DataPoint, value: &str) -> Result<DataPointValue, Str
             DataPointValue::DoublePoint { value: v }
         }
         DataPointValue::Normalized { .. } => {
-            let v = value.parse::<f32>().map_err(|e| format!("{}", e))?;
-            DataPointValue::Normalized { value: v }
+            // 输入与显示对齐:用户输入原始 NVA 整数 (-32768..32767),内部仍存 [-1,1) f32。
+            // 上送编码用 `value * 32767`(见 slave.rs),故此处反向换算 `nva / 32767`。
+            let nva = value.trim().parse::<i16>().map_err(|e| format!("{}", e))?;
+            DataPointValue::Normalized { value: nva as f32 / 32767.0 }
         }
         DataPointValue::Scaled { .. } => {
             let v = value.parse::<i16>().map_err(|e| format!("{}", e))?;
@@ -711,6 +767,14 @@ pub async fn batch_update_data_points(
     Ok(changed.len())
 }
 
+/// 子站把归一化值显示为线上原始 NVA 整数 (-32768..32767),而非 [-1,1) 小数,
+/// 与主站数据表一致、便于和报文逐字节对照。编解码用 `nva as f32 / 32767.0`
+/// (见 decode.rs / slave.rs),故 `round(value * 32767)` 反向无损还原:f32 往返
+/// 误差 < 0.002,远小于 0.5。
+fn normalized_raw_string(value: f32) -> String {
+    ((value * 32767.0).round() as i16).to_string()
+}
+
 /// Map a core `DataPoint` to the serialisable `DataPointInfo` the UI consumes.
 fn data_point_to_info(
     p: &DataPoint,
@@ -723,7 +787,10 @@ fn data_point_to_info(
         category: p.asdu_type.category().name().to_string(),
         name: def.map(|d| d.name.clone()).unwrap_or_default(),
         comment: def.map(|d| d.comment.clone()).unwrap_or_default(),
-        value: p.value.display(),
+        value: match &p.value {
+            DataPointValue::Normalized { value } => normalized_raw_string(*value),
+            _ => p.value.display(),
+        },
         quality_ov: p.quality.ov,
         quality_bl: p.quality.bl,
         quality_sb: p.quality.sb,
@@ -1291,6 +1358,28 @@ mod tests {
         assert!(parse_value_for(&me(1, 0.0), "x").is_err());
     }
 
+    fn norm(ioa: u32, v: f32) -> DataPoint {
+        DataPoint::with_value(ioa, AsduTypeId::MMeNa1, DataPointValue::Normalized { value: v })
+    }
+
+    #[test]
+    fn normalized_displays_and_parses_as_raw_nva_integer() {
+        let def_map: HashMap<(u32, AsduTypeId), &InformationObjectDef> = HashMap::new();
+        // 显示:内部 [-1,1) f32 → 原始 NVA 整数,与主站/线上一致。
+        for nva in [-32767i16, -16384, -1, 0, 1, 16384, 32766, 32767] {
+            let p = norm(1, nva as f32 / 32767.0);
+            assert_eq!(data_point_to_info(&p, &def_map).value, nva.to_string(), "display nva={}", nva);
+        }
+        // 输入:用户输原始整数 → 内部 f32;再显示应原样还原(往返无损)。
+        for nva in [-32767i16, -1, 0, 1, 16384, 32767] {
+            let parsed = parse_value_for(&norm(1, 0.0), &nva.to_string()).unwrap();
+            let p = DataPoint::with_value(1, AsduTypeId::MMeNa1, parsed);
+            assert_eq!(data_point_to_info(&p, &def_map).value, nva.to_string(), "roundtrip nva={}", nva);
+        }
+        // 小数输入应被拒(已改为整数语义)。
+        assert!(parse_value_for(&norm(1, 0.0), "0.5").is_err());
+    }
+
     #[test]
     fn batch_quality_sets_all_and_filters_ov_to_measured() {
         let mut st = iec104sim_core::slave::Station::new(1, "t");
@@ -1340,5 +1429,23 @@ mod tests {
         let res = apply_batch_value(&mut st, &[(103, AsduTypeId::MSpNa1)], "abc");
         assert!(res.is_err());
         assert!(matches!(st.data_points.get(103, AsduTypeId::MSpNa1).unwrap().value, DataPointValue::SinglePoint { value: false }), "解析失败不改动");
+    }
+
+    // ---- update_server_transport 的端口/运行态守卫(纯函数) ----
+
+    #[test]
+    fn validate_transport_ok_when_stopped_and_valid_port() {
+        assert!(validate_transport_change(ServerState::Stopped, 2404).is_ok());
+    }
+
+    #[test]
+    fn validate_transport_rejects_zero_port() {
+        assert!(validate_transport_change(ServerState::Stopped, 0).is_err());
+    }
+
+    #[test]
+    fn validate_transport_rejects_running_server() {
+        // 运行中端口被监听占用,必须先停止
+        assert!(validate_transport_change(ServerState::Running, 2404).is_err());
     }
 }

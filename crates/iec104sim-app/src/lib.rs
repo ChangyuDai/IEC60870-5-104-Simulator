@@ -20,6 +20,7 @@ pub fn run() {
             commands::stop_server,
             commands::delete_server,
             commands::list_servers,
+            commands::update_server_transport,
             // Station commands
             commands::add_station,
             commands::remove_station,

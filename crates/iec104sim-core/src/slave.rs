@@ -2141,7 +2141,8 @@ fn encode_na_value(value: &DataPointValue, q: &QualityFlags) -> (u8, Vec<u8>) {
             (7, vec![b[0], b[1], b[2], b[3], q.upper_bits()])
         }
         DataPointValue::Normalized { value } => {
-            let nva = (*value * 32767.0) as i16;
+            // round(非截断)与解码 `nva / 32767` 对称,保证整数原样往返 (off-by-one 修正)。
+            let nva = (*value * 32767.0).round() as i16;
             let b = nva.to_le_bytes();
             (9, vec![b[0], b[1], q.qds_byte()])
         }
@@ -2189,7 +2190,7 @@ fn encode_point_frame_ex(
     // force_timestamped 对其无意义。
     if point.asdu_type == AsduTypeId::MMeNd1 {
         let nva = match point.value {
-            DataPointValue::Normalized { value } => (value * 32767.0) as i16,
+            DataPointValue::Normalized { value } => (value * 32767.0).round() as i16,
             _ => 0,
         };
         let b = nva.to_le_bytes();
@@ -2678,7 +2679,8 @@ mod tests {
         assert_eq!(frame[6], 21, "type=21 (M_ME_ND_1)");
         // APCI(6)+ASDU头(6)+IOA(3)+NVA(2) = 17,无 QDS、无时标
         assert_eq!(frame.len(), 17, "ND 帧值段恰 2 字节");
-        assert_eq!(&frame[15..17], &0x3FFFi16.to_le_bytes(), "NVA LE");
+        // 0.5*32767=16383.5,round(非截断)→ 16384=0x4000,与解码 nva/32767 对称。
+        assert_eq!(&frame[15..17], &0x4000i16.to_le_bytes(), "NVA LE");
     }
 
     #[test]
@@ -2691,7 +2693,7 @@ mod tests {
         let frame = encode_point_frame_ex(&point, 3, &ca, &mut seq, Some(false));
         assert_eq!(frame[6], 21);
         assert_eq!(frame.len(), 17, "即便设了品质,ND 帧仍无 QDS 字节");
-        assert_eq!(&frame[15..17], &0x3FFFi16.to_le_bytes());
+        assert_eq!(&frame[15..17], &0x4000i16.to_le_bytes()); // 0.5 → round 16384
     }
 
     #[test]

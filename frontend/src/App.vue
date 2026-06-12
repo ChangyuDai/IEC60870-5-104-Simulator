@@ -281,6 +281,7 @@ provide('openRuntimeParamsDrawer', openRuntimeParamsDrawer)
       :visible="runtimeParamsModalVisible"
       :server-id="runtimeParamsModalServerId"
       :server-label="runtimeParamsModalLabel"
+      @saved="refreshTree"
       @close="closeRuntimeParamsModal"
     />
     <RemoteParamsDrawer

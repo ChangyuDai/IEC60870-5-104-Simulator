@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, reactive, computed, watch } from 'vue'
+import { invoke } from '@tauri-apps/api/core'
 import { useI18n } from '@shared/i18n'
 import { useRemoteParams } from '../composables/useRemoteParams'
 import RemoteParamsForm from './RemoteParamsForm.vue'
+import type { ServerInfo } from '../types'
 
 const { t } = useI18n()
 
@@ -25,6 +27,30 @@ watch(() => props.serverId, v => { localServerId.value = v })
 const { timing, ops, loading, lastError, applyTiming, applyOps } =
   useRemoteParams(localServerId)
 
+// —— 连接参数(监听地址 / 端口)——
+// 传输配置原本仅创建时可设;这里允许停止状态下直接改端口,免去删除重建。
+const transport = reactive({ bindAddress: '', port: 0 })
+const serverState = ref('')
+const isRunning = computed(() => serverState.value === 'Running')
+let transportBaseline = ''
+
+async function loadTransport() {
+  const id = props.serverId
+  if (!id) return
+  try {
+    const servers = await invoke<ServerInfo[]>('list_servers')
+    const s = servers.find(x => x.id === id)
+    if (s) {
+      transport.bindAddress = s.bind_address
+      transport.port = s.port
+      serverState.value = s.state
+      transportBaseline = `${s.bind_address}:${s.port}`
+    }
+  } catch (e) {
+    lastError.value = String(e)
+  }
+}
+
 const isSaving = ref(false)
 
 async function handleSave() {
@@ -32,6 +58,27 @@ async function handleSave() {
   isSaving.value = true
   lastError.value = null
   try {
+    // 先落地传输配置改动(仅当确有改动)。运行中由后端拒绝,前端也提前拦一次。
+    const changed = `${transport.bindAddress}:${transport.port}` !== transportBaseline
+    if (changed) {
+      if (isRunning.value) {
+        lastError.value = '请先停止服务器再修改监听地址 / 端口'
+        return
+      }
+      try {
+        await invoke('update_server_transport', {
+          request: {
+            server_id: localServerId.value,
+            bind_address: transport.bindAddress,
+            port: transport.port,
+          },
+        })
+        transportBaseline = `${transport.bindAddress}:${transport.port}`
+      } catch (e) {
+        lastError.value = String(e)
+        return
+      }
+    }
     await applyTiming()
     if (lastError.value) return
     await applyOps()
@@ -55,6 +102,7 @@ function handleEsc(e: KeyboardEvent) {
 
 watch(() => props.visible, (v) => {
   if (v) {
+    loadTransport()
     window.addEventListener('keydown', handleEsc)
   } else {
     window.removeEventListener('keydown', handleEsc)
@@ -77,6 +125,24 @@ watch(() => props.visible, (v) => {
           </div>
 
           <div class="modal-body">
+            <section class="rp-conn">
+              <header class="rp-conn-head">
+                <h4>连接参数</h4>
+                <span class="rp-conn-sub">监听地址与端口</span>
+              </header>
+              <div class="rp-conn-grid">
+                <label class="rp-conn-field">
+                  <span>绑定地址</span>
+                  <input v-model="transport.bindAddress" :disabled="isRunning" placeholder="0.0.0.0" />
+                </label>
+                <label class="rp-conn-field">
+                  <span>端口</span>
+                  <input type="number" min="1" max="65535" v-model.number="transport.port" :disabled="isRunning" />
+                </label>
+              </div>
+              <p v-if="isRunning" class="rp-conn-hint">服务器运行中,地址 / 端口不可改 —— 请先在连接树右键「停止」</p>
+            </section>
+
             <div v-if="loading" class="muted">{{ t('runtimeParams.loading') }}</div>
             <RemoteParamsForm v-else :timing="timing" :ops="ops" />
             <p v-if="lastError" class="error">{{ lastError }}</p>
@@ -195,6 +261,71 @@ watch(() => props.visible, (v) => {
 .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .muted { color: var(--c-subtext0); font-size: 12px; }
+
+/* —— 连接参数(地址 / 端口)—— */
+.rp-conn {
+  padding-bottom: 12px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--c-surface0);
+}
+.rp-conn-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.rp-conn-head h4 {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--c-text);
+}
+.rp-conn-sub {
+  font-size: 11px;
+  color: var(--c-overlay0);
+}
+.rp-conn-sub::before {
+  content: "·";
+  margin-right: 6px;
+  color: var(--c-surface2);
+}
+.rp-conn-grid {
+  display: grid;
+  grid-template-columns: 1fr 120px;
+  gap: 10px;
+}
+.rp-conn-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.rp-conn-field > span {
+  font-size: 11px;
+  color: var(--c-subtext0);
+}
+.rp-conn-field input {
+  padding: 6px 8px;
+  background: var(--c-mantle);
+  border: 1px solid var(--c-surface1);
+  border-radius: 4px;
+  color: var(--c-text);
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+.rp-conn-field input:focus {
+  outline: none;
+  border-color: var(--c-blue);
+}
+.rp-conn-field input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.rp-conn-hint {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: var(--c-peach, var(--c-subtext0));
+}
+
 .error {
   margin-top: 10px;
   padding: 6px 8px;
