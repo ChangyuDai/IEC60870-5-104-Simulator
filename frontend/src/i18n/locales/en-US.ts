@@ -144,6 +144,13 @@ const dict: DictShape = {
     startMutation: 'Start Mutation',
     stopMutation: 'Stop Mutation',
     mutationPeriod: 'Period',
+    mutationMode: 'Mode',
+    modeFlip: 'Flip',
+    modeIncrement: 'Increment',
+    modeDecrement: 'Decrement',
+    mutationStep: 'Step',
+    mutationMin: 'Min',
+    mutationMax: 'Max',
   },
   pointModal: {
     title: 'Add Data Point',

@@ -142,6 +142,13 @@ export type DictShape = {
     startMutation: string
     stopMutation: string
     mutationPeriod: string
+    mutationMode: string
+    modeFlip: string
+    modeIncrement: string
+    modeDecrement: string
+    mutationStep: string
+    mutationMin: string
+    mutationMax: string
   }
   pointModal: {
     title: string
@@ -397,6 +404,13 @@ const dict: DictShape = {
     startMutation: '启动周期变位',
     stopMutation: '停止周期变位',
     mutationPeriod: '周期',
+    mutationMode: '方式',
+    modeFlip: '翻转',
+    modeIncrement: '递增',
+    modeDecrement: '递减',
+    mutationStep: '步长',
+    mutationMin: '下限',
+    mutationMax: '上限',
   },
   pointModal: {
     title: '添加数据点',

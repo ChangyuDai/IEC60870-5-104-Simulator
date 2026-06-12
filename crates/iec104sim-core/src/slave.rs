@@ -529,7 +529,7 @@ pub struct SlaveServer {
     /// 按 (ca, ioa, asdu_type) 维护的周期变位任务句柄。每个点位独立启停;
     /// `start_point_mutation` 对同一 key 重复调用会先 abort 旧任务。
     point_mutation_handles:
-        tokio::sync::Mutex<HashMap<(u16, u32, AsduTypeId), tokio::task::JoinHandle<()>>>,
+        tokio::sync::Mutex<HashMap<(u16, u32, AsduTypeId), (tokio::task::JoinHandle<()>, MutationMode)>>,
     connections: SharedConnections,
 }
 
@@ -609,17 +609,19 @@ impl SlaveServer {
     }
 
     /// 启动单个点位的周期变位。同 (ca, ioa, asdu_type) 已有任务则先 abort 再起新的。
-    /// period_ms 下限 50ms。任务周期性 flip_value 该点并上送 spontaneous。
+    /// period_ms 下限 50ms。任务按 `params` 周期性变位(翻转 / 递增 / 递减)该点
+    /// 并上送 spontaneous。递增/递减的三角波方向是任务局部状态。
     pub async fn start_point_mutation(
         &self,
         ca: u16,
         ioa: u32,
         asdu_type: AsduTypeId,
         period_ms: u32,
+        params: MutationParams,
     ) {
         let key = (ca, ioa, asdu_type);
         let mut guard = self.point_mutation_handles.lock().await;
-        if let Some(h) = guard.remove(&key) { h.abort(); }
+        if let Some((h, _)) = guard.remove(&key) { h.abort(); }
 
         let stations = self.stations.clone();
         let connections = self.connections.clone();
@@ -630,14 +632,17 @@ impl SlaveServer {
             let period = std::time::Duration::from_millis(period_ms.max(50) as u64);
             let mut interval = tokio::time::interval(period);
             interval.tick().await; // 跳过 immediate first tick
+            let mut dir = params.mode.initial_dir();
             loop {
                 interval.tick().await;
                 if shutdown_flag.load(std::sync::atomic::Ordering::SeqCst) { break; }
-                let flipped = {
+                let mutated = {
                     let mut st_guard = stations.write().await;
                     if let Some(station) = st_guard.get_mut(&ca) {
                         if let Some(p) = station.data_points.get_mut(ioa, asdu_type) {
-                            p.value = flip_value(&p.value);
+                            let (next, next_dir) = apply_mutation(&p.value, &params, dir);
+                            p.value = next;
+                            dir = next_dir;
                             p.timestamp = Some(chrono::Utc::now());
                             // p 的可变借用到此结束(NLL),mark_changed 可重新借 data_points。
                             station.data_points.mark_changed(ioa, asdu_type);
@@ -649,7 +654,7 @@ impl SlaveServer {
                         false
                     }
                 };
-                if flipped {
+                if mutated {
                     do_queue_spontaneous(
                         &stations, &connections, &remote_ops, &log_collector,
                         ca, &[(ioa, asdu_type)],
@@ -657,18 +662,23 @@ impl SlaveServer {
                 }
             }
         });
-        guard.insert(key, handle);
+        guard.insert(key, (handle, params.mode));
     }
 
     /// 停止单个点位的周期变位。
     pub async fn stop_point_mutation(&self, ca: u16, ioa: u32, asdu_type: AsduTypeId) {
         let mut guard = self.point_mutation_handles.lock().await;
-        if let Some(h) = guard.remove(&(ca, ioa, asdu_type)) { h.abort(); }
+        if let Some((h, _)) = guard.remove(&(ca, ioa, asdu_type)) { h.abort(); }
     }
 
-    /// 返回当前活跃的周期变位点位 (ca, ioa, asdu_type)。
-    pub async fn list_point_mutations(&self) -> Vec<(u16, u32, AsduTypeId)> {
-        self.point_mutation_handles.lock().await.keys().copied().collect()
+    /// 返回当前活跃的周期变位点位 (ca, ioa, asdu_type, mode)。
+    pub async fn list_point_mutations(&self) -> Vec<(u16, u32, AsduTypeId, MutationMode)> {
+        self.point_mutation_handles
+            .lock()
+            .await
+            .iter()
+            .map(|(&(ca, ioa, t), &(_, mode))| (ca, ioa, t, mode))
+            .collect()
     }
 
     pub async fn start(&mut self) -> Result<(), SlaveError> {
@@ -960,7 +970,7 @@ impl SlaveServer {
         if let Some(h) = self.cyclic_handle.take() { let _ = h.await; }
         {
             let mut handles = self.point_mutation_handles.lock().await;
-            for (_k, h) in handles.drain() { h.abort(); }
+            for (_k, (h, _mode)) in handles.drain() { h.abort(); }
         }
         self.state = ServerState::Stopped;
         if let Some(ref lc) = self.log_collector {
@@ -2430,15 +2440,107 @@ fn flip_value(value: &DataPointValue) -> DataPointValue {
             DataPointValue::StepPosition { value: next, transient: *transient }
         }
         DataPointValue::Bitstring { value } => DataPointValue::Bitstring { value: !value },
-        DataPointValue::Normalized { value } => DataPointValue::Normalized { value: -value },
-        DataPointValue::Scaled { value } => DataPointValue::Scaled { value: -*value },
-        DataPointValue::ShortFloat { value } => DataPointValue::ShortFloat { value: -value },
+        // 模拟量 (ME_NA/NB/NC) 用取反实现两态振荡;但值为 0 时 -0.0 仍是零,
+        // 用户会看到「值不变」,故零值翻到一个可见的非零量。
+        DataPointValue::Normalized { value } => {
+            DataPointValue::Normalized { value: if *value == 0.0 { 1.0 } else { -value } }
+        }
+        DataPointValue::Scaled { value } => {
+            DataPointValue::Scaled { value: if *value == 0 { 100 } else { -*value } }
+        }
+        DataPointValue::ShortFloat { value } => {
+            DataPointValue::ShortFloat { value: if *value == 0.0 { 1.0 } else { -value } }
+        }
         DataPointValue::IntegratedTotal { value, carry, sequence } => DataPointValue::IntegratedTotal {
             value: value + 1,
             carry: *carry,
             sequence: sequence.wrapping_add(1) & 0x1F,
         },
     }
+}
+
+/// 周期变位的变位方式。Flip 为两态翻转(离散量翻转、模拟量取反);
+/// Increment/Decrement 为按步长在 [min,max] 三角波来回(仅模拟量/累计量,
+/// 离散量回退翻转)。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum MutationMode {
+    #[default]
+    Flip,
+    Increment,
+    Decrement,
+}
+
+impl MutationMode {
+    /// 任务启动时的初始方向:递减向下 (-1),其余向上 (+1)。Flip 不使用方向。
+    fn initial_dir(self) -> f64 {
+        match self {
+            MutationMode::Decrement => -1.0,
+            _ => 1.0,
+        }
+    }
+}
+
+/// 周期变位参数。step/min/max 仅 Increment/Decrement 使用(统一以 f64 传递,
+/// 应用到具体类型时按需 round/clamp);Flip 时忽略。
+#[derive(Debug, Clone, Copy, Default)]
+pub struct MutationParams {
+    pub mode: MutationMode,
+    pub step: f64,
+    pub min: f64,
+    pub max: f64,
+}
+
+/// 按变位模式计算下一个值与方向。`dir` 为递增/递减的当前方向(+1 向上 / -1 向下),
+/// 三角波到达 min/max 后掉头。返回 (新值, 新方向);Flip 模式方向原样返回。
+fn apply_mutation(value: &DataPointValue, params: &MutationParams, dir: f64) -> (DataPointValue, f64) {
+    match params.mode {
+        MutationMode::Flip => (flip_value(value), dir),
+        MutationMode::Increment | MutationMode::Decrement => step_value(value, params, dir),
+    }
+}
+
+/// 三角波步进。模拟量/累计量按 step 在量程内来回;离散量无递增语义,回退翻转。
+/// 归一化/标度化/累计量的上下限会再钳到各自协议量程,避免编码溢出或卡死。
+fn step_value(value: &DataPointValue, params: &MutationParams, dir: f64) -> (DataPointValue, f64) {
+    let (cur, lo, hi): (f64, f64, f64) = match value {
+        DataPointValue::ShortFloat { value } => (*value as f64, params.min, params.max),
+        DataPointValue::Normalized { value } => {
+            (*value as f64, params.min.max(-1.0), params.max.min(1.0))
+        }
+        DataPointValue::Scaled { value } => {
+            (*value as f64, params.min.max(i16::MIN as f64), params.max.min(i16::MAX as f64))
+        }
+        DataPointValue::IntegratedTotal { value, .. } => {
+            (*value as f64, params.min.max(i32::MIN as f64), params.max.min(i32::MAX as f64))
+        }
+        // 离散量(单点/双点/步位/位串)无递增语义,回退翻转,方向不变。
+        _ => return (flip_value(value), dir),
+    };
+    let (lo, hi) = (lo.min(hi), lo.max(hi)); // 容错:用户把上下限填反
+    let step = params.step.abs();
+    let mut next = cur + dir * step;
+    let mut new_dir = dir;
+    if next >= hi {
+        next = hi;
+        new_dir = -1.0;
+    } else if next <= lo {
+        next = lo;
+        new_dir = 1.0;
+    }
+    let new_value = match value {
+        DataPointValue::ShortFloat { .. } => DataPointValue::ShortFloat { value: next as f32 },
+        DataPointValue::Normalized { .. } => DataPointValue::Normalized { value: next as f32 },
+        // next 已在 [lo,hi] ⊆ i16/i32 量程内,round 后转换不会溢出。
+        DataPointValue::Scaled { .. } => DataPointValue::Scaled { value: next.round() as i16 },
+        DataPointValue::IntegratedTotal { carry, sequence, .. } => DataPointValue::IntegratedTotal {
+            value: next.round() as i32,
+            carry: *carry,
+            sequence: *sequence,
+        },
+        _ => unreachable!(),
+    };
+    (new_value, new_dir)
 }
 
 /// 模块级 `queue_spontaneous` 实现,供 `SlaveServer.queue_spontaneous` 和
@@ -2590,6 +2692,79 @@ mod tests {
         assert!(s.data_points.get(10, AsduTypeId::MItNa1).is_some());
         // IOA=11 不应该存在（所有类型只到 10）
         assert!(s.data_points.get(11, AsduTypeId::MSpNa1).is_none());
+    }
+
+    #[test]
+    fn test_flip_value_zero_analog_becomes_nonzero() {
+        // 周期变位:浮点 (ME_NC)/归一化 (ME_NA)/标度化 (ME_NB) 值为 0 时,
+        // 旧实现 `-value` 得到 -0.0,显示成 "-0.000000" 并在 0/-0 之间振荡,
+        // 用户看到「值不变」。flip_value 必须让零值产生可见的非零变化。
+        let cases = [
+            DataPointValue::ShortFloat { value: 0.0 },
+            DataPointValue::Normalized { value: 0.0 },
+            DataPointValue::Scaled { value: 0 },
+        ];
+        for v in cases {
+            let mag = match flip_value(&v) {
+                DataPointValue::ShortFloat { value } => value.abs() as f64,
+                DataPointValue::Normalized { value } => value.abs() as f64,
+                DataPointValue::Scaled { value } => value.unsigned_abs() as f64,
+                other => panic!("flip_value 改变了类型: {:?}", other),
+            };
+            assert!(mag > 0.0, "flip_value 对零值 {:?} 仍是零,用户看到值不变", v);
+        }
+        // 非零值仍取反,保持两态振荡语义。
+        assert!(matches!(
+            flip_value(&DataPointValue::ShortFloat { value: 5.0 }),
+            DataPointValue::ShortFloat { value } if value == -5.0
+        ));
+        assert!(matches!(
+            flip_value(&DataPointValue::Scaled { value: 100 }),
+            DataPointValue::Scaled { value: -100 }
+        ));
+    }
+
+    #[test]
+    fn test_apply_mutation_increment_decrement() {
+        use DataPointValue as V;
+        let p = |mode, step, min, max| MutationParams { mode, step, min, max };
+
+        // 递增:浮点 +step
+        let (v, dir) = apply_mutation(&V::ShortFloat { value: 0.0 }, &p(MutationMode::Increment, 1.0, -100.0, 100.0), 1.0);
+        assert!(matches!(v, V::ShortFloat { value } if value == 1.0));
+        assert_eq!(dir, 1.0);
+
+        // 触顶钳制并掉头(三角波)
+        let (v, dir) = apply_mutation(&V::ShortFloat { value: 99.5 }, &p(MutationMode::Increment, 1.0, -100.0, 100.0), 1.0);
+        assert!(matches!(v, V::ShortFloat { value } if value == 100.0));
+        assert_eq!(dir, -1.0);
+
+        // 触底钳制并掉头
+        let (v, dir) = apply_mutation(&V::ShortFloat { value: -99.5 }, &p(MutationMode::Decrement, 1.0, -100.0, 100.0), -1.0);
+        assert!(matches!(v, V::ShortFloat { value } if value == -100.0));
+        assert_eq!(dir, 1.0);
+
+        // 标度化四舍五入为 i16
+        let (v, _) = apply_mutation(&V::Scaled { value: 0 }, &p(MutationMode::Increment, 100.0, -10000.0, 10000.0), 1.0);
+        assert!(matches!(v, V::Scaled { value: 100 }));
+
+        // 归一化:用户给超范围上下限,内部钳到协议量程 [-1,1],触顶掉头
+        let (v, dir) = apply_mutation(&V::Normalized { value: 0.98 }, &p(MutationMode::Increment, 0.05, -100.0, 100.0), 1.0);
+        assert!(matches!(v, V::Normalized { value } if value == 1.0));
+        assert_eq!(dir, -1.0);
+
+        // 累计量递增
+        let (v, _) = apply_mutation(&V::IntegratedTotal { value: 5, carry: false, sequence: 0 }, &p(MutationMode::Increment, 10.0, 0.0, 10000.0), 1.0);
+        assert!(matches!(v, V::IntegratedTotal { value: 15, .. }));
+
+        // 离散量(单点)收到递增 → 回退翻转,方向不变
+        let (v, dir) = apply_mutation(&V::SinglePoint { value: false }, &p(MutationMode::Increment, 1.0, 0.0, 10.0), 1.0);
+        assert!(matches!(v, V::SinglePoint { value: true }));
+        assert_eq!(dir, 1.0);
+
+        // Flip 模式:走原翻转
+        let (v, _) = apply_mutation(&V::ShortFloat { value: 5.0 }, &p(MutationMode::Flip, 1.0, -100.0, 100.0), 1.0);
+        assert!(matches!(v, V::ShortFloat { value } if value == -5.0));
     }
 
     #[tokio::test]

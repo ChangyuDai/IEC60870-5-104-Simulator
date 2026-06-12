@@ -3,8 +3,8 @@ use iec104sim_core::data_point::{DataPoint, DataPointValue, InformationObjectDef
 use iec104sim_core::log_collector::LogCollector;
 use iec104sim_core::log_entry::LogEntry;
 use iec104sim_core::slave::{
-    ProtocolTimingConfig, RemoteOperationConfig, ServerState, SlaveServer,
-    SlaveTransportConfig, Station,
+    MutationMode, MutationParams, ProtocolTimingConfig, RemoteOperationConfig, ServerState,
+    SlaveServer, SlaveTransportConfig, Station,
 };
 use iec104sim_core::types::{AsduTypeId, QualityFlags};
 use rand::Rng;
@@ -1119,7 +1119,18 @@ pub async fn get_remote_operation_config(
     Ok(srv.server.get_remote_ops().await)
 }
 
+/// 解析前端传入的变位模式字符串(serde snake_case:flip/increment/decrement)。
+/// 缺省或无法识别时按 flip 处理,保持旧行为。
+fn parse_mutation_mode(s: Option<&str>) -> MutationMode {
+    match s {
+        Some("increment") => MutationMode::Increment,
+        Some("decrement") => MutationMode::Decrement,
+        _ => MutationMode::Flip,
+    }
+}
+
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn start_point_mutation(
     state: State<'_, AppState>,
     server_id: String,
@@ -1127,14 +1138,24 @@ pub async fn start_point_mutation(
     ioa: u32,
     asdu_type: String,
     period_ms: u32,
+    mode: Option<String>,
+    step: Option<f64>,
+    min: Option<f64>,
+    max: Option<f64>,
 ) -> Result<(), String> {
     let asdu = parse_asdu_type(&asdu_type)?;
+    let params = MutationParams {
+        mode: parse_mutation_mode(mode.as_deref()),
+        step: step.unwrap_or(0.0),
+        min: min.unwrap_or(0.0),
+        max: max.unwrap_or(0.0),
+    };
     let servers = state.servers.read().await;
     let srv = servers
         .get(&server_id)
         .ok_or_else(|| format!("server {} not found", server_id))?;
     srv.server
-        .start_point_mutation(common_address, ioa, asdu, period_ms)
+        .start_point_mutation(common_address, ioa, asdu, period_ms, params)
         .await;
     Ok(())
 }
@@ -1160,11 +1181,21 @@ pub async fn stop_point_mutation(
 
 /// list_point_mutations 返回项。asdu_type 用 .name() 大写显示名,
 /// 与 list_data_points 的 DataPointInfo.asdu_type 一致,前端可直接拼 key。
+/// mode 为 flip/increment/decrement,供前端在数据表显示当前变位方式。
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub struct PointMutationInfo {
     pub ioa: u32,
     pub asdu_type: String,
+    pub mode: String,
+}
+
+fn mutation_mode_str(mode: MutationMode) -> &'static str {
+    match mode {
+        MutationMode::Flip => "flip",
+        MutationMode::Increment => "increment",
+        MutationMode::Decrement => "decrement",
+    }
 }
 
 #[tauri::command]
@@ -1180,8 +1211,12 @@ pub async fn list_point_mutations(
     let active = srv.server.list_point_mutations().await;
     Ok(active
         .into_iter()
-        .filter(|(ca, _, _)| *ca == common_address)
-        .map(|(_, ioa, t)| PointMutationInfo { ioa, asdu_type: t.name().to_string() })
+        .filter(|(ca, _, _, _)| *ca == common_address)
+        .map(|(_, ioa, t, mode)| PointMutationInfo {
+            ioa,
+            asdu_type: t.name().to_string(),
+            mode: mutation_mode_str(mode).to_string(),
+        })
         .collect())
 }
 

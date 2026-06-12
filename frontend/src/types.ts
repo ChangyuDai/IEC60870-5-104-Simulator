@@ -119,10 +119,15 @@ export interface RemoteOperationConfig {
   auto_packing: boolean
 }
 
-/** list_point_mutations 返回项。asdu_type 为大写显示名（与 DataPointInfo.asdu_type 一致）。 */
+/** 周期变位方式:翻转(两态振荡)/ 递增 / 递减(三角波)。 */
+export type MutationMode = 'flip' | 'increment' | 'decrement'
+
+/** list_point_mutations 返回项。asdu_type 为大写显示名（与 DataPointInfo.asdu_type 一致）。
+ *  mode 为当前变位方式,供数据表显示。 */
 export interface PointMutationInfo {
   ioa: number
   asdu_type: string
+  mode: MutationMode
 }
 
 export const DEFAULT_PROTOCOL_TIMING: ProtocolTimingConfig = {
