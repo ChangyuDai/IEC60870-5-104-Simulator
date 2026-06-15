@@ -285,7 +285,7 @@ const dict: DictShape = {
     stopCyclic: '停止周期',
     mutationInterval: '变化间隔 (ms)',
     sendInterval: '发送间隔 (ms)',
-    appTitle: 'IEC 104 Slave',
+    appTitle: 'IEC104 Slave',
     about: '关于',
     titleNewServer: '新建服务器',
     titleStartServer: '启动服务器',

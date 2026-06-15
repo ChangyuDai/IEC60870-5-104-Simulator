@@ -137,7 +137,7 @@ async function openConfig() {
     <div class="toolbar-main">
     <div class="toolbar-group">
       <button class="toolbar-btn" @click="showNewServerModal = true" :title="t('toolbar.titleNewServer')">
-        <span class="toolbar-icon">+</span>
+        <span class="btn-icon">+</span>
         <span class="toolbar-label">{{ t('toolbar.newServer') }}</span>
       </button>
     </div>
@@ -200,7 +200,7 @@ async function openConfig() {
     </div>
     </div>
     <div class="toolbar-aside">
-      <button class="toolbar-btn toolbar-btn-update" :disabled="updateChecking" @click="manualCheckUpdate">
+      <button class="toolbar-btn" :disabled="updateChecking" @click="manualCheckUpdate">
         {{ updateChecking ? t('toolbar.checkingUpdate') : t('toolbar.checkUpdate') }}
       </button>
       <LangSwitch />
@@ -214,89 +214,9 @@ async function openConfig() {
 </template>
 
 <style scoped>
-.toolbar {
-  display: flex;
-  align-items: center;
-  height: 42px;
-  padding: 0 8px;
-  gap: 6px;
-  user-select: none;
-  font-size: 13px;
-}
-
-/* Left operations region: shrinks and scrolls horizontally on narrow windows
-   so the right-side status region never gets clipped. */
-.toolbar-main {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: thin;
-}
-.toolbar-main::-webkit-scrollbar {
-  height: 6px;
-}
-
-/* Right status region: language / version / about — always visible. */
-.toolbar-aside {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding-left: 2px;
-}
-
-.toolbar-group {
-  display: flex;
-  gap: 2px;
-}
-
-.toolbar-divider {
-  width: 1px;
-  height: 24px;
-  background: var(--c-surface0);
-  margin: 0 2px;
-  flex: none;
-}
-
-.toolbar-btn {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 7px;
-  border: none;
-  background: var(--c-surface0);
-  color: var(--c-text);
-  cursor: pointer;
-  border-radius: 4px;
-  font-size: 13px;
-  white-space: nowrap;
-}
-
-.toolbar-btn:hover:not(:disabled) {
-  background: var(--c-surface1);
-}
-
-.toolbar-btn:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-.toolbar-btn.btn-start:not(:disabled) {
-  color: var(--c-green);
-}
-
-.toolbar-btn.btn-stop:not(:disabled) {
-  color: var(--c-peach);
-}
-
-.toolbar-icon {
-  font-weight: bold;
-  font-size: 14px;
-}
+/* Common toolbar chrome (.toolbar, .toolbar-btn, .toolbar-divider, .toolbar-title …)
+   lives in @shared/styles/toolbar.css so master and slave stay identical.
+   Only the slave-specific runtime-params gear icon remains here. */
 
 .toolbar-icon-svg {
   width: 13px;
@@ -310,23 +230,4 @@ async function openConfig() {
   color: var(--c-blue);
   transform: rotate(45deg);
 }
-
-.toolbar-main > .toolbar-group,
-.toolbar-main > .toolbar-divider {
-  flex: none;
-}
-
-.toolbar-title {
-  font-size: 12px;
-  color: var(--c-overlay0);
-  padding-right: 8px;
-}
-.toolbar-title.as-button {
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  font-family: inherit;
-}
-.toolbar-title.as-button:hover { color: var(--c-text); }
-
 </style>

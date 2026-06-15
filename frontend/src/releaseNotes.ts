@@ -4,6 +4,7 @@ export const RELEASES_URL = 'https://github.com/Karl-Dai/IEC60870-5-104-Simulato
 
 // Keep in sync with CHANGELOG.md — see `release` skill.
 export const RELEASE_NOTES: string[] = [
+  '主/子站工具栏风格统一: 子站工具栏改为与主站一致的扁平风 (按钮默认透明、hover 出灰、12px), 分隔线/间距/标题字重全部对齐; 工具栏公共样式抽成共享 shared/toolbar.css 两端共用, 杜绝再次样式漂移; 应用名统一为无空格的 IEC104 Slave',
   '周期变位新增「递增 / 递减」(三角波): 启动时设步长与上下限, 值到边界自动掉头来回往复; 数据表行内以 ↑/↓/⇅ 标识当前方式 (翻转/递增/递减); 仅模拟量 (M_ME_NA/NB/NC) 与累计量 (M_IT) 支持步进, 离散量回退翻转',
   '修复模拟量零值变位「值不变」: 浮点/归一化/标度化值为 0 时取反得 -0.0, 在 0/-0 间振荡显示恒为零; 现零值翻到可见非零量',
   '停止态可改服务器监听地址 / 端口: 无需删除重建, 在运行参数面板直接改端口 (运行中端口被监听占用, 拒绝并提示先停止服务器)',

@@ -4,6 +4,7 @@ export const RELEASES_URL = 'https://github.com/Karl-Dai/IEC60870-5-104-Simulato
 
 // Keep in sync with CHANGELOG.md — see `release` skill.
 export const RELEASE_NOTES: string[] = [
+  '主/子站工具栏风格统一: 工具栏公共样式抽成共享 shared/toolbar.css 两端共用 (各删约 100 行重复 CSS), 主站观感不变、子站靠拢主站扁平风, 从根上杜绝主/子站再次样式漂移',
   '本版子站: 周期变位新增递增/递减 (三角波) + 修复模拟量零值变位不可见; 停止态可改服务器监听地址/端口; 归一化编码 round 往返修正, 详见 CHANGELOG.md',
   '匿名使用统计: 检查更新经 cn0 加速源携带匿名安装 ID 与版本/平台参数, 聚合数据公开在 daichangyu.com/iec104; 不收集任何个人信息',
   '本版子站另有: 通信日志面板高度可拖拽调节并持久化, 详见 CHANGELOG.md',

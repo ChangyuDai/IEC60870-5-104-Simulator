@@ -2,6 +2,23 @@
 
 本项目的所有重要变更记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.12.8] - 2026-06-15
+
+### Highlights / 亮点
+
+- 🎨 **主/子站工具栏风格统一** / **Unified master & slave toolbar styling**:子站工具栏由「灰色填充按钮」改为与主站一致的扁平风(默认透明、hover 出灰、12px),分隔线/间距/标题字重全部对齐,两个应用观感一致 / the slave toolbar switches from filled grey buttons to the master's flat look (transparent by default, hover-grey, 12px); dividers, spacing and title weight now match across both apps.
+- 🧱 **工具栏样式抽成共享单一来源** / **Toolbar chrome extracted to a single shared stylesheet**:新增 `shared-frontend/styles/toolbar.css` 两端共用,两个 `Toolbar.vue` 各删约 100 行重复 CSS,从根上杜绝主/子站再次样式漂移 / a new shared `toolbar.css` is imported by both apps and ~100 lines of duplicated CSS are removed from each `Toolbar.vue`, so the two can no longer drift apart.
+
+### Changed 改进
+
+- 子站工具栏采用主站扁平风:按钮默认透明、hover 显示 `--c-surface0` 底色、字号 12px,内边距与分隔线尺寸与主站对齐 / Slave toolbar adopts the master's flat style: buttons are transparent by default, hover shows `--c-surface0`, 12px font, with padding and divider sizing matched to the master.
+- 应用名统一为无空格写法:子站 `IEC 104 Slave` → `IEC104 Slave`,与主站 `IEC104 Master` 及窗口标题一致 / App name normalized without the space: slave `IEC 104 Slave` → `IEC104 Slave`, matching `IEC104 Master` and the window titles.
+
+### Internal 内部
+
+- 工具栏公共样式(`.toolbar` / `.toolbar-btn` / `.toolbar-divider` / `.toolbar-title` 等)下沉到 `shared-frontend/styles/toolbar.css`,两端 `main.ts` 各引入一行;`Toolbar.vue` 仅保留各自专属规则(主站 split/dropdown 菜单、子站运行参数齿轮) / Common toolbar styles moved into `shared-frontend/styles/toolbar.css` (imported once per app); each `Toolbar.vue` keeps only its app-specific rules (master split/dropdown menus, slave runtime-params gear).
+- 工具栏配色类 `.btn-start/.btn-stop/.btn-close` 与图标类 `.btn-icon` 收敛到 `.toolbar-btn` 作用域(`.toolbar-btn.btn-start` 等),避免泛类名泄漏到弹窗关闭按钮等无关元素 / Toolbar accent/icon classes are namespaced under `.toolbar-btn` (e.g. `.toolbar-btn.btn-start`) so the generic names can't leak onto unrelated elements such as modal close buttons.
+
 ## [1.12.7] - 2026-06-12
 
 ### Highlights / 亮点

@@ -25,7 +25,7 @@ const dict: DictShape = {
     stopCyclic: 'Stop Cyclic',
     mutationInterval: 'Mutation interval (ms)',
     sendInterval: 'Send interval (ms)',
-    appTitle: 'IEC 104 Slave',
+    appTitle: 'IEC104 Slave',
     about: 'About',
     titleNewServer: 'New Server',
     titleStartServer: 'Start Server',
