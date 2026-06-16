@@ -2,6 +2,25 @@
 
 本项目的所有重要变更记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.12.9] - 2026-06-16
+
+### Highlights / 亮点
+
+- ✍️ **子站新增「按 IOA 表达式批量写值」** / **Slave: batch-write values by IOA expression**:数据表工具栏点「写值」打开弹窗,文本输入非连续/区间混合的 IOA(如 `100, 1000-2000, 5000`),选类型后给所有命中点写同一个值——再不用在上万行里 Ctrl 逐个点选 / a new "写值" toolbar button opens a dialog where you type a mix of single IOAs and ranges (e.g. `100, 1000-2000, 5000`), pick a type, and write one value to every matching point — no more Ctrl-clicking across thousands of rows.
+- 🎯 **实时命中/忽略预览** / **Live matched/ignored preview**:输入即解析,显示「命中 N · 忽略 M」并紧凑列出命中区间;区间按已存在点过滤(稀疏天然成立),不存在的单点静默跳过;语法错 / 0 命中 / 空值自动禁用写入 / parses as you type, showing "N matched · M ignored" with compact ranges; ranges filter existing points (sparse is fine), missing single IOAs are silently skipped, and writing is disabled on parse error / zero hits / empty value.
+
+### Added 新增
+
+- 子站数据表工具栏新增「写值」按钮 → `BatchWriteModal` 弹窗:选具体 ASDU 类型(默认取当前分类),输入 IOA 表达式(单点 `n` + 闭区间 `a-b`,逗号/空格/换行分隔),给命中点批量写统一值;复用现有 `batch_update_data_points`(同分类校验 / 全或无写入 / 自发上送),**零后端改动**;支持 Esc 关闭、Cmd/Ctrl+Enter 提交 / A new "写值" button on the slave data-table toolbar opens `BatchWriteModal`: choose a concrete ASDU type (defaults to the current category), enter an IOA expression (single `n` plus closed range `a-b`, separated by comma/space/newline), and write one value to all matched points. Reuses the existing `batch_update_data_points` (same-category check / all-or-nothing / spontaneous push) with **zero backend changes**; supports Esc to close and Cmd/Ctrl+Enter to submit.
+
+### Tests 测试
+
+- 新增 `parseIoaExpression` / `resolveIoaHits` 纯函数单测(单点 / 区间 / 去重 / 越域 / 反向区间 / 缺失)与 `BatchWriteModal` 组件测试(命中计数、禁用态、写入 payload、键盘),并经真实无头浏览器端到端验证 / Added pure-function unit tests for `parseIoaExpression` / `resolveIoaHits` (singles, ranges, dedupe, out-of-range, reversed range, misses) and `BatchWriteModal` component tests (hit counts, disabled states, write payload, keyboard), plus a real headless-browser end-to-end check.
+
+### Notes 说明
+
+- 本版本 Master 端无功能改动 / No master-side functional changes in this release.
+
 ## [1.12.8] - 2026-06-15
 
 ### Highlights / 亮点
