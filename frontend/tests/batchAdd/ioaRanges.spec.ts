@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { compressRanges, lowerBound, findNextFreeGap, IOA_MAX } from '../../src/components/batchAdd/ioaRanges'
+import { compressRanges, lowerBound, findNextFreeGap, parseIoaExpression, resolveIoaHits, IOA_MAX } from '../../src/components/batchAdd/ioaRanges'
 
 describe('compressRanges', () => {
   it('returns empty string for []', () => {
@@ -77,5 +77,54 @@ describe('findNextFreeGap', () => {
 
   it('returns 0 with count = 1 and existing [5]', () => {
     expect(findNextFreeGap([5], 1)).toBe(0)
+  })
+})
+
+describe('parseIoaExpression', () => {
+  it('空串 → 空结果无错', () => {
+    expect(parseIoaExpression('')).toEqual({ ranges: [], singles: [], error: null })
+    expect(parseIoaExpression('   ')).toEqual({ ranges: [], singles: [], error: null })
+  })
+
+  it('单点 + 多分隔符（逗号/空格/换行）', () => {
+    expect(parseIoaExpression('100, 200 300\n400')).toEqual({
+      ranges: [], singles: [100, 200, 300, 400], error: null,
+    })
+  })
+
+  it('区间', () => {
+    expect(parseIoaExpression('1000-2000')).toEqual({
+      ranges: [[1000, 2000]], singles: [], error: null,
+    })
+  })
+
+  it('单点与区间混合 + 单点去重排序', () => {
+    expect(parseIoaExpression('5000, 100, 100, 1000-2000')).toEqual({
+      ranges: [[1000, 2000]], singles: [100, 5000], error: null,
+    })
+  })
+
+  it('等值区间 a-a 合法', () => {
+    expect(parseIoaExpression('5-5')).toEqual({ ranges: [[5, 5]], singles: [], error: null })
+  })
+
+  it('非数字 token → error 置该 token', () => {
+    expect(parseIoaExpression('100, abc').error).toBe('abc')
+  })
+
+  it('区间反向 b<a → error', () => {
+    expect(parseIoaExpression('200-100').error).toBe('200-100')
+  })
+
+  it('单点越域 > IOA_MAX → error', () => {
+    expect(parseIoaExpression(String(IOA_MAX + 1)).error).toBe(String(IOA_MAX + 1))
+  })
+
+  it('区间上界越域 → error', () => {
+    expect(parseIoaExpression('0-99999999').error).toBe('0-99999999')
+  })
+
+  it('带空格的破折号视为非法 token', () => {
+    expect(parseIoaExpression('100 - 200').error).toBe('-')
   })
 })

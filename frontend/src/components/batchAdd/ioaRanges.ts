@@ -48,3 +48,41 @@ export function findNextFreeGap(xs: readonly number[], count: number): number | 
   if (s + count - 1 > IOA_MAX) return null
   return s
 }
+
+export interface IoaExpr {
+  ranges: Array<[number, number]>  // 已校验 lo<=hi 且 hi<=IOA_MAX
+  singles: number[]                // 升序去重
+  error: string | null             // 非 null = 语法错（值为肇事 token），调用方据此禁用写入
+}
+
+// 解析 IOA 表达式：逗号/空格/换行分隔；单点 `n`、闭区间 `a-b`。
+// 任一非法 token（非数字、b<a、越域）立即返回 error=该 token。
+export function parseIoaExpression(input: string): IoaExpr {
+  const ranges: Array<[number, number]> = []
+  const singles = new Set<number>()
+  const tokens = input.split(/[\s,]+/).filter((t) => t.length > 0)
+  for (const tok of tokens) {
+    const m = tok.match(/^(\d+)-(\d+)$/)
+    if (m) {
+      const lo = Number(m[1])
+      const hi = Number(m[2])
+      if (lo > hi || hi > IOA_MAX) {
+        return { ranges, singles: sortedUnique(singles), error: tok }
+      }
+      ranges.push([lo, hi])
+      continue
+    }
+    if (/^\d+$/.test(tok)) {
+      const n = Number(tok)
+      if (n > IOA_MAX) return { ranges, singles: sortedUnique(singles), error: tok }
+      singles.add(n)
+      continue
+    }
+    return { ranges, singles: sortedUnique(singles), error: tok }
+  }
+  return { ranges, singles: sortedUnique(singles), error: null }
+}
+
+function sortedUnique(s: Set<number>): number[] {
+  return Array.from(s).sort((a, b) => a - b)
+}
