@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, inject } from 'vue'
+import { ref, computed, watch, inject, onUnmounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { dialogKey } from '@shared/composables/useDialog'
 import type { showAlert as ShowAlert } from '@shared/composables/useDialog'
@@ -74,6 +74,8 @@ function valuePlaceholder(type: string): string {
 
 // immediate: true —— 组件常驻挂载（visible 初始 false），需在每次 visible 转 true
 // 时初始化；且测试以 visible=true 挂载，无 immediate 则 watch 不触发、asduType 永空。
+// 键盘监听挂 window（仓库既有约定，见 RemoteParamsModal.vue）；backdrop div 无 tabindex
+// 不可聚焦，挂 @keydown 在未聚焦内部元素时不触发。
 watch(
   () => props.visible,
   (v) => {
@@ -82,10 +84,14 @@ watch(
       value.value = ''
       isSaving.value = false
       asduType.value = props.defaultType || typeOptions.value[0]?.type || ''
+      window.addEventListener('keydown', handleKeydown)
+    } else {
+      window.removeEventListener('keydown', handleKeydown)
     }
   },
   { immediate: true },
 )
+onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
 
 async function handleWrite() {
   if (!canWrite.value) return
@@ -123,7 +129,7 @@ function handleKeydown(e: KeyboardEvent) {
 <template>
   <Teleport to="body">
     <Transition name="dialog-pop">
-      <div v-if="visible" class="modal-backdrop dialog-blur" @click="handleBackdropClick" @keydown="handleKeydown">
+      <div v-if="visible" class="modal-backdrop dialog-blur" @click="handleBackdropClick">
         <div class="modal">
           <div class="modal-header">
             <span class="modal-title">{{ t('batchWrite.title') }}</span>
