@@ -6,6 +6,7 @@ import type { showAlert as ShowAlert } from '@shared/composables/useDialog'
 import type { DataPointInfo, IncrementalDataResponse, PointMutationInfo, MutationMode } from '../types'
 import DataPointModal from './DataPointModal.vue'
 import BatchAddModal from './BatchAddModal.vue'
+import BatchWriteModal from './BatchWriteModal.vue'
 import { useI18n, localizeCategoryLabel } from '@shared/i18n'
 import EmptyState from '@shared/components/EmptyState.vue'
 import QualityIndicator from '@shared/components/QualityIndicator.vue'
@@ -43,6 +44,13 @@ const searchQuery = ref('')
 const scrollContainer = ref<HTMLDivElement | null>(null)
 const showAddModal = ref(false)
 const showBatchModal = ref(false)
+const showBatchWriteModal = ref(false)
+// 默认写值类型：取当前分类过滤命中的首个点的 asdu_type；无过滤则空（弹窗回退首个可用类型）。
+const batchWriteDefaultType = computed(() => {
+  if (!selectedCategory.value) return ''
+  const p = displayPoints.value.find((pt) => pt.category === selectedCategory.value)
+  return p?.asdu_type ?? ''
+})
 // Keyed by `${ioa}:${asduType}` — the same IOA hosts multiple ASDU types, so
 // an IOA-only key would flash every type on that IOA when only one changed.
 const changedKeys = ref<Set<string>>(new Set())
@@ -426,6 +434,11 @@ function onPointAdded() {
   dataRefreshKey.value++
 }
 
+function onBatchWritten() {
+  showBatchWriteModal.value = false
+  loadDataPoints()
+}
+
 // Context menu for delete — acts on the current selection, not just the
 // right-clicked row, so multi-select (ctrl/shift) can be batch-deleted.
 const contextMenu = ref({ show: false, x: 0, y: 0 })
@@ -581,6 +594,12 @@ defineExpose({ loadData: loadDataPoints })
         @click="showBatchModal = true"
         :title="t('table.batchAdd')"
       >{{ t('table.batchAdd') }}</button>
+      <button
+        class="add-btn batch"
+        :disabled="!selectedServerId || currentCA === null || displayPoints.length === 0"
+        @click="showBatchWriteModal = true"
+        :title="t('batchWrite.title')"
+      >{{ t('table.batchWrite') }}</button>
       <span class="table-count">{{ filteredPoints.length }} {{ t('table.countSuffix') }}</span>
     </div>
 
@@ -753,6 +772,17 @@ defineExpose({ loadData: loadDataPoints })
       :existing-points="showBatchModal ? displayPoints : []"
       @close="showBatchModal = false"
       @added="onPointAdded"
+    />
+
+    <!-- Batch Write Modal -->
+    <BatchWriteModal
+      :visible="showBatchWriteModal"
+      :server-id="selectedServerId ?? ''"
+      :common-address="currentCA ?? 0"
+      :existing-points="showBatchWriteModal ? displayPoints : []"
+      :default-type="batchWriteDefaultType"
+      @close="showBatchWriteModal = false"
+      @written="onBatchWritten"
     />
   </div>
 </template>
