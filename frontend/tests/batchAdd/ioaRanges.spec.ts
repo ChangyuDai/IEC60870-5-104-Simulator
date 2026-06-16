@@ -128,3 +128,37 @@ describe('parseIoaExpression', () => {
     expect(parseIoaExpression('100 - 200').error).toBe('-')
   })
 })
+
+describe('resolveIoaHits', () => {
+  const existing = [100, 1000, 1500, 2000] // 升序去重
+
+  it('区间过滤已存在点（稀疏区间天然成立）', () => {
+    const r = resolveIoaHits(parseIoaExpression('1000-2000'), existing)
+    expect(r).toEqual({ hitIoas: [1000, 1500, 2000], missedSingles: [] })
+  })
+
+  it('单点命中 + 缺失单点计入 missed', () => {
+    const r = resolveIoaHits(parseIoaExpression('100, 999'), existing)
+    expect(r).toEqual({ hitIoas: [100], missedSingles: [999] })
+  })
+
+  it('区间与单点并集去重', () => {
+    const r = resolveIoaHits(parseIoaExpression('1000-1500, 1000'), existing)
+    expect(r).toEqual({ hitIoas: [1000, 1500], missedSingles: [] })
+  })
+
+  it('区间命中不计 missed（即便区间内多数 IOA 不存在）', () => {
+    const r = resolveIoaHits(parseIoaExpression('0-100000'), existing)
+    expect(r).toEqual({ hitIoas: [100, 1000, 1500, 2000], missedSingles: [] })
+  })
+
+  it('语法错 → 空命中', () => {
+    const r = resolveIoaHits(parseIoaExpression('abc'), existing)
+    expect(r).toEqual({ hitIoas: [], missedSingles: [] })
+  })
+
+  it('空 existing → 单点全 missed、区间空', () => {
+    const r = resolveIoaHits(parseIoaExpression('100, 1-9'), [])
+    expect(r).toEqual({ hitIoas: [], missedSingles: [100] })
+  })
+})

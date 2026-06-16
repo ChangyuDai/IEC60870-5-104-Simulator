@@ -86,3 +86,29 @@ export function parseIoaExpression(input: string): IoaExpr {
 function sortedUnique(s: Set<number>): number[] {
   return Array.from(s).sort((a, b) => a - b)
 }
+
+export interface IoaHits {
+  hitIoas: number[]        // 升序去重：实际存在且被表达式覆盖的 IOA
+  missedSingles: number[]  // 升序去重：合法但不存在的单点（区间不计入）
+}
+
+// existingIoas 必须升序去重（区间用 lowerBound 二分切片）。
+export function resolveIoaHits(expr: IoaExpr, existingIoas: readonly number[]): IoaHits {
+  if (expr.error) return { hitIoas: [], missedSingles: [] }
+  const existingSet = new Set(existingIoas)
+  const hit = new Set<number>()
+  const missed = new Set<number>()
+  for (const n of expr.singles) {
+    if (existingSet.has(n)) hit.add(n)
+    else missed.add(n)
+  }
+  for (const [lo, hi] of expr.ranges) {
+    const start = lowerBound(existingIoas, lo)
+    const end = lowerBound(existingIoas, hi + 1)
+    for (let i = start; i < end; i++) hit.add(existingIoas[i])
+  }
+  return {
+    hitIoas: Array.from(hit).sort((a, b) => a - b),
+    missedSingles: Array.from(missed).sort((a, b) => a - b),
+  }
+}
