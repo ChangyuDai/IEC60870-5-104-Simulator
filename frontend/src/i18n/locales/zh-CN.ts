@@ -129,6 +129,7 @@ export type DictShape = {
     searchPlaceholder: string
     addPointTitle: string
     batchAdd: string
+    batchWrite: string
     chooseStation: string
     chooseStationHint: string
     noPoints: string
@@ -180,6 +181,29 @@ export type DictShape = {
     nextGapBtn: string
     capacityFullTooltip: string
     conflictDetail: string
+  }
+  batchWrite: {
+    title: string
+    typeLabel: string
+    ioaLabel: string
+    ioaPlaceholder: string
+    valueLabel: string
+    hit: string
+    ignored: string
+    ignoredDetail: string
+    parseError: string
+    write: string
+    writeN: string
+    writing: string
+    failedPrefix: string
+    phSingle: string
+    phDouble: string
+    phStep: string
+    phBitstring: string
+    phNormalized: string
+    phScaled: string
+    phFloat: string
+    phTotal: string
   }
   valuePanel: {
     title: string
@@ -391,6 +415,7 @@ const dict: DictShape = {
     searchPlaceholder: '搜索 IOA / 名称...',
     addPointTitle: '添加数据点',
     batchAdd: '批量',
+    batchWrite: '写值',
     chooseStation: '选择一个站',
     chooseStationHint: '在左侧导航树中点击一个站查看数据点',
     noPoints: '该站暂无数据点',
@@ -442,6 +467,29 @@ const dict: DictShape = {
     nextGapBtn: '↦ 跳到能放下的空隙',
     capacityFullTooltip: 'IOA 容量不足',
     conflictDetail: '冲突 IOA {ranges}（{count} 个点将被跳过）',
+  },
+  batchWrite: {
+    title: '按 IOA 批量写值',
+    typeLabel: '类型',
+    ioaLabel: '目标 IOA',
+    ioaPlaceholder: '如 100, 500, 1000-2000, 5000（逗号/空格/换行分隔）',
+    valueLabel: '值',
+    hit: '命中 {count} 个',
+    ignored: '忽略 {count} 个',
+    ignoredDetail: '忽略 {ranges}（不存在）',
+    parseError: '无法解析：{token}',
+    write: '写入',
+    writeN: '写入 {count}',
+    writing: '写入中…',
+    failedPrefix: '批量写值失败：{err}',
+    phSingle: '1/0 或 ON/OFF',
+    phDouble: '0/1/2/3',
+    phStep: '-64..63',
+    phBitstring: 'u32 位串（十进制）',
+    phNormalized: '原始 NVA 整数 -32768..32767',
+    phScaled: 'i16 整数 -32768..32767',
+    phFloat: '如 99.9',
+    phTotal: 'i32 整数',
   },
   valuePanel: {
     title: '数据点详情',
