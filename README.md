@@ -36,7 +36,7 @@ Testing an IEC 104 integration usually means borrowing a real RTU or a master st
 - [Features](#features)
 - [Download](#download)
 - [Build from Source](#build-from-source)
-- [Quick Start](#quick-start)
+- [Quick Start (Tutorial)](#quick-start-tutorial)
 - [Protocol Support](#protocol-support)
 - [Architecture](#architecture)
 - [Contributing](#contributing)
@@ -65,12 +65,14 @@ The bottom log panel shows every TLS handshake step, U/I/S frame, COT decode, an
 - **IEC 104 server** with TCP and TLS support
 - **8 data types** — Single Point, Double Point, Step Position, Bitstring, Normalized, Scaled, Short Float, Integrated Totals
 - **Data point management** — add single or batch points with IOA range and ASDU type selection
-- **Random mutation** — simulate value changes at a configurable interval
+- **Batch value write by IOA expression** — type a mix of single IOAs and ranges (e.g. `100, 1000-2000, 5000`), pick a type, and write one value to every matching point — with a live matched/ignored preview, no Ctrl-clicking across thousands of rows
+- **Per-point periodic mutation** — right-click any point(s) to start/stop a periodic change with an in-row pulse indicator; analog points and counters ramp as a triangle wave (increment/decrement with step and bounds), discrete points flip; points mutate concurrently and independently
+- **Random mutation** and **cyclic transmission** — simulate value changes / periodic sending at a configurable interval
 - **Spontaneous transmission** (COT=3) — automatically pushes changed values to connected masters
-- **Cyclic transmission** — periodic data sending at a configurable interval
 - **General Interrogation** (GI) and **Counter Interrogation** responses
 - **Control command handling** — Single, Double, Step and Setpoint commands
-- **Communication log** with hex frame display and CSV export
+- **Editable listen address/port** — change a stopped server's bind address/port in place, no delete-and-recreate
+- **Communication log** with hex frame display, drag-to-resize panel and CSV export
 - Server auto-starts on creation
 
 ### 📡 Master — `IEC104Master`
@@ -83,7 +85,8 @@ The bottom log panel shows every TLS handshake step, U/I/S frame, COT decode, an
 - **Custom Control dialog** — pick a CA from the connection's configured list, type any IOA + value; stays open after a successful send for fast iteration and remembers your last CA / IOA / type / value via localStorage
 - **Control commands** — Direct Execute and Select-before-Operate (SbO); a right-click on any point routes to its actual source CA in multi-CA setups
 - **Value panel** showing selected point details
-- **General Interrogation**, **Counter Read** and **Clock Sync** commands
+- **General Interrogation**, **Counter Interrogation** and **Clock Sync** commands — GI and Counter Interrogation are per-CA selectable on multi-CA connections (pick one CA or "all CAs")
+- **Auto-reconnect** — re-establishes a dropped link automatically at the T0 interval
 - **Communication log** with TLS handshake events, U/I/S frame decode, COT names, raw hex bytes and CSV export
 - **In-app auto-update** from GitHub Releases (ed25519-signed bundles, 6 h check throttle, "later" snoozes 24 h)
 
@@ -105,7 +108,7 @@ Users in mainland China may have unstable access to GitHub Releases. Recommended
 
 - <https://ghfast.top/https://github.com/Karl-Dai/IEC60870-5-104-Simulator/releases/latest>
 
-Starting from the version that includes this change, the in-app updater automatically falls back through multiple proxies — no manual action needed. However, **the very first upgrade from an older version** uses the endpoint compiled into the old binary (github.com only); if the in-app update check fails, please download and install the new version once via the mirror above, after which the updater will route through proxies automatically.
+Since v1.12.4 the in-app updater tries a **self-hosted mirror** (`gh.daichangyu.com`, an nginx reverse proxy in Singapore) **first**, then falls back through GitHub origin and public proxies automatically — no manual action needed. However, **the very first upgrade from an older version** uses the endpoint compiled into the old binary (github.com only); if the in-app update check fails, please download and install the new version once via the mirror above, after which the updater routes through the self-hosted mirror automatically.
 
 ## Build from Source
 
@@ -129,33 +132,65 @@ cd crates/iec104sim-app && cargo tauri dev
 cd crates/iec104master-app && cargo tauri dev
 ```
 
-## Quick Start
+## Quick Start (Tutorial)
 
-A full round-trip in four steps — drive the simulated Slave from the Master, no hardware required. (Screenshots show the Chinese UI; flip to English any time with the **中 / EN** toggle.)
+A full round-trip with the Master driving the simulated Slave — no hardware required. (The screenshots show the Chinese UI; flip to English any time with the **中 / EN** toggle.)
 
-### 1 · Slave — create a server with data points
+> **Install first:** grab the installer for your platform from the [Releases page](#download), or run from source (`cargo tauri dev`). Open **both** `IEC104Slave` and `IEC104Master`.
+
+### Step 1 · Slave — create a server and add data points
 
 Open **IEC104Slave** and click **新建服务器 (New Server)**: it binds `0.0.0.0:2404` and auto-starts. Add a station, then batch-add points spanning all 8 monitored types — single/double point, step position, bitstring, normalized, scaled, short-float and integrated totals. Each point carries an IOA, a value and quality flags.
 
 ![Slave with a running server and data points](docs/screenshots/tut-1-slave.png)
 
-### 2 · Master — create a connection
+**Tip · batch-add**: the **批量添加 (Batch Add)** dialog takes an IOA range (e.g. `1-200`) and an ASDU type, creating hundreds of points in one shot.
 
-Open **IEC104Master** and click **新建连接 (New Connection)**. The defaults already target the local Slave: address `127.0.0.1`, port `2404`, Common Address `1`. To reach several stations over one link, list the CAs comma-separated (`1, 2, 3`); tick **启用 TLS (Enable TLS)** for a secure link. Click **创建 (Create)**, then **连接 (Connect)**.
+### Step 2 · Master — create a connection
+
+Open **IEC104Master** and click **新建连接 (New Connection)**. The defaults already target the local Slave: address `127.0.0.1`, port `2404`, Common Address `1`.
+
+- **Multi-CA on one link** — to reach several stations over a single TCP connection, list the Common Addresses comma-separated (`1, 2, 3`). The connection tree later expands to **Connection → CA badge → category**, with per-CA point counts so colliding IOAs from different stations never mix.
+- **TLS** — tick **启用 TLS (Enable TLS)** and provide CA / client cert / key paths to use mutual TLS (Pasted paths with wrapping quotes from Windows *Copy as path* are auto-stripped).
+
+Click **创建 (Create)**, then **连接 (Connect)**.
 
 ![New Connection dialog](docs/screenshots/tut-2-master-newconn.png)
 
-### 3 · Master — General Interrogation fills the table
+### Step 3 · General Interrogation fills the table
 
-Press **总召唤 (General Interrogation)**. The Slave answers with every point; the connection tree shows per-category counts and the table fills with the received IOAs, values and quality.
+Press **总召唤 (General Interrogation)**. On a multi-CA connection a menu lets you pick a specific CA or **全部 CA (all CAs)**; single-CA connections send directly. The Slave answers with every point; the connection tree shows per-category counts and the table fills with the received IOAs, values and quality. Normalized measurements show as the raw NVA integer (i16), matching the wire bytes exactly.
 
 ![Master data table after General Interrogation](docs/screenshots/tut-3-master-data.png)
 
-### 4 · Watch the wire — and live updates
+**Counter Interrogation** (累计量召唤) and **Clock Sync** (时钟同步) live next to GI — counter interrogation is likewise per-CA selectable on multi-CA links.
 
-Expand **通信日志 (Communication Log)** at the bottom: every U/I/S frame is decoded — frame type, Cause of Transmission, a readable detail and the raw hex side by side. Back on the Slave, click **随机变化 (Random Mutation)** — changed values are pushed spontaneously (COT=3) and surface in the Master's table and log in real time.
+### Step 4 · Control a point from the Master
+
+Open **控制 (Control)** (or right-click a data point → **控制** — this routes to the point's actual source CA, so multi-CA setups never send to the wrong station). The **Custom Control dialog** lets you:
+
+- pick a **CA** from the connection's configured list,
+- type any **IOA** and value,
+- choose a **command type** (single / double / step / setpoint / bitstring),
+- choose a **control mode** — **Direct Execute**, **Select-only**, or **Auto SbO** (select-before-operate, persisted for next time).
+
+The dialog stays open after a successful send for fast iteration, and remembers your last CA / IOA / type / value / mode across opens and restarts.
+
+### Step 5 · Mutate values and watch spontaneous updates
+
+Back on the Slave, drive value changes and watch them surface live on the Master:
+
+- **Right-click → 周期变位 (Periodic Mutation)** on any point(s) — analog points and counters ramp as a **triangle wave** (set a step and min/max bounds, bounces at the limits; the in-row glyph shows ↑/↓/⇅), discrete points flip. Multiple points mutate concurrently and independently.
+- **写值 (Batch Write by IOA)** on the toolbar — type a mix of single IOAs and ranges (e.g. `100, 1000-2000, 5000`), pick a type, write one value to every matching point with a live **matched N · ignored M** preview.
+- Changed values are pushed **spontaneously (COT=3)** and appear in the Master's table and log in real time. If the Master's link drops, it **auto-reconnects** at the T0 interval.
+
+### Step 6 · Read the wire — decoded frames & raw hex
+
+Expand **通信日志 (Communication Log)** at the bottom (drag the splitter to resize — the height persists). Every U/I/S frame is decoded — frame type, Cause of Transmission, a readable detail and the raw hex side by side. The master's **auto-reconnect**, TLS handshake steps and the **TESTFR** heartbeat are all logged. Click **导出 CSV** to export the whole log for offline analysis.
 
 ![Communication log with decoded frames and raw hex](docs/screenshots/tut-4-master-log.png)
+
+That's the full round-trip — server, points, interrogation, control, mutation and wire-level inspection, all on your desktop.
 
 ## Protocol Support
 
