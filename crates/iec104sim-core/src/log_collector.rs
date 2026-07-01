@@ -1,4 +1,5 @@
 use crate::log_entry::{Direction, LogEntry};
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -12,7 +13,9 @@ const MAX_LOG_ENTRIES: usize = 10000;
 /// maintaining a buffer of up to 10000 entries.
 #[derive(Debug, Clone)]
 pub struct LogCollector {
-    entries: Arc<RwLock<Vec<LogEntry>>>,
+    // VecDeque:满 MAX 后从头淘汰用 O(1) 的 pop_front,而 Vec::remove(0) 是
+    // O(n) 头删——日志满 10000 条后每次高频写日志都要 memmove 整个缓冲区。
+    entries: Arc<RwLock<VecDeque<LogEntry>>>,
     enabled: Arc<AtomicBool>,
 }
 
@@ -25,7 +28,7 @@ impl Default for LogCollector {
 impl LogCollector {
     pub fn new() -> Self {
         Self {
-            entries: Arc::new(RwLock::new(Vec::new())),
+            entries: Arc::new(RwLock::new(VecDeque::new())),
             enabled: Arc::new(AtomicBool::new(true)),
         }
     }
@@ -45,9 +48,9 @@ impl LogCollector {
         enrich_detail(&mut entry);
         let mut entries = self.entries.write().await;
         if entries.len() >= MAX_LOG_ENTRIES {
-            entries.remove(0);
+            entries.pop_front();
         }
-        entries.push(entry);
+        entries.push_back(entry);
     }
 
     /// Add a log entry (blocking version).
@@ -56,9 +59,9 @@ impl LogCollector {
         enrich_detail(&mut entry);
         let mut entries = self.entries.blocking_write();
         if entries.len() >= MAX_LOG_ENTRIES {
-            entries.remove(0);
+            entries.pop_front();
         }
-        entries.push(entry);
+        entries.push_back(entry);
     }
 
     /// Add a log entry (non-blocking, safe to call from sync code within async runtime).
@@ -67,27 +70,28 @@ impl LogCollector {
         enrich_detail(&mut entry);
         if let Ok(mut entries) = self.entries.try_write() {
             if entries.len() >= MAX_LOG_ENTRIES {
-                entries.remove(0);
+                entries.pop_front();
             }
-            entries.push(entry);
+            entries.push_back(entry);
         }
     }
 
     /// Get all log entries.
     pub async fn get_all(&self) -> Vec<LogEntry> {
-        self.entries.read().await.clone()
+        self.entries.read().await.iter().cloned().collect()
     }
 
     /// Get all log entries (blocking version).
     pub fn get_all_blocking(&self) -> Vec<LogEntry> {
-        self.entries.blocking_read().clone()
+        self.entries.blocking_read().iter().cloned().collect()
     }
 
     /// Get the most recent `n` entries.
     pub async fn get_recent(&self, n: usize) -> Vec<LogEntry> {
         let entries = self.entries.read().await;
         let start = entries.len().saturating_sub(n);
-        entries[start..].to_vec()
+        // VecDeque 非连续内存,不能像 Vec 那样 `[start..]` 切片。
+        entries.iter().skip(start).cloned().collect()
     }
 
     /// Clear all log entries.
@@ -190,6 +194,34 @@ mod tests {
         }
 
         assert_eq!(collector.len().await, max);
+    }
+
+    // 溢出淘汰的行为契约:满 MAX 后按 FIFO 丢弃最旧条目,保留的是最近的
+    // MAX 条且顺序不变。锁定此契约,守护 Vec→VecDeque 的数据结构重构
+    // (pop_front 而非 pop_back / 顺序不能反)。
+    #[tokio::test]
+    async fn test_overflow_keeps_most_recent_in_order() {
+        let collector = LogCollector::new();
+        let max = MAX_LOG_ENTRIES;
+        // 加入 max + 5 条,detail 用序号标记。
+        for i in 0..(max + 5) {
+            collector.add(LogEntry::new(
+                Direction::Rx,
+                FrameLabel::IFrame("M_SP_NA_1".to_string()),
+                format!("{}", i),
+            )).await;
+        }
+        let logs = collector.get_all().await;
+        assert_eq!(logs.len(), max);
+        // 最旧的 0..5 被丢弃,首条应为序号 5,末条为序号 max+4,且严格递增。
+        assert_eq!(logs.first().unwrap().detail, "5");
+        assert_eq!(logs.last().unwrap().detail, format!("{}", max + 4));
+        // get_recent 取尾部 n 条,顺序与 get_all 尾部一致。
+        let recent = collector.get_recent(3).await;
+        assert_eq!(
+            recent.iter().map(|e| e.detail.clone()).collect::<Vec<_>>(),
+            vec![format!("{}", max + 2), format!("{}", max + 3), format!("{}", max + 4)],
+        );
     }
 
     #[tokio::test]
