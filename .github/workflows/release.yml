@@ -370,9 +370,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           for attempt in 1 2 3 4 5; do
+            # 上传 gen-update-manifest 实际产出的全部清单(cn0 + 兜底 + 任何 cnN 变体);
+            # 用 glob 与 MANIFEST_VARIANTS 解耦,增删镜像变体无需再动本 workflow。
             if gh release upload ${{ github.ref_name }} \
-              latest-slave.json latest-slave-cn0.json latest-slave-cn1.json latest-slave-cn2.json latest-slave-cn3.json \
-              latest-master.json latest-master-cn0.json latest-master-cn1.json latest-master-cn2.json latest-master-cn3.json \
+              latest-slave*.json \
+              latest-master*.json \
               --clobber; then exit 0; fi
             echo "::warning::manifest upload attempt $attempt failed, retrying in 10s"
             sleep 10
