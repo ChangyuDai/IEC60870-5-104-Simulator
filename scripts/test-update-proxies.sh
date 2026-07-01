@@ -9,9 +9,7 @@ MANIFEST_PATH="releases/latest/download/latest-master.json"
 ORIGIN="https://github.com/$REPO/$MANIFEST_PATH"
 
 PROXIES=(
-  "https://ghfast.top"
-  "https://gh-proxy.com"
-  "https://gh.idayer.com"
+  "https://gh.carldai.cloud"
 )
 
 now_ms() { python3 -c 'import time;print(int(time.time()*1000))'; }

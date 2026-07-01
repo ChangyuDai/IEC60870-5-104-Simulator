@@ -19,11 +19,10 @@ const PLATFORM_PATTERNS = [
 
 // 与 `crates/*/tauri.conf.json` 的 `updater.endpoints` 顺序保持一致(proxy 在前,
 // github 兜底)。修改顺序请同步两个 tauri.conf.json。
+// cn0 = 自建加速源 gh.carldai.cloud(大陆腾讯云 nginx 前端,链式回源 gh.daichangyu.com
+// 新加坡反代 → github),302 改写回本源让安装包下载也走加速;末位 null = GitHub 原始兜底。
 export const MANIFEST_VARIANTS = [
-  { suffix: '-cn0', prefix: 'https://gh.daichangyu.com/' },
-  { suffix: '-cn1', prefix: 'https://ghfast.top/' },
-  { suffix: '-cn2', prefix: 'https://gh-proxy.com/' },
-  { suffix: '-cn3', prefix: 'https://gh.idayer.com/' },
+  { suffix: '-cn0', prefix: 'https://gh.carldai.cloud/' },
   { suffix: '',     prefix: null },
 ]
 

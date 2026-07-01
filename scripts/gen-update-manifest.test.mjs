@@ -64,12 +64,9 @@ describe('extractChangelogSection', () => {
 })
 
 describe('MANIFEST_VARIANTS', () => {
-  it('declares 5 variants in proxy-first / github-last order', () => {
+  it('declares cn0 (self-hosted proxy) first, github raw last', () => {
     expect(MANIFEST_VARIANTS).toEqual([
-      { suffix: '-cn0', prefix: 'https://gh.daichangyu.com/' },
-      { suffix: '-cn1', prefix: 'https://ghfast.top/' },
-      { suffix: '-cn2', prefix: 'https://gh-proxy.com/' },
-      { suffix: '-cn3', prefix: 'https://gh.idayer.com/' },
+      { suffix: '-cn0', prefix: 'https://gh.carldai.cloud/' },
       { suffix: '',     prefix: null },
     ])
   })

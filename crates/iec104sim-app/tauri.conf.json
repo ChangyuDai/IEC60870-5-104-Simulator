@@ -48,11 +48,8 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://gh.daichangyu.com/https://github.com/Karl-Dai/IEC60870-5-104-Simulator/releases/latest/download/latest-slave-cn0.json?app=slave&v={{current_version}}&target={{target}}&arch={{arch}}",
-        "https://github.com/Karl-Dai/IEC60870-5-104-Simulator/releases/latest/download/latest-slave.json",
-        "https://gh-proxy.com/https://github.com/Karl-Dai/IEC60870-5-104-Simulator/releases/latest/download/latest-slave-cn2.json",
-        "https://gh.idayer.com/https://github.com/Karl-Dai/IEC60870-5-104-Simulator/releases/latest/download/latest-slave-cn3.json",
-        "https://ghfast.top/https://github.com/Karl-Dai/IEC60870-5-104-Simulator/releases/latest/download/latest-slave-cn1.json"
+        "https://gh.carldai.cloud/https://github.com/Karl-Dai/IEC60870-5-104-Simulator/releases/latest/download/latest-slave-cn0.json?app=slave&v={{current_version}}&target={{target}}&arch={{arch}}",
+        "https://github.com/Karl-Dai/IEC60870-5-104-Simulator/releases/latest/download/latest-slave.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDkwMDdEMkNDRUUwQjJEMjYKUldRbUxRdnV6TklIa0M4Y0t2V0V5NXRVL0tUZ29hRXVQTExZTzZqaGdHTzJhN0NoL1FvY2pkSFMK"
     }
