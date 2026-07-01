@@ -2,6 +2,40 @@
 
 本项目的所有重要变更记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.12.10] - 2026-07-01
+
+### Highlights / 亮点
+
+- 🌐 **自动更新源切换到自建大陆加速源** / **Auto-update source moved to a self-hosted mainland accelerator**:cn0 更新源改为大陆腾讯云节点 `gh.carldai.cloud`,链式回源新加坡反代取 GitHub 并把安装包下载也中继到大陆前端(实测 3.4MB/s);更新源精简为 `gh.carldai.cloud` + GitHub 兜底 / the cn0 updater source switches to a mainland (Tencent Cloud) node `gh.carldai.cloud` that chains through the Singapore reverse proxy to GitHub and relays installer downloads via the mainland front (~3.4 MB/s); endpoints are slimmed to `gh.carldai.cloud` + a GitHub fallback.
+- ⚡ **子站大数据量下明显更流畅** / **Much smoother slave UI with large datasets**:通信日志面板虚拟滚动(仅渲染可视行)、数据点选中改单点查询(替掉全量拉取)、首批加载不再逐点高亮(消除定时器风暴) / virtualized log panel (only visible rows render), single-point queries on selection (no more full-list pulls), and no per-point highlight on first load (no timer storm).
+- 🚀 **核心日志缓冲淘汰 O(n)→O(1)** / **Core log buffer eviction O(n)→O(1)**:日志缓冲改用 `VecDeque`,满 1 万条后淘汰旧记录由 O(n) 降为 O(1) / the log buffer switches to a `VecDeque` so eviction past 10,000 entries drops from O(n) to O(1).
+
+### Changed 改进
+
+- **更新源**:两个 app 的 `updater.endpoints` 精简为 `[gh.carldai.cloud(cn0,带遥测参数) → github]`,`gen-update-manifest.mjs` 的 cn0 下载前缀改为 `https://gh.carldai.cloud/`;遥测仍经链路上的新加坡 mirror 正常上报 / Both apps' `updater.endpoints` are slimmed to `[gh.carldai.cloud (cn0, telemetry params) → github]` and the manifest generator's cn0 prefix becomes `https://gh.carldai.cloud/`; telemetry still reports via the Singapore mirror on the chain.
+- **子站通信日志面板**:改虚拟滚动,仅渲染可视区日志行,超长日志下滚动与内存显著改善 / Slave communication-log panel now virtualizes rows, rendering only what's visible for far better scrolling and memory under long logs.
+- **子站数据点选中**:选点改为单点查询,替掉每次全量 `list_data_points` / Selecting a data point now issues a single-point query instead of pulling the full `list_data_points` each time.
+- **子站首批加载**:初始加载数据点不再逐点高亮,消除定时器风暴 / Initial data-point load no longer highlights point-by-point, removing the timer storm.
+- **子站轮询读命令**:仅短暂持有全局锁,克隆内层句柄后释放再做重活,降低锁竞争 / The slave polling read command now holds the global lock only briefly, cloning the inner handle before heavy work to cut lock contention.
+- **核心日志缓冲**:改用 `VecDeque`,满 10000 条后淘汰从 O(n) 降为 O(1) / Core log buffer switched to `VecDeque`; eviction past 10,000 entries is now O(1) instead of O(n).
+
+### Fixed 修复
+
+- **子站停止服务器**:停止时立即唤醒周期任务,不再持锁干等约 2 秒 / Stopping the slave server now wakes periodic tasks immediately instead of blocking ~2 s while holding the lock.
+
+### Removed 移除
+
+- 从更新源移除免费镜像 `ghfast.top` / `gh-proxy.com` / `gh.idayer.com`,以及旧的 `gh.daichangyu.com` cn0 直连入口(它仍作为新源 `gh.carldai.cloud` 的上游后端存在) / Removed the free mirrors `ghfast.top` / `gh-proxy.com` / `gh.idayer.com` and the old `gh.daichangyu.com` cn0 entry from the updater endpoints (it remains as the upstream backend of the new source).
+
+### Docs 文档
+
+- 扩充 README 教程覆盖 v1.12.x 特性 / Expanded the README tutorial to cover v1.12.x features.
+
+### Notes 说明
+
+- 本版本 Master 端无功能改动,性能优化集中在 Slave 与核心 / No master-side functional changes; the performance work is on the slave and core.
+- 更新源顺序固化在已安装的二进制里,**须装上本版并更新过去一次**,之后的更新才走 `gh.carldai.cloud` / The endpoint order is baked into the installed binary; you must install this version (and update through it once) before later updates use `gh.carldai.cloud`.
+
 ## [1.12.9] - 2026-06-16
 
 ### Highlights / 亮点

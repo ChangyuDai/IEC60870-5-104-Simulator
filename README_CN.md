@@ -108,7 +108,7 @@
 
 - <https://ghfast.top/https://github.com/Karl-Dai/IEC60870-5-104-Simulator/releases/latest>
 
-自 v1.12.4 起,应用内更新会**优先**走自建镜像(`gh.daichangyu.com`,新加坡 nginx 反代),再依次回退到 GitHub 源站与公共反代 —— 无需手动处理。但**首次从旧版升级**时,旧版二进制里编译进的 endpoint 仍是 github.com,如果检查更新失败,请按上面镜像链接手动下载新版安装一次,之后更新即可自动经自建镜像路由。
+自 v1.12.10 起,应用内更新会**优先**走自建大陆加速源(`gh.carldai.cloud`,腾讯云节点,链式回源新加坡反代取 GitHub,并把安装包下载也中继到大陆前端),再回退到 GitHub 源站 —— 无需手动处理。但**首次从旧版升级**时,旧版二进制里编译进的 endpoint 仍是 github.com,如果检查更新失败,请按上面镜像链接手动下载新版安装一次,之后更新即可自动经自建镜像路由。
 
 ## 从源码构建
 

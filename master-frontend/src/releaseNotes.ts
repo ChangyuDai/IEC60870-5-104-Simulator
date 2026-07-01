@@ -4,6 +4,8 @@ export const RELEASES_URL = 'https://github.com/Karl-Dai/IEC60870-5-104-Simulato
 
 // Keep in sync with CHANGELOG.md — see `release` skill.
 export const RELEASE_NOTES: string[] = [
+  '自动更新源切换到自建大陆加速源 gh.carldai.cloud (大陆腾讯云节点, 链式回源新加坡反代取 GitHub, 302 改写让安装包下载也走大陆中继, 实测约 3.4MB/s); 更新源精简为 gh.carldai.cloud + GitHub 兜底, 移除 ghfast/gh-proxy/idayer 免费镜像; 顺序固化在已装版本里, 装上本版后后续更新才走新源',
+  '本版 Master 端无功能改动; 性能优化集中在 Slave 与核心 (通信日志面板虚拟滚动、数据点单点查询、核心日志缓冲 O(1) 淘汰等), 详见 CHANGELOG.md',
   '本版本 Master 端无功能改动; Slave 端新增「按 IOA 表达式批量写值」(数据表工具栏「写值」按钮, 文本输入非连续/区间 IOA 批量写同一值), 详见 CHANGELOG.md',
   '主/子站工具栏风格统一: 工具栏公共样式抽成共享 shared/toolbar.css 两端共用 (各删约 100 行重复 CSS), 主站观感不变、子站靠拢主站扁平风, 从根上杜绝主/子站再次样式漂移',
   '本版子站: 周期变位新增递增/递减 (三角波) + 修复模拟量零值变位不可见; 停止态可改服务器监听地址/端口; 归一化编码 round 往返修正, 详见 CHANGELOG.md',

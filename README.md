@@ -108,7 +108,7 @@ Users in mainland China may have unstable access to GitHub Releases. Recommended
 
 - <https://ghfast.top/https://github.com/Karl-Dai/IEC60870-5-104-Simulator/releases/latest>
 
-Since v1.12.4 the in-app updater tries a **self-hosted mirror** (`gh.daichangyu.com`, an nginx reverse proxy in Singapore) **first**, then falls back through GitHub origin and public proxies automatically — no manual action needed. However, **the very first upgrade from an older version** uses the endpoint compiled into the old binary (github.com only); if the in-app update check fails, please download and install the new version once via the mirror above, after which the updater routes through the self-hosted mirror automatically.
+Since v1.12.10 the in-app updater tries a **self-hosted mainland accelerator** (`gh.carldai.cloud`, a Tencent Cloud node that relays through a Singapore reverse proxy to GitHub and mirrors installer downloads via the mainland front) **first**, then falls back to the GitHub origin automatically — no manual action needed. However, **the very first upgrade from an older version** uses the endpoint compiled into the old binary (github.com only); if the in-app update check fails, please download and install the new version once via the mirror above, after which the updater routes through the self-hosted mirror automatically.
 
 ## Build from Source
 
