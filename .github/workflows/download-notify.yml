@@ -49,6 +49,7 @@ jobs:
 
       - name: Notify via Bark
         if: env.HAS_PREV == '1'
+        continue-on-error: true
         run: |
           n=$(jq '[.[].delta] | add // 0' diff.json)
           if [ "$n" -eq 0 ]; then
@@ -62,8 +63,23 @@ jobs:
           title="IEC104 模拟器新增 ${n} 次下载"
           body=$(jq -r '.[] | "\(.name) +\(.delta) (累计 \(.total))"' diff.json | head -15)
           jq -n --arg t "$title" --arg b "$body" --arg k "$BARK_KEY" \
-            '{title: $t, body: $b, device_key: $k, group: "IEC104"}' \
-            | curl -sf -X POST https://api.day.app/push -H 'Content-Type: application/json' -d @-
+            '{title: $t, body: $b, device_key: $k, group: "IEC104"}' > bark-request.json
+
+          if ! http_code=$(curl -sS \
+              --retry 3 --retry-delay 5 --retry-max-time 30 \
+              -o bark-response.json -w '%{http_code}' \
+              -X POST https://api.day.app/push \
+              -H 'Content-Type: application/json' \
+              -d @bark-request.json); then
+            echo "::error::Bark 网络请求失败"
+            exit 1
+          fi
+
+          cat bark-response.json
+          if [[ "$http_code" != 2* ]] || ! jq -e '.code == 200' bark-response.json >/dev/null 2>&1; then
+            echo "::error::Bark 推送失败（HTTP ${http_code}），请检查 BARK_KEY 和上方响应"
+            exit 1
+          fi
 
       - name: Save snapshot
         run: |
