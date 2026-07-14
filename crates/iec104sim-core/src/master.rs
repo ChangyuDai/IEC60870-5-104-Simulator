@@ -851,7 +851,7 @@ impl MasterConnection {
                         if let Some(ref mut iv) = gi_interval { iv.tick().await; }
                         else { std::future::pending::<()>().await; }
                     } => {
-                        let frame = build_gi_command(ca, qoi);
+                        let frame = build_gi_command(ca, qoi, 6);
                         let _ = send_async_frame(
                             &send_lock, &protocol, &ack_notify, &stream, &tls_mutex,
                             &log_collector, &state_tx, frame, "周期性 GI",
@@ -862,7 +862,7 @@ impl MasterConnection {
                         if let Some(ref mut iv) = cn_interval { iv.tick().await; }
                         else { std::future::pending::<()>().await; }
                     } => {
-                        let frame = build_counter_read_command(ca, qcc);
+                        let frame = build_counter_read_command(ca, qcc, 6);
                         let _ = send_async_frame(
                             &send_lock, &protocol, &ack_notify, &stream, &tls_mutex,
                             &log_collector, &state_tx, frame, "周期性计数量召唤",
@@ -1036,14 +1036,34 @@ impl MasterConnection {
     /// Send General Interrogation command. `qoi=None` falls back to the
     /// connection's `default_qoi` (typically 20 = global station).
     pub async fn send_interrogation(&self, ca: u16) -> Result<(), MasterError> {
-        self.send_interrogation_with_qoi(ca, None).await
+        self.send_interrogation_with_qoi(ca, None, None).await
     }
 
     /// Same as `send_interrogation` but with an explicit QOI override.
-    pub async fn send_interrogation_with_qoi(&self, ca: u16, qoi: Option<u8>) -> Result<(), MasterError> {
+    /// `cot=None` defaults to 6 (activation); pass `Some(8)` to send a
+    /// deactivation (stop) GI per IEC 60870-5-101 §7.2.6.1.
+    pub async fn send_interrogation_with_qoi(
+        &self,
+        ca: u16,
+        qoi: Option<u8>,
+        cot: Option<u8>,
+    ) -> Result<(), MasterError> {
         let qoi = qoi.unwrap_or(self.config.default_qoi);
-        let frame = build_gi_command(ca, qoi);
-        self.send_frame(&frame, &format!("GI QOI={}", qoi), FrameLabel::GeneralInterrogation, ca).await
+        let cot = cot.unwrap_or(6);
+        let frame = build_gi_command(ca, qoi, cot);
+        self.send_frame(
+            &frame,
+            &format!("GI QOI={} COT={}", qoi, cot),
+            FrameLabel::GeneralInterrogation,
+            ca,
+        )
+        .await
+    }
+
+    /// Send a deactivation (COT=8) General Interrogation to cancel an
+    /// in-progress GI cycle. Slave replies COT=9 and stops the scan.
+    pub async fn send_interrogation_deactivation(&self, ca: u16) -> Result<(), MasterError> {
+        self.send_interrogation_with_qoi(ca, None, Some(8)).await
     }
 
     /// Send Clock Synchronization command.
@@ -1055,14 +1075,34 @@ impl MasterConnection {
     /// Send Counter Interrogation command. `qcc=None` falls back to the
     /// connection's `default_qcc` (typically 5 = total + no freeze).
     pub async fn send_counter_read(&self, ca: u16) -> Result<(), MasterError> {
-        self.send_counter_read_with_qcc(ca, None).await
+        self.send_counter_read_with_qcc(ca, None, None).await
     }
 
     /// Same as `send_counter_read` but with an explicit QCC override.
-    pub async fn send_counter_read_with_qcc(&self, ca: u16, qcc: Option<u8>) -> Result<(), MasterError> {
+    /// `cot=None` defaults to 6 (activation); pass `Some(8)` to send a
+    /// deactivation (stop) counter interrogation per IEC 60870-5-101 §7.2.6.3.
+    pub async fn send_counter_read_with_qcc(
+        &self,
+        ca: u16,
+        qcc: Option<u8>,
+        cot: Option<u8>,
+    ) -> Result<(), MasterError> {
         let qcc = qcc.unwrap_or(self.config.default_qcc);
-        let frame = build_counter_read_command(ca, qcc);
-        self.send_frame(&frame, &format!("累计量召唤 QCC={}", qcc), FrameLabel::CounterRead, ca).await
+        let cot = cot.unwrap_or(6);
+        let frame = build_counter_read_command(ca, qcc, cot);
+        self.send_frame(
+            &frame,
+            &format!("累计量召唤 QCC={} COT={}", qcc, cot),
+            FrameLabel::CounterRead,
+            ca,
+        )
+        .await
+    }
+
+    /// Send a deactivation (COT=8) Counter Interrogation to cancel an
+    /// in-progress counter sweep. Slave replies COT=9 and stops.
+    pub async fn send_counter_read_deactivation(&self, ca: u16) -> Result<(), MasterError> {
+        self.send_counter_read_with_qcc(ca, None, Some(8)).await
     }
 
     /// Send Single Command.
@@ -2107,14 +2147,26 @@ fn parse_and_store_asdu(
 
 // --- Command frame builders ---
 
-fn build_gi_command(ca: u16, qoi: u8) -> Vec<u8> {
+fn build_gi_command(ca: u16, qoi: u8, cot: u8) -> Vec<u8> {
     let ca_bytes = ca.to_le_bytes();
+    // COT 字节低 6 位为 cause(bit6/7 为 negative/test);mask 防上游传入非法值污染帧。
+    let cot = cot & 0x3F;
     vec![
-        0x68, 0x0E,
-        0x00, 0x00, 0x00, 0x00,
-        100, 0x01, 6, 0x00,
-        ca_bytes[0], ca_bytes[1],
-        0x00, 0x00, 0x00,
+        0x68,
+        0x0E,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        100,
+        0x01,
+        cot,
+        0x00,
+        ca_bytes[0],
+        ca_bytes[1],
+        0x00,
+        0x00,
+        0x00,
         qoi,
     ]
 }
@@ -2141,14 +2193,26 @@ fn build_clock_sync_command(ca: u16) -> Vec<u8> {
     ]
 }
 
-fn build_counter_read_command(ca: u16, qcc: u8) -> Vec<u8> {
+fn build_counter_read_command(ca: u16, qcc: u8, cot: u8) -> Vec<u8> {
     let ca_bytes = ca.to_le_bytes();
+    // COT 字节低 6 位为 cause(bit6/7 为 negative/test);mask 防上游传入非法值污染帧。
+    let cot = cot & 0x3F;
     vec![
-        0x68, 0x0E,
-        0x00, 0x00, 0x00, 0x00,
-        101, 0x01, 6, 0x00,
-        ca_bytes[0], ca_bytes[1],
-        0x00, 0x00, 0x00,
+        0x68,
+        0x0E,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        101,
+        0x01,
+        cot,
+        0x00,
+        ca_bytes[0],
+        ca_bytes[1],
+        0x00,
+        0x00,
+        0x00,
         qcc,
     ]
 }
@@ -2341,7 +2405,7 @@ mod tests {
 
     #[test]
     fn test_build_gi_command() {
-        let frame = build_gi_command(1, 0x14);
+        let frame = build_gi_command(1, 0x14, 6);
         assert_eq!(frame[0], 0x68);
         assert_eq!(frame[6], 100);
         assert_eq!(frame[8], 6);
@@ -2351,7 +2415,7 @@ mod tests {
     #[test]
     fn test_build_gi_command_custom_qoi() {
         // QOI=21 (group 1 interrogation)
-        let frame = build_gi_command(2, 21);
+        let frame = build_gi_command(2, 21, 6);
         assert_eq!(frame[15], 21);
         assert_eq!(frame[10], 2u16.to_le_bytes()[0]);
     }
@@ -2365,7 +2429,7 @@ mod tests {
     #[test]
     fn test_build_counter_read_command_custom_qcc() {
         // QCC=0x45 = total + freeze (group 1)
-        let frame = build_counter_read_command(1, 0x45);
+        let frame = build_counter_read_command(1, 0x45, 6);
         assert_eq!(frame[6], 101);
         assert_eq!(frame[15], 0x45);
     }
@@ -2613,7 +2677,7 @@ mod tests {
 
     #[test]
     fn build_gi_command_broadcast_ffff_emits_le_ff_ff() {
-        let frame = build_gi_command(0xFFFF, 20);
+        let frame = build_gi_command(0xFFFF, 20, 6);
         // 帧结构:68 0E 00 00 00 00 64 01 06 00 [CA_lo] [CA_hi] 00 00 00 [QOI]
         assert_eq!(frame[10], 0xFF, "CA low byte");
         assert_eq!(frame[11], 0xFF, "CA high byte");
@@ -2622,9 +2686,16 @@ mod tests {
 
     #[test]
     fn build_gi_command_broadcast_ff00_emits_le_00_ff() {
-        let frame = build_gi_command(0xFF00, 20);
+        let frame = build_gi_command(0xFF00, 20, 6);
         assert_eq!(frame[10], 0x00, "CA low byte");
         assert_eq!(frame[11], 0xFF, "CA high byte");
+    }
+
+    #[test]
+    fn build_gi_command_deactivation_emits_cot8() {
+        let frame = build_gi_command(1, 20, 8);
+        assert_eq!(frame[6], 100, "type");
+        assert_eq!(frame[8], 8, "COT=8(停止激活)应写入 ASDU 第 3 字节");
     }
 
     #[test]
@@ -2636,10 +2707,17 @@ mod tests {
 
     #[test]
     fn build_counter_read_broadcast_ffff_emits_le_ff_ff() {
-        let frame = build_counter_read_command(0xFFFF, 5);
+        let frame = build_counter_read_command(0xFFFF, 5, 6);
         assert_eq!(frame[10], 0xFF);
         assert_eq!(frame[11], 0xFF);
         assert_eq!(frame[15], 5, "QCC");
+    }
+
+    #[test]
+    fn build_counter_read_command_deactivation_emits_cot8() {
+        let frame = build_counter_read_command(1, 5, 8);
+        assert_eq!(frame[6], 101, "type");
+        assert_eq!(frame[8], 8, "COT=8(停止激活)应写入 ASDU 第 3 字节");
     }
 
     #[test]

@@ -15,6 +15,9 @@ import Splitter from './components/Splitter.vue'
 import { invoke } from '@tauri-apps/api/core'
 import { showAlert, showConfirm, showPrompt, dialogKey } from '@shared/composables/useDialog'
 import { formatCorrections, type TimingCorrection } from '@shared/timing'
+import { useI18n } from '@shared/i18n'
+
+const { t } = useI18n()
 
 const dataPointTableRef = ref<InstanceType<typeof DataPointTable> | null>(null)
 
@@ -163,7 +166,7 @@ onMounted(async () => {
     'config-timing-corrected',
     (event) => {
       const lines = event.payload.map((e) => `${e.endpoint}: ${formatCorrections(e.corrections)}`)
-      void showAlert(`加载配置时已自动调整时序以满足约束 (t2<t1<t3, w≤⌊2k/3⌋):\n${lines.join('\n')}`)
+      void showAlert(`${t('remoteParams.configTimingCorrected')}\n${lines.join('\n')}`)
     },
   )
   setTimeout(() => {

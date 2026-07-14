@@ -6,6 +6,7 @@ import {
   isTimingField,
   type TimingCorrection,
 } from '@shared/timing'
+import { useI18n } from '@shared/i18n'
 import type {
   ProtocolTimingConfig,
   RemoteOperationConfig,
@@ -17,6 +18,8 @@ const props = defineProps<{
   timing: ProtocolTimingConfig
   ops: RemoteOperationConfig
 }>()
+
+const { t } = useI18n()
 
 // 编辑感知 C3 自动纠正:在 change(失焦)时触发,t1/k 为锚,至多动一个邻居。
 // 后端会再做一次权威规范化,正常情况下对前端已纠正的值为空操作。
@@ -36,9 +39,9 @@ const cotOptions: { value: CommandAckCot; label: string }[] = [
   { value: 'activation_termination', label: 'ACT_TERM · 10' },
   { value: 'deactivation_con', label: 'DEACT_CON · 9' },
 ]
-const modeOptions: { value: UploadMode; label: string }[] = [
-  { value: 'continuous', label: '连续 SQ=1' },
-  { value: 'discrete', label: '离散 SQ=0' },
+const modeOptions: { value: UploadMode; labelKey: string }[] = [
+  { value: 'continuous', labelKey: 'remoteParams.modeContinuous' },
+  { value: 'discrete', labelKey: 'remoteParams.modeDiscrete' },
 ]
 // 按分类的「变位同步上送 TB」开关(IT 不在内——靠召唤而非变位)。
 type SyncTbKey = keyof RemoteOperationConfig['sync_tb_by_category']
@@ -52,13 +55,13 @@ const syncTbCategories: { key: SyncTbKey; map: string }[] = [
   { key: 'me_nc', map: 'M_ME_NC_1 → M_ME_TF_1' },
 ]
 
-const timingMeta: { key: 't0' | 't1' | 't2' | 't3' | 'k' | 'w'; hint: string; unit?: string; min: number; max: number }[] = [
-  { key: 't0', hint: '建立连接超时', unit: 's', min: 1, max: 255 },
-  { key: 't1', hint: '发送/测试超时', unit: 's', min: 1, max: 255 },
-  { key: 't2', hint: 'S 帧响应超时', unit: 's', min: 1, max: 255 },
-  { key: 't3', hint: 'TestFR 触发', unit: 's', min: 1, max: 255 },
-  { key: 'k', hint: '未确认 I 帧上限', min: 1, max: 32767 },
-  { key: 'w', hint: '累计后回送 S 帧', min: 1, max: 32767 },
+const timingMeta: { key: 't0' | 't1' | 't2' | 't3' | 'k' | 'w'; hintKey: string; unit?: string; min: number; max: number }[] = [
+  { key: 't0', hintKey: 'remoteParams.hintT0', unit: 's', min: 1, max: 255 },
+  { key: 't1', hintKey: 'remoteParams.hintT1', unit: 's', min: 1, max: 255 },
+  { key: 't2', hintKey: 'remoteParams.hintT2', unit: 's', min: 1, max: 255 },
+  { key: 't3', hintKey: 'remoteParams.hintT3', unit: 's', min: 1, max: 255 },
+  { key: 'k', hintKey: 'remoteParams.hintK', min: 1, max: 32767 },
+  { key: 'w', hintKey: 'remoteParams.hintW', min: 1, max: 32767 },
 ]
 </script>
 
@@ -66,8 +69,8 @@ const timingMeta: { key: 't0' | 't1' | 't2' | 't3' | 'k' | 'w'; hint: string; un
   <!-- 链路参数 -->
   <section class="rp-sec">
     <header class="rp-sec-head">
-      <h4>链路参数</h4>
-      <span class="rp-sec-sub">协议时序与窗口</span>
+      <h4>{{ t('remoteParams.linkParams') }}</h4>
+      <span class="rp-sec-sub">{{ t('remoteParams.linkParamsSub') }}</span>
     </header>
     <div class="rp-rows">
       <label v-for="m in timingMeta" :key="m.key" class="rp-row rp-row-timing">
@@ -80,11 +83,11 @@ const timingMeta: { key: 't0' | 't1' | 't2' | 't3' | 'k' | 'w'; hint: string; un
           @change="onTimingChange(m.key)"
         />
         <span class="rp-row-unit">{{ m.unit ?? '' }}</span>
-        <span class="rp-row-hint">{{ m.hint }}</span>
+        <span class="rp-row-hint">{{ t(m.hintKey) }}</span>
       </label>
     </div>
     <div v-if="recentCorrections.length" class="rp-corrected">
-      已自动调整以满足约束 (t2&lt;t1&lt;t3, w≤⌊2k/3⌋): {{ formatCorrections(recentCorrections) }}
+      {{ t('remoteParams.autoCorrected') }} {{ formatCorrections(recentCorrections) }}
     </div>
     <slot name="actions-timing" />
   </section>
@@ -92,48 +95,48 @@ const timingMeta: { key: 't0' | 't1' | 't2' | 't3' | 'k' | 'w'; hint: string; un
   <!-- 召唤与应答 -->
   <section class="rp-sec">
     <header class="rp-sec-head">
-      <h4>召唤与应答</h4>
-      <span class="rp-sec-sub">主站请求处理</span>
+      <h4>{{ t('remoteParams.interrogation') }}</h4>
+      <span class="rp-sec-sub">{{ t('remoteParams.interrogationSub') }}</span>
     </header>
 
     <div class="rp-group">
-      <span class="rp-group-label">应答开关</span>
+      <span class="rp-group-label">{{ t('remoteParams.answerSwitches') }}</span>
       <label class="rp-switch">
         <input type="checkbox" v-model="ops.answer_general_interrogation" />
-        <span class="rp-switch-text">总召唤</span>
+        <span class="rp-switch-text">{{ t('remoteParams.gi') }}</span>
         <code class="rp-tag">C_IC_NA_1</code>
       </label>
       <label class="rp-switch">
         <input type="checkbox" v-model="ops.answer_counter_interrogation" />
-        <span class="rp-switch-text">累积量召唤</span>
+        <span class="rp-switch-text">{{ t('remoteParams.counterInterrogation') }}</span>
         <code class="rp-tag">C_CI_NA_1</code>
       </label>
       <label class="rp-switch">
         <input type="checkbox" v-model="ops.answer_commands" />
-        <span class="rp-switch-text">遥控、遥调</span>
+        <span class="rp-switch-text">{{ t('remoteParams.commands') }}</span>
       </label>
       <label class="rp-switch">
         <input type="checkbox" v-model="ops.gi_include_timestamped" />
-        <span class="rp-switch-text">召唤含带时标点</span>
+        <span class="rp-switch-text">{{ t('remoteParams.giWithTimestamp') }}</span>
       </label>
     </div>
 
     <div class="rp-group">
-      <span class="rp-group-label">命令应答 COT</span>
+      <span class="rp-group-label">{{ t('remoteParams.cmdAckCot') }}</span>
       <div class="rp-field">
-        <label>选择</label>
+        <label>{{ t('remoteParams.select') }}</label>
         <select v-model="ops.select_ack_cot">
           <option v-for="o in cotOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
         </select>
       </div>
       <div class="rp-field">
-        <label>执行</label>
+        <label>{{ t('remoteParams.execute') }}</label>
         <select v-model="ops.execute_ack_cot">
           <option v-for="o in cotOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
         </select>
       </div>
       <div class="rp-field">
-        <label>取消</label>
+        <label>{{ t('remoteParams.cancel') }}</label>
         <select v-model="ops.cancel_ack_cot">
           <option v-for="o in cotOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
         </select>
@@ -146,34 +149,34 @@ const timingMeta: { key: 't0' | 't1' | 't2' | 't3' | 'k' | 'w'; hint: string; un
   <!-- 数据上送方式 -->
   <section class="rp-sec">
     <header class="rp-sec-head">
-      <h4>数据上送方式</h4>
-      <span class="rp-sec-sub">ASDU 组装策略</span>
+      <h4>{{ t('remoteParams.uploadMode') }}</h4>
+      <span class="rp-sec-sub">{{ t('remoteParams.uploadModeSub') }}</span>
     </header>
 
     <div class="rp-group">
-      <span class="rp-group-label">SQ 模式</span>
+      <span class="rp-group-label">{{ t('remoteParams.sqMode') }}</span>
       <div class="rp-field">
-        <label>不带时标</label>
+        <label>{{ t('remoteParams.untimestamped') }}</label>
         <select v-model="ops.upload_mode_untimestamped">
-          <option v-for="o in modeOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
+          <option v-for="o in modeOptions" :key="o.value" :value="o.value">{{ t(o.labelKey) }}</option>
         </select>
       </div>
       <div class="rp-field">
-        <label>带时标</label>
+        <label>{{ t('remoteParams.timestamped') }}</label>
         <select v-model="ops.upload_mode_timestamped">
-          <option v-for="o in modeOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
+          <option v-for="o in modeOptions" :key="o.value" :value="o.value">{{ t(o.labelKey) }}</option>
         </select>
       </div>
     </div>
 
     <div class="rp-group">
-      <span class="rp-group-label">组包策略</span>
+      <span class="rp-group-label">{{ t('remoteParams.packingStrategy') }}</span>
       <label class="rp-switch">
         <input type="checkbox" v-model="ops.auto_packing" />
-        <span class="rp-switch-text">自动组包（连续 IOA 合并）</span>
+        <span class="rp-switch-text">{{ t('remoteParams.autoPacking') }}</span>
       </label>
       <div class="rp-subgroup">
-        <span class="rp-subgroup-label">变位同步上送 TB（按分类）</span>
+        <span class="rp-subgroup-label">{{ t('remoteParams.syncTb') }}</span>
         <label v-for="c in syncTbCategories" :key="c.key" class="rp-switch">
           <input type="checkbox" v-model="ops.sync_tb_by_category[c.key]" />
           <code class="rp-tag">{{ c.map }}</code>
@@ -185,22 +188,22 @@ const timingMeta: { key: 't0' | 't1' | 't2' | 't3' | 'k' | 'w'; hint: string; un
   <!-- 变位仿真 -->
   <section class="rp-sec">
     <header class="rp-sec-head">
-      <h4>变位仿真</h4>
-      <span class="rp-sec-sub">随机变位节流</span>
+      <h4>{{ t('remoteParams.mutationSim') }}</h4>
+      <span class="rp-sec-sub">{{ t('remoteParams.randomPacing') }}</span>
     </header>
 
     <div class="rp-group">
-      <span class="rp-group-label">随机变位节流</span>
+      <span class="rp-group-label">{{ t('remoteParams.randomPacing') }}</span>
       <div class="rp-pacing">
         <div class="rp-field">
-          <label>每发送</label>
+          <label>{{ t('remoteParams.perSend') }}</label>
           <div class="rp-inline">
             <input type="number" min="1" max="100000" v-model.number="ops.random_pacing.batch_size" />
-            <span class="rp-unit">个</span>
+            <span class="rp-unit">{{ t('remoteParams.unitCount') }}</span>
           </div>
         </div>
         <div class="rp-field">
-          <label>延迟</label>
+          <label>{{ t('remoteParams.delay') }}</label>
           <div class="rp-inline">
             <input type="number" min="0" max="60000" v-model.number="ops.random_pacing.delay_ms" />
             <span class="rp-unit">ms</span>

@@ -281,6 +281,90 @@ export type DictShape = {
     retry: string
     close: string
   }
+  parseFrame: {
+    title: string
+    hint: string
+    hexLabel: string
+    templatesLabel: string
+    errEmpty: string
+    parse: string
+    parsing: string
+    apciI: string
+    apciS: string
+    apciU: string
+    bytes: string
+    startByte: string
+    apduLength: string
+    controlField: string
+    seqNo: string
+    typeRow: string
+    cotNegative: string
+    cotTest: string
+    oa: string
+    ca: string
+    objects: string
+    objectsCount: string
+    colValue: string
+    colQuality: string
+    colTimestamp: string
+    colRaw: string
+    dpIntermediate: string
+    dpIndeterminate: string
+  }
+  remoteParams: {
+    linkParams: string
+    linkParamsSub: string
+    hintT0: string
+    hintT1: string
+    hintT2: string
+    hintT3: string
+    hintK: string
+    hintW: string
+    autoCorrected: string
+    interrogation: string
+    interrogationSub: string
+    answerSwitches: string
+    gi: string
+    counterInterrogation: string
+    commands: string
+    giWithTimestamp: string
+    cmdAckCot: string
+    select: string
+    execute: string
+    cancel: string
+    uploadMode: string
+    uploadModeSub: string
+    sqMode: string
+    untimestamped: string
+    timestamped: string
+    packingStrategy: string
+    autoPacking: string
+    syncTb: string
+    mutationSim: string
+    randomPacing: string
+    perSend: string
+    unitCount: string
+    delay: string
+    modeContinuous: string
+    modeDiscrete: string
+    connParams: string
+    connParamsSub: string
+    bindAddress: string
+    port: string
+    runningHint: string
+    stopBeforeEdit: string
+    drawerTitle: string
+    discard: string
+    discardTitle: string
+    closeEsc: string
+    loadingText: string
+    footNote: string
+    selectServerFirst: string
+    saving: string
+    saved: string
+    saveAll: string
+    configTimingCorrected: string
+  }
   _test: { interp: string }
 }
 
@@ -572,6 +656,90 @@ const dict: DictShape = {
     failedTitle: '更新失败',
     retry: '重试',
     close: '关闭',
+  },
+  parseFrame: {
+    title: '报文解析器',
+    hint: '粘贴一段 IEC 60870-5-104 APDU 的十六进制字节,自动展开 APCI/ASDU/IOA 详情。支持空格、换行、逗号分隔。',
+    hexLabel: '十六进制字节',
+    templatesLabel: '模板:',
+    errEmpty: '请输入 hex 报文',
+    parse: '解析 (Ctrl+Enter)',
+    parsing: '解析中...',
+    apciI: 'I 帧 (Information)',
+    apciS: 'S 帧 (Supervisory)',
+    apciU: 'U 帧 · {name}',
+    bytes: '{n} 字节',
+    startByte: '起始字节',
+    apduLength: 'APDU 长度',
+    controlField: '控制字段',
+    seqNo: '序列号',
+    typeRow: '类型',
+    cotNegative: 'P/N=否定',
+    cotTest: 'T=测试',
+    oa: 'OA (源地址)',
+    ca: 'CA (公共地址)',
+    objects: '信息对象',
+    objectsCount: '{n} 个',
+    colValue: '值',
+    colQuality: '品质',
+    colTimestamp: '时间戳',
+    colRaw: '原始字节',
+    dpIntermediate: '中间',
+    dpIndeterminate: '不确定',
+  },
+  remoteParams: {
+    linkParams: '链路参数',
+    linkParamsSub: '协议时序与窗口',
+    hintT0: '建立连接超时',
+    hintT1: '发送/测试超时',
+    hintT2: 'S 帧响应超时',
+    hintT3: 'TestFR 触发',
+    hintK: '未确认 I 帧上限',
+    hintW: '累计后回送 S 帧',
+    autoCorrected: '已自动调整以满足约束 (t2<t1<t3, w≤⌊2k/3⌋):',
+    interrogation: '召唤与应答',
+    interrogationSub: '主站请求处理',
+    answerSwitches: '应答开关',
+    gi: '总召唤',
+    counterInterrogation: '累积量召唤',
+    commands: '遥控、遥调',
+    giWithTimestamp: '召唤含带时标点',
+    cmdAckCot: '命令应答 COT',
+    select: '选择',
+    execute: '执行',
+    cancel: '取消',
+    uploadMode: '数据上送方式',
+    uploadModeSub: 'ASDU 组装策略',
+    sqMode: 'SQ 模式',
+    untimestamped: '不带时标',
+    timestamped: '带时标',
+    packingStrategy: '组包策略',
+    autoPacking: '自动组包（连续 IOA 合并）',
+    syncTb: '变位同步上送 TB（按分类）',
+    mutationSim: '变位仿真',
+    randomPacing: '随机变位节流',
+    perSend: '每发送',
+    unitCount: '个',
+    delay: '延迟',
+    modeContinuous: '连续 SQ=1',
+    modeDiscrete: '离散 SQ=0',
+    connParams: '连接参数',
+    connParamsSub: '监听地址与端口',
+    bindAddress: '绑定地址',
+    port: '端口',
+    runningHint: '服务器运行中,地址 / 端口不可改 —— 请先在连接树右键「停止」',
+    stopBeforeEdit: '请先停止服务器再修改监听地址 / 端口',
+    drawerTitle: '远动运行参数',
+    discard: '放弃',
+    discardTitle: '放弃修改 · 重新载入',
+    closeEsc: '关闭 (Esc)',
+    loadingText: '载入中…',
+    footNote: 't1/t2/t3 当前仅持久化，运行时计时器未完全驱动。',
+    selectServerFirst: '请先在左侧选择一个服务器',
+    saving: '保存中…',
+    saved: '已保存',
+    saveAll: '保存全部',
+    configTimingCorrected: '加载配置时已自动调整时序以满足约束 (t2<t1<t3, w≤⌊2k/3⌋):',
   },
   _test: {
     interp: '订单 #{id} 由 {user} 创建',

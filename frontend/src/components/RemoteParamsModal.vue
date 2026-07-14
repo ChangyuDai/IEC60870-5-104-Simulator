@@ -62,7 +62,7 @@ async function handleSave() {
     const changed = `${transport.bindAddress}:${transport.port}` !== transportBaseline
     if (changed) {
       if (isRunning.value) {
-        lastError.value = '请先停止服务器再修改监听地址 / 端口'
+        lastError.value = t('remoteParams.stopBeforeEdit')
         return
       }
       try {
@@ -127,20 +127,20 @@ watch(() => props.visible, (v) => {
           <div class="modal-body">
             <section class="rp-conn">
               <header class="rp-conn-head">
-                <h4>连接参数</h4>
-                <span class="rp-conn-sub">监听地址与端口</span>
+                <h4>{{ t('remoteParams.connParams') }}</h4>
+                <span class="rp-conn-sub">{{ t('remoteParams.connParamsSub') }}</span>
               </header>
               <div class="rp-conn-grid">
                 <label class="rp-conn-field">
-                  <span>绑定地址</span>
+                  <span>{{ t('remoteParams.bindAddress') }}</span>
                   <input v-model="transport.bindAddress" :disabled="isRunning" placeholder="0.0.0.0" />
                 </label>
                 <label class="rp-conn-field">
-                  <span>端口</span>
+                  <span>{{ t('remoteParams.port') }}</span>
                   <input type="number" min="1" max="65535" v-model.number="transport.port" :disabled="isRunning" />
                 </label>
               </div>
-              <p v-if="isRunning" class="rp-conn-hint">服务器运行中,地址 / 端口不可改 —— 请先在连接树右键「停止」</p>
+              <p v-if="isRunning" class="rp-conn-hint">{{ t('remoteParams.runningHint') }}</p>
             </section>
 
             <div v-if="loading" class="muted">{{ t('runtimeParams.loading') }}</div>

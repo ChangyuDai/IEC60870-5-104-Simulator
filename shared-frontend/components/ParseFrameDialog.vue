@@ -2,6 +2,7 @@
 import { ref, watch, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import type { ParsedFrame, ParsedObject } from '../types/frame'
+import { useI18n } from '../i18n'
 
 interface Props {
   visible: boolean
@@ -10,6 +11,8 @@ interface Props {
 
 const props = defineProps<Props>()
 const emit = defineEmits<{ (e: 'close'): void }>()
+
+const { t } = useI18n()
 
 const hexInput = ref('')
 const parsing = ref(false)
@@ -20,8 +23,8 @@ const TEMPLATES: { label: string; hex: string }[] = [
   { label: 'STARTDT act', hex: '68 04 07 00 00 00' },
   { label: 'STARTDT con', hex: '68 04 0B 00 00 00' },
   { label: 'TESTFR act',  hex: '68 04 43 00 00 00' },
-  { label: 'S 帧 RSN=0',   hex: '68 04 01 00 00 00' },
-  { label: '总召唤 act',   hex: '68 0E 00 00 00 00 64 01 06 00 01 00 00 00 00 14' },
+  { label: 'S-Frame RSN=0', hex: '68 04 01 00 00 00' },
+  { label: 'GI act',       hex: '68 0E 00 00 00 00 64 01 06 00 01 00 00 00 00 14' },
   { label: 'M_ME_NC_1',    hex: '68 10 00 00 00 00 0D 01 03 00 01 00 01 00 00 00 00 C0 3F 00' },
 ]
 
@@ -50,7 +53,7 @@ function clear() {
 
 async function parse() {
   if (!hexInput.value.trim()) {
-    errorMsg.value = '请输入 hex 报文'
+    errorMsg.value = t('parseFrame.errEmpty')
     return
   }
   errorMsg.value = ''
@@ -72,9 +75,9 @@ function handleKeydown(e: KeyboardEvent) {
 const apciKindLabel = computed(() => {
   if (!result.value) return ''
   const a = result.value.apci
-  if (a.frame_type === 'i') return 'I 帧 (Information)'
-  if (a.frame_type === 's') return 'S 帧 (Supervisory)'
-  return `U 帧 · ${a.name}`
+  if (a.frame_type === 'i') return t('parseFrame.apciI')
+  if (a.frame_type === 's') return t('parseFrame.apciS')
+  return t('parseFrame.apciU', { name: a.name })
 })
 
 const apciKindClass = computed(() => {
@@ -93,7 +96,7 @@ function formatValue(obj: ParsedObject): string {
     case 'single_point':     return v.value ? 'ON' : 'OFF'
     case 'double_point':     {
       const n = v.value as number
-      return ['中间', 'OFF', 'ON', '不确定'][n] ?? String(n)
+      return [t('parseFrame.dpIntermediate'), 'OFF', 'ON', t('parseFrame.dpIndeterminate')][n] ?? String(n)
     }
     case 'step_position':    return `${v.value}${v.transient ? ' (T)' : ''}`
     case 'bitstring':        return `0x${(v.value as number).toString(16).toUpperCase().padStart(8, '0')}`
@@ -137,15 +140,12 @@ const hasTimestamp = computed(() => {
     <Transition name="dialog-pop">
     <div v-if="visible" class="modal-backdrop dialog-blur" @mousedown.self="emit('close')" @keydown="handleKeydown">
       <div class="modal-box">
-        <div class="modal-title">报文解析器</div>
+        <div class="modal-title">{{ t('parseFrame.title') }}</div>
         <div class="modal-body">
-          <div class="hint">
-            粘贴一段 IEC 60870-5-104 APDU 的十六进制字节,自动展开 APCI/ASDU/IOA 详情。
-            支持空格、换行、逗号分隔。
-          </div>
+          <div class="hint">{{ t('parseFrame.hint') }}</div>
 
           <label class="form-label">
-            十六进制字节
+            {{ t('parseFrame.hexLabel') }}
             <textarea v-model="hexInput" class="hex-area" rows="3"
               placeholder="68 0E 00 00 00 00 64 01 06 00 01 00 00 00 00 14"
               spellcheck="false" @keydown.ctrl.enter.prevent="parse"
@@ -153,9 +153,9 @@ const hasTimestamp = computed(() => {
           </label>
 
           <div class="templates">
-            <span class="templates-label">模板:</span>
-            <button v-for="t in TEMPLATES" :key="t.label" type="button"
-              class="template-btn" @click="applyTemplate(t.hex)">{{ t.label }}</button>
+            <span class="templates-label">{{ t('parseFrame.templatesLabel') }}</span>
+            <button v-for="tpl in TEMPLATES" :key="tpl.label" type="button"
+              class="template-btn" @click="applyTemplate(tpl.hex)">{{ tpl.label }}</button>
           </div>
 
           <div v-if="errorMsg" class="error-msg">{{ errorMsg }}</div>
@@ -169,19 +169,19 @@ const hasTimestamp = computed(() => {
             <section class="card">
               <div class="card-title">
                 <span class="kind-chip" :class="apciKindClass">{{ apciKindLabel }}</span>
-                <span class="card-meta">{{ result.length }} 字节</span>
+                <span class="card-meta">{{ t('parseFrame.bytes', { n: result.length }) }}</span>
               </div>
               <table class="kv">
                 <tbody>
-                  <tr><th>起始字节</th><td><code>0x{{ hex2(result.start_byte) }}</code></td></tr>
-                  <tr><th>APDU 长度</th><td><code>{{ result.apdu_length }} (0x{{ hex2(result.apdu_length) }})</code></td></tr>
-                  <tr><th>控制字段</th><td><code>{{ result.control_field.map(hex2).join(' ') }}</code></td></tr>
+                  <tr><th>{{ t('parseFrame.startByte') }}</th><td><code>0x{{ hex2(result.start_byte) }}</code></td></tr>
+                  <tr><th>{{ t('parseFrame.apduLength') }}</th><td><code>{{ result.apdu_length }} (0x{{ hex2(result.apdu_length) }})</code></td></tr>
+                  <tr><th>{{ t('parseFrame.controlField') }}</th><td><code>{{ result.control_field.map(hex2).join(' ') }}</code></td></tr>
                   <tr v-if="result.apci.frame_type === 'i'">
-                    <th>序列号</th>
+                    <th>{{ t('parseFrame.seqNo') }}</th>
                     <td><code>SSN={{ result.apci.send_seq }} RSN={{ result.apci.recv_seq }}</code></td>
                   </tr>
                   <tr v-else-if="result.apci.frame_type === 's'">
-                    <th>序列号</th>
+                    <th>{{ t('parseFrame.seqNo') }}</th>
                     <td><code>RSN={{ result.apci.recv_seq }}</code></td>
                   </tr>
                 </tbody>
@@ -197,7 +197,7 @@ const hasTimestamp = computed(() => {
               <table class="kv">
                 <tbody>
                   <tr>
-                    <th>类型</th>
+                    <th>{{ t('parseFrame.typeRow') }}</th>
                     <td><code>{{ result.asdu.type_id }}</code> · {{ result.asdu.type_name }}</td>
                   </tr>
                   <tr>
@@ -208,12 +208,12 @@ const hasTimestamp = computed(() => {
                     <th>COT</th>
                     <td>
                       <code>{{ result.asdu.cot }}</code> · {{ result.asdu.cot_name }}
-                      <span v-if="result.asdu.negative" class="flag-neg">P/N=否定</span>
-                      <span v-if="result.asdu.test" class="flag-test">T=测试</span>
+                      <span v-if="result.asdu.negative" class="flag-neg">{{ t('parseFrame.cotNegative') }}</span>
+                      <span v-if="result.asdu.test" class="flag-test">{{ t('parseFrame.cotTest') }}</span>
                     </td>
                   </tr>
-                  <tr><th>OA (源地址)</th><td><code>{{ result.asdu.originator }}</code></td></tr>
-                  <tr><th>CA (公共地址)</th><td><code>{{ result.asdu.common_address }}</code></td></tr>
+                  <tr><th>{{ t('parseFrame.oa') }}</th><td><code>{{ result.asdu.originator }}</code></td></tr>
+                  <tr><th>{{ t('parseFrame.ca') }}</th><td><code>{{ result.asdu.common_address }}</code></td></tr>
                 </tbody>
               </table>
             </section>
@@ -221,17 +221,17 @@ const hasTimestamp = computed(() => {
             <!-- Objects section -->
             <section v-if="result.asdu && result.asdu.objects.length" class="card">
               <div class="card-title">
-                信息对象
-                <span class="card-meta">{{ result.asdu.objects.length }} 个</span>
+                {{ t('parseFrame.objects') }}
+                <span class="card-meta">{{ t('parseFrame.objectsCount', { n: result.asdu.objects.length }) }}</span>
               </div>
               <table class="objs">
                 <thead>
                   <tr>
                     <th>IOA</th>
-                    <th>值</th>
-                    <th>品质</th>
-                    <th v-if="hasTimestamp">时间戳</th>
-                    <th>原始字节</th>
+                    <th>{{ t('parseFrame.colValue') }}</th>
+                    <th>{{ t('parseFrame.colQuality') }}</th>
+                    <th v-if="hasTimestamp">{{ t('parseFrame.colTimestamp') }}</th>
+                    <th>{{ t('parseFrame.colRaw') }}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -248,10 +248,10 @@ const hasTimestamp = computed(() => {
           </template>
         </div>
         <div class="modal-footer">
-          <button class="btn btn-secondary" @click="clear">清空</button>
-          <button class="btn btn-secondary" @click="emit('close')">关闭</button>
+          <button class="btn btn-secondary" @click="clear">{{ t('common.clear') }}</button>
+          <button class="btn btn-secondary" @click="emit('close')">{{ t('common.close') }}</button>
           <button class="btn btn-primary" :disabled="parsing" @click="parse">
-            {{ parsing ? '解析中...' : '解析 (Ctrl+Enter)' }}
+            {{ parsing ? t('parseFrame.parsing') : t('parseFrame.parse') }}
           </button>
         </div>
       </div>

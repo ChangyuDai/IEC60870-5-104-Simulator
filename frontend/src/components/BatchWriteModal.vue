@@ -3,7 +3,7 @@ import { ref, computed, watch, inject, onUnmounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { dialogKey } from '@shared/composables/useDialog'
 import type { showAlert as ShowAlert } from '@shared/composables/useDialog'
-import { useI18n } from '@shared/i18n'
+import { useI18n, localizeCategoryLabel } from '@shared/i18n'
 import type { DataPointInfo } from '../types'
 import { compressRanges, parseIoaExpression, resolveIoaHits } from './batchAdd/ioaRanges'
 
@@ -141,7 +141,7 @@ function handleKeydown(e: KeyboardEvent) {
               <label class="form-label">{{ t('batchWrite.typeLabel') }}</label>
               <select v-model="asduType" class="form-select">
                 <option v-for="opt in typeOptions" :key="opt.type" :value="opt.type">
-                  {{ opt.category }} · {{ opt.type }}
+                  {{ localizeCategoryLabel(opt.category) }} · {{ opt.type }}
                 </option>
               </select>
             </div>

@@ -86,6 +86,7 @@ The bottom log panel shows every TLS handshake step, U/I/S frame, COT decode, an
 - **Control commands** — Direct Execute and Select-before-Operate (SbO); a right-click on any point routes to its actual source CA in multi-CA setups
 - **Value panel** showing selected point details
 - **General Interrogation**, **Counter Interrogation** and **Clock Sync** commands — GI and Counter Interrogation are per-CA selectable on multi-CA connections (pick one CA or "all CAs")
+- **Deactivation (COT=8)** — stop an in-progress General or Counter Interrogation (per-CA, "all CAs" fan-out, or broadcast); the slave answers with a Deactivation Confirmation (COT=9)
 - **Auto-reconnect** — re-establishes a dropped link automatically at the T0 interval
 - **Communication log** with TLS handshake events, U/I/S frame decode, COT names, raw hex bytes and CSV export
 - **In-app auto-update** from GitHub Releases (ed25519-signed bundles, 6 h check throttle, "later" snoozes 24 h)
@@ -199,7 +200,7 @@ That's the full round-trip — server, points, interrogation, control, mutation 
 | Monitor (Slave→Master) | M_SP_NA/TB, M_DP_NA/TB, M_ST_NA/TB, M_BO_NA/TB, M_ME_NA/TD, M_ME_NB/TE, M_ME_NC/TF, M_IT_NA/TB |
 | Control (Master→Slave) | C_SC_NA, C_DC_NA, C_RC_NA, C_SE_NA/NB/NC |
 | System | C_IC_NA (GI), C_CI_NA (Counter), C_CS_NA (Clock Sync) |
-| COT | Spontaneous(3), Activation(6), ActivationCon(7), ActivationTerm(10), Interrogated(20), CounterInterrogated(37) |
+| COT | Spontaneous(3), Activation(6), ActivationCon(7), Deactivation(8), DeactivationCon(9), ActivationTerm(10), Interrogated(20), CounterInterrogated(37) |
 | Transport | TCP, TLS (mutual TLS supported) |
 
 ## Architecture

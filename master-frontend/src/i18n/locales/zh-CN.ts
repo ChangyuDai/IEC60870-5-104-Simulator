@@ -16,8 +16,10 @@ export type DictShape = {
     disconnect: string
     delete: string
     sendGI: string
+    deactivateGI: string
     clockSync: string
     counterRead: string
+    deactivateCounterRead: string
     customControl: string
     parseFrame: string
     parseFrameInLog: string
@@ -37,6 +39,8 @@ export type DictShape = {
     broadcast: string
     broadcastGi: string
     broadcastCounterRead: string
+    broadcastGiDeactivation: string
+    broadcastCounterReadDeactivation: string
     broadcastAddressLabel: string
     giAllCAs: string
   }
@@ -251,6 +255,36 @@ export type DictShape = {
     retry: string
     close: string
   }
+  parseFrame: {
+    title: string
+    hint: string
+    hexLabel: string
+    templatesLabel: string
+    errEmpty: string
+    parse: string
+    parsing: string
+    apciI: string
+    apciS: string
+    apciU: string
+    bytes: string
+    startByte: string
+    apduLength: string
+    controlField: string
+    seqNo: string
+    typeRow: string
+    cotNegative: string
+    cotTest: string
+    oa: string
+    ca: string
+    objects: string
+    objectsCount: string
+    colValue: string
+    colQuality: string
+    colTimestamp: string
+    colRaw: string
+    dpIntermediate: string
+    dpIndeterminate: string
+  }
   _test: { interp: string }
 }
 
@@ -272,8 +306,10 @@ const dict: DictShape = {
     disconnect: '断开',
     delete: '删除',
     sendGI: '总召唤',
+    deactivateGI: '停止总召',
     clockSync: '时钟同步',
     counterRead: '累计量召唤',
+    deactivateCounterRead: '停止计量召唤',
     customControl: '自定义控制',
     parseFrame: '报文解析',
     parseFrameInLog: '解析此报文',
@@ -293,6 +329,8 @@ const dict: DictShape = {
     broadcast: '广播',
     broadcastGi: '广播总召',
     broadcastCounterRead: '广播计量召唤',
+    broadcastGiDeactivation: '广播停止总召',
+    broadcastCounterReadDeactivation: '广播停止计量召唤',
     broadcastAddressLabel: '当前广播地址',
     giAllCAs: '全部 CA',
   },
@@ -558,6 +596,36 @@ const dict: DictShape = {
     failedTitle: '更新失败',
     retry: '重试',
     close: '关闭',
+  },
+  parseFrame: {
+    title: '报文解析器',
+    hint: '粘贴一段 IEC 60870-5-104 APDU 的十六进制字节,自动展开 APCI/ASDU/IOA 详情。支持空格、换行、逗号分隔。',
+    hexLabel: '十六进制字节',
+    templatesLabel: '模板:',
+    errEmpty: '请输入 hex 报文',
+    parse: '解析 (Ctrl+Enter)',
+    parsing: '解析中...',
+    apciI: 'I 帧 (Information)',
+    apciS: 'S 帧 (Supervisory)',
+    apciU: 'U 帧 · {name}',
+    bytes: '{n} 字节',
+    startByte: '起始字节',
+    apduLength: 'APDU 长度',
+    controlField: '控制字段',
+    seqNo: '序列号',
+    typeRow: '类型',
+    cotNegative: 'P/N=否定',
+    cotTest: 'T=测试',
+    oa: 'OA (源地址)',
+    ca: 'CA (公共地址)',
+    objects: '信息对象',
+    objectsCount: '{n} 个',
+    colValue: '值',
+    colQuality: '品质',
+    colTimestamp: '时间戳',
+    colRaw: '原始字节',
+    dpIntermediate: '中间',
+    dpIndeterminate: '不确定',
   },
   _test: {
     interp: '订单 #{id} 由 {user} 创建',

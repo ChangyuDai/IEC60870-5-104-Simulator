@@ -59,6 +59,11 @@ const giCAs = ref<number[]>([])
 // 计量召唤(C_CI)沿用与总召相同的"选 CA"交互:多 CA 弹菜单,单 CA 直发。
 const ccMenuOpen = ref(false)
 const ccCAs = ref<number[]>([])
+// 停止激活(COT=8)去激活也支持"选 CA":多 CA 弹菜单,单 CA 直发。
+const giDeactMenuOpen = ref(false)
+const giDeactCAs = ref<number[]>([])
+const ccDeactMenuOpen = ref(false)
+const ccDeactCAs = ref<number[]>([])
 const connCAs = ref<number[]>([])
 
 // Dropdown menus are teleported to <body> so the toolbar's horizontal-scroll
@@ -66,6 +71,8 @@ const connCAs = ref<number[]>([])
 // trigger's viewport rect, captured the moment the menu opens.
 const giMenuPos = ref({ top: 0, left: 0 })
 const ccMenuPos = ref({ top: 0, left: 0 })
+const giDeactMenuPos = ref({ top: 0, left: 0 })
+const ccDeactMenuPos = ref({ top: 0, left: 0 })
 const broadcastMenuPos = ref({ top: 0, left: 0 })
 function anchorPos(el: HTMLElement) {
   const r = el.getBoundingClientRect()
@@ -97,6 +104,8 @@ function closeBroadcastMenu(e: MouseEvent) {
   if (!el.closest('.split-btn')) broadcastMenuOpen.value = false
   if (!el.closest('.gi-btn-wrap')) giMenuOpen.value = false
   if (!el.closest('.cc-btn-wrap')) ccMenuOpen.value = false
+  if (!el.closest('.gi-deact-wrap')) giDeactMenuOpen.value = false
+  if (!el.closest('.cc-deact-wrap')) ccDeactMenuOpen.value = false
 }
 onMounted(() => document.addEventListener('click', closeBroadcastMenu))
 onBeforeUnmount(() => document.removeEventListener('click', closeBroadcastMenu))
@@ -237,6 +246,39 @@ async function doGI(ca: number | null) {
   }
 }
 
+// 停止激活(COT=8)总召唤:单 CA 直发,多 CA 弹菜单选具体 CA 或全部。
+async function sendGIDeactivation(e: MouseEvent) {
+  const anchor = anchorPos(e.currentTarget as HTMLElement)
+  if (!selectedConnectionId.value) return
+  try {
+    const cas = await getConnCAs()
+    giDeactCAs.value = cas
+    if (cas.length <= 1) {
+      await doGIDeactivation(cas[0] ?? null)
+    } else {
+      giDeactMenuPos.value = anchor
+      giDeactMenuOpen.value = !giDeactMenuOpen.value
+    }
+  } catch (err) {
+    await showAlert(String(err))
+  }
+}
+
+// 发送停止激活(COT=8)总召唤。ca === null 表示对所有 CA 并发取消进行中的 GI。
+async function doGIDeactivation(ca: number | null) {
+  giDeactMenuOpen.value = false
+  if (!selectedConnectionId.value) return
+  try {
+    if (ca === null) {
+      await fanOutCAs('send_interrogation_deactivation')
+    } else {
+      await invoke('send_interrogation_deactivation', { id: selectedConnectionId.value, commonAddress: ca })
+    }
+  } catch (err) {
+    await showAlert(String(err))
+  }
+}
+
 async function sendClockSync() {
   if (!selectedConnectionId.value) return
   try {
@@ -279,6 +321,39 @@ async function doCounterRead(ca: number | null) {
     setTimeout(() => refreshTree(), 3000)
   } catch (e) {
     await showAlert(String(e))
+  }
+}
+
+// 停止激活(COT=8)计数量召唤:单 CA 直发,多 CA 弹菜单选具体 CA 或全部。
+async function sendCounterReadDeactivation(e: MouseEvent) {
+  const anchor = anchorPos(e.currentTarget as HTMLElement)
+  if (!selectedConnectionId.value) return
+  try {
+    const cas = await getConnCAs()
+    ccDeactCAs.value = cas
+    if (cas.length <= 1) {
+      await doCounterReadDeactivation(cas[0] ?? null)
+    } else {
+      ccDeactMenuPos.value = anchor
+      ccDeactMenuOpen.value = !ccDeactMenuOpen.value
+    }
+  } catch (err) {
+    await showAlert(String(err))
+  }
+}
+
+// 发送停止激活(COT=8)计数量召唤。ca === null 表示对所有 CA 并发取消进行中的累计量扫描。
+async function doCounterReadDeactivation(ca: number | null) {
+  ccDeactMenuOpen.value = false
+  if (!selectedConnectionId.value) return
+  try {
+    if (ca === null) {
+      await fanOutCAs('send_counter_read_deactivation')
+    } else {
+      await invoke('send_counter_read_deactivation', { id: selectedConnectionId.value, commonAddress: ca })
+    }
+  } catch (err) {
+    await showAlert(String(err))
   }
 }
 
@@ -334,6 +409,22 @@ async function sendBroadcastCounterRead() {
   } catch (e) { await showAlert(String(e)) }
   broadcastMenuOpen.value = false
 }
+
+async function sendBroadcastGIDeactivation() {
+  if (!selectedConnectionId.value) return
+  try {
+    await invoke('send_broadcast_gi_deactivation', { id: selectedConnectionId.value })
+  } catch (e) { await showAlert(String(e)) }
+  broadcastMenuOpen.value = false
+}
+
+async function sendBroadcastCounterReadDeactivation() {
+  if (!selectedConnectionId.value) return
+  try {
+    await invoke('send_broadcast_counter_read_deactivation', { id: selectedConnectionId.value })
+  } catch (e) { await showAlert(String(e)) }
+  broadcastMenuOpen.value = false
+}
 </script>
 
 <template>
@@ -378,6 +469,27 @@ async function sendBroadcastCounterRead() {
           </ul>
         </Teleport>
       </div>
+      <div class="gi-btn-wrap gi-deact-wrap">
+        <button
+          class="toolbar-btn"
+          :disabled="!hasConnection() || !isConnected()"
+          :title="t('toolbar.deactivateGI')"
+          @click="sendGIDeactivation"
+        >
+          {{ t('toolbar.deactivateGI') }}<span v-if="connCAs.length > 1" class="gi-caret">&#9662;</span>
+        </button>
+        <Teleport to="body">
+          <ul
+            v-if="giDeactMenuOpen"
+            class="split-menu floating"
+            :style="{ top: giDeactMenuPos.top + 'px', left: giDeactMenuPos.left + 'px' }"
+            @click.stop
+          >
+            <li @click="doGIDeactivation(null)">{{ t('toolbar.giAllCAs') }}</li>
+            <li v-for="ca in giDeactCAs" :key="ca" @click="doGIDeactivation(ca)">CA {{ ca }}</li>
+          </ul>
+        </Teleport>
+      </div>
       <div class="split-btn" :class="{ disabled: !hasConnection() || !isConnected() }">
         <button
           class="toolbar-btn"
@@ -401,6 +513,8 @@ async function sendBroadcastCounterRead() {
           >
             <li @click="sendBroadcastGI">{{ t('toolbar.broadcastGi') }}</li>
             <li @click="sendBroadcastCounterRead">{{ t('toolbar.broadcastCounterRead') }}</li>
+            <li @click="sendBroadcastGIDeactivation">{{ t('toolbar.broadcastGiDeactivation') }}</li>
+            <li @click="sendBroadcastCounterReadDeactivation">{{ t('toolbar.broadcastCounterReadDeactivation') }}</li>
           </ul>
         </Teleport>
       </div>
@@ -420,6 +534,27 @@ async function sendBroadcastCounterRead() {
           >
             <li @click="doCounterRead(null)">{{ t('toolbar.giAllCAs') }}</li>
             <li v-for="ca in ccCAs" :key="ca" @click="doCounterRead(ca)">CA {{ ca }}</li>
+          </ul>
+        </Teleport>
+      </div>
+      <div class="gi-btn-wrap cc-btn-wrap cc-deact-wrap">
+        <button
+          class="toolbar-btn"
+          :disabled="!hasConnection() || !isConnected()"
+          :title="t('toolbar.deactivateCounterRead')"
+          @click="sendCounterReadDeactivation"
+        >
+          {{ t('toolbar.deactivateCounterRead') }}<span v-if="connCAs.length > 1" class="gi-caret">&#9662;</span>
+        </button>
+        <Teleport to="body">
+          <ul
+            v-if="ccDeactMenuOpen"
+            class="split-menu floating"
+            :style="{ top: ccDeactMenuPos.top + 'px', left: ccDeactMenuPos.left + 'px' }"
+            @click.stop
+          >
+            <li @click="doCounterReadDeactivation(null)">{{ t('toolbar.giAllCAs') }}</li>
+            <li v-for="ca in ccDeactCAs" :key="ca" @click="doCounterReadDeactivation(ca)">CA {{ ca }}</li>
           </ul>
         </Teleport>
       </div>

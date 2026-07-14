@@ -23,11 +23,15 @@ pub fn run() {
             commands::list_connections,
             // IEC 104 commands
             commands::send_interrogation,
+            commands::send_interrogation_deactivation,
             commands::send_clock_sync,
             commands::send_counter_read,
+            commands::send_counter_read_deactivation,
             commands::send_broadcast_gi,
             commands::send_broadcast_clock_sync,
             commands::send_broadcast_counter_read,
+            commands::send_broadcast_gi_deactivation,
+            commands::send_broadcast_counter_read_deactivation,
             commands::send_control_command,
             // Data commands
             commands::get_received_data,

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, inject, onBeforeUnmount, ref, watch, type Ref } from 'vue'
+import { useI18n } from '@shared/i18n'
 import { useRemoteParams } from '../composables/useRemoteParams'
 import RemoteParamsForm from './RemoteParamsForm.vue'
 import type { ProtocolTimingConfig, RemoteOperationConfig } from '../types'
@@ -12,6 +13,8 @@ const emit = defineEmits<{
 }>()
 
 const selectedServerId = inject<Ref<string | null>>('selectedServerId') as Ref<string | null>
+
+const { t } = useI18n()
 
 const { timing, ops, loading, lastError, load, applyTiming, applyOps } =
   useRemoteParams(selectedServerId)
@@ -34,7 +37,7 @@ const dirty = computed(() =>
 )
 
 const saveLabel = computed(() =>
-  saving.value ? '保存中…' : savedFlash.value ? '已保存' : '保存全部'
+  saving.value ? t('remoteParams.saving') : savedFlash.value ? t('remoteParams.saved') : t('remoteParams.saveAll')
 )
 
 function clearFlashTimer() {
@@ -108,13 +111,13 @@ watch(() => props.visible, (v) => {
         <aside
           class="rp-drawer"
           role="dialog"
-          aria-label="远动运行参数"
+          :aria-label="t('remoteParams.drawerTitle')"
           @mousedown.stop
         >
           <header class="rp-drawer-head">
             <div class="rp-drawer-title">
               <span class="rp-drawer-eyebrow">REMOTE OPS</span>
-              <h3>远动运行参数</h3>
+              <h3>{{ t('remoteParams.drawerTitle') }}</h3>
             </div>
             <div class="rp-drawer-actions">
               <button
@@ -122,8 +125,8 @@ watch(() => props.visible, (v) => {
                 class="rp-btn rp-btn-ghost"
                 :disabled="saving"
                 @click="discardChanges"
-                title="放弃修改 · 重新载入"
-              >放弃</button>
+                :title="t('remoteParams.discardTitle')"
+              >{{ t('remoteParams.discard') }}</button>
               <button
                 class="rp-btn rp-btn-primary"
                 :class="{ 'is-dirty': dirty, 'is-flash': savedFlash }"
@@ -137,8 +140,8 @@ watch(() => props.visible, (v) => {
                 class="rp-btn-close"
                 :disabled="saving"
                 @click="close"
-                title="关闭 (Esc)"
-                aria-label="关闭"
+                :title="t('remoteParams.closeEsc')"
+                :aria-label="t('common.close')"
               >×</button>
             </div>
           </header>
@@ -146,15 +149,15 @@ watch(() => props.visible, (v) => {
           <div class="rp-drawer-body">
             <div v-if="!selectedServerId" class="rp-empty">
               <span class="rp-empty-mark">·</span>
-              <span>请先在左侧选择一个服务器</span>
+              <span>{{ t('remoteParams.selectServerFirst') }}</span>
             </div>
 
             <template v-else>
               <RemoteParamsForm :timing="timing" :ops="ops" />
 
               <p v-if="lastError" class="rp-error">{{ lastError }}</p>
-              <p v-if="loading" class="rp-muted">载入中…</p>
-              <p class="rp-foot-note">t1/t2/t3 当前仅持久化，运行时计时器未完全驱动。</p>
+              <p v-if="loading" class="rp-muted">{{ t('remoteParams.loadingText') }}</p>
+              <p class="rp-foot-note">{{ t('remoteParams.footNote') }}</p>
             </template>
           </div>
         </aside>

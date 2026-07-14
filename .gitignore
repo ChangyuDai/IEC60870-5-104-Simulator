@@ -40,3 +40,7 @@ crates/*/*.p12
 # Tauri runtime-generated capability/ACL schemas (per-machine, do not commit)
 crates/*/gen/schemas/
 .playwright-mcp/
+
+# Local agent tooling (opencode / subagent scratch, per-machine — do not commit)
+.opencode/
+.agents/

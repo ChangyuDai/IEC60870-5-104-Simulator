@@ -500,7 +500,12 @@ fn build_response_frame(recv: &[u8], cot: u8, seq: &mut SeqState) -> Vec<u8> {
         out[4] = (seq.rsn & 0xFF) as u8;
         out[5] = ((seq.rsn >> 8) & 0xFF) as u8;
     }
-    if out.len() > 8 { out[8] = cot; }
+    if out.len() > 8 {
+        // 保留收帧的 test 位(bit7):测试帧的回显应仍带 test 位(IEC 60870-5-101 §7.2.2.3)。
+        // negative-confirm(bit6)不由收帧透传,而由各分支显式设置(如 103 拒收回 45|0x40,确认帧不带 negative)。
+        // 故只透传 test 位,cot 的 cause+negative 位由调用者原样给出。
+        let test_bit = out[8] & 0x80;
+        out[8] = cot | test_bit; }
     seq.ssn = seq.ssn.wrapping_add(2);
     out
 }
@@ -1023,6 +1028,13 @@ async fn handle_client_read_loop(
     let mut buf = [0u8; 8192];
     let mut reassembly_buf: Vec<u8> = Vec::with_capacity(65536);
 
+    // 按 (ca, cot_data) 维护在途召唤扫描任务的 JoinHandle:cot_data=20 为 GI,37 为计数量召唤。
+    // 同一连接的 I 帧串行处理,本 map 无需锁。激活时 spawn 后存入(先 abort 旧的同 key 残留);
+    // 收到 COT=8 停止激活时 abort 对应 handle,使 run_interrogation 在下一个 await 点被取消,
+    // 不再继续上送数据帧或激活终止帧(IEC 60870-5-101 §7.2.6.1:去激活必须停止扫描)。
+    let mut interrogation_tasks: std::collections::HashMap<(u16, u8), tokio::task::JoinHandle<()>> =
+        std::collections::HashMap::new();
+
     loop {
         if shutdown_flag.load(std::sync::atomic::Ordering::SeqCst) { break; }
         // stream.read 本身是异步阻塞,会在数据到达或对端关闭时立即唤醒。
@@ -1123,13 +1135,41 @@ async fn handle_client_read_loop(
                     }
                 }
                 let asdu_type = data[6];
-                let cause = data[8];
+                    // COT 字节布局:bit0..5=cause,bit6=negative-confirm,bit7=test(IEC 60870-5-101 §7.2.2.3)。
+                    // 取低 6 位作 cause 比较,使主站叠加 T/PN 位的去激活(COT=8|0x80)仍能命中停止激活分支,
+                    // 而非误入激活路径(与 decode.rs cot=byte&0x3F 一致)。
+                    let cause = data[8] & 0x3F;
                 let ca = u16::from_le_bytes([data[10], data[11]]);
 
                 let ops_snapshot = remote_ops.read().await.clone();
                 match asdu_type {
                     100 => {
-                        if !ops_snapshot.answer_general_interrogation {
+                            // 去激活确认(COT=9)是管理层回复,须先于 answer_general_interrogation 抑制:
+                            // 即使运营方关闭数据上送,停止激活仍需确认,否则主站 t1 超时。
+                            if cause == 8 {
+                                // 停止激活(COT=8):仅回停止确认(COT=9),不上送数据、不发激活终止。
+                                // 取消该 CA 在途的 GI 扫描任务(若有),使其在下一个 await 点终止,
+                                // 不再继续上送 COT=20 数据帧或 COT=10 激活终止帧。
+                                if let Some(h) = interrogation_tasks.remove(&(ca, 20)) {
+                                    h.abort();
+                                }
+                                let con = {
+                                    let mut s = seq.lock().await;
+                                    build_response_frame(
+                                        &data[..n],
+                                        ops_snapshot.cancel_ack_cot.as_u8(),
+                                        &mut s,
+                                    )
+                                };
+                                queue.lock().await.extend_from_slice(&con);
+                                if let Some(ref lc) = log_collector {
+                                    lc.try_add(LogEntry::new(
+                                        Direction::Tx,
+                                        FrameLabel::GeneralInterrogation,
+                                        format!("GI 停止确认 CA={}", ca),
+                                    ));
+                                }
+                            } else if !ops_snapshot.answer_general_interrogation {
                             if let Some(ref lc) = log_collector {
                                 lc.try_add(LogEntry::new(
                                     Direction::Tx, FrameLabel::GeneralInterrogation,
@@ -1171,7 +1211,11 @@ async fn handle_client_read_loop(
                                 let lc_clone = log_collector.clone();
                                 let recv_template = data[..n].to_vec();
                                 let include_ts = ops_snapshot.gi_include_timestamped;
-                                tokio::spawn(async move {
+                                    // 覆盖同 CA 仍在途的旧 GI 任务(刚完成则 abort 是 no-op)。
+                                    if let Some(h) = interrogation_tasks.remove(&(ca, 20)) {
+                                        h.abort();
+                                    }
+                                    let handle = tokio::spawn(async move {
                                     run_interrogation(
                                         points_snapshot, ca_bytes, 20,
                                         recv_template, include_ts,
@@ -1179,11 +1223,34 @@ async fn handle_client_read_loop(
                                         FrameLabel::GeneralInterrogation, ca,
                                     ).await;
                                 });
-                            }
+                                    interrogation_tasks.insert((ca, 20), handle);
+                                }
                         }
                     }
                     101 => {
-                        if !ops_snapshot.answer_counter_interrogation {
+                            if cause == 8 {
+                                // 停止激活(COT=8):仅回停止确认(COT=9),不上送累计量、不发激活终止。
+                                // 去激活确认先于 answer_counter_interrogation 抑制;取消在途扫描任务(若有)。
+                                if let Some(h) = interrogation_tasks.remove(&(ca, 37)) {
+                                    h.abort();
+                                }
+                                let con = {
+                                    let mut s = seq.lock().await;
+                                    build_response_frame(
+                                        &data[..n],
+                                        ops_snapshot.cancel_ack_cot.as_u8(),
+                                        &mut s,
+                                    )
+                                };
+                                queue.lock().await.extend_from_slice(&con);
+                                if let Some(ref lc) = log_collector {
+                                    lc.try_add(LogEntry::new(
+                                        Direction::Tx,
+                                        FrameLabel::CounterInterrogation,
+                                        format!("累计量召唤 停止确认 CA={}", ca),
+                                    ));
+                                }
+                            } else if !ops_snapshot.answer_counter_interrogation {
                             if let Some(ref lc) = log_collector {
                                 lc.try_add(LogEntry::new(
                                     Direction::Tx, FrameLabel::CounterInterrogation,
@@ -1221,7 +1288,11 @@ async fn handle_client_read_loop(
                                 let lc_clone = log_collector.clone();
                                 let recv_template = data[..n].to_vec();
                                 let include_ts = ops_snapshot.gi_include_timestamped;
-                                tokio::spawn(async move {
+                                    // 覆盖同 CA 仍在途的旧计数量召唤任务(刚完成则 abort 是 no-op)。
+                                    if let Some(h) = interrogation_tasks.remove(&(ca, 37)) {
+                                        h.abort();
+                                    }
+                                    let handle = tokio::spawn(async move {
                                     run_interrogation(
                                         points_snapshot, ca_bytes, 37,
                                         recv_template, include_ts,
@@ -1229,24 +1300,57 @@ async fn handle_client_read_loop(
                                         FrameLabel::CounterInterrogation, ca,
                                     ).await;
                                 });
-                            }
+                                    interrogation_tasks.insert((ca, 37), handle);
+                                }
                         }
                     }
                     103 => {
-                        let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], 7, &mut s) };
+                            // 时钟同步(C_CS_NA_1)规约为单次激活型命令(IEC 60870-5-101 §7.2.6.4),
+                            // 无 COT=8 去激活语义,禁止回 COT=9。仅 COT=6(激活)合法,回 COT=7(激活确认);
+                            // 非激活 COT(含 COT=8)属协议错误,按 lib60870 拒收路径回
+                            // COT=45(UNKNOWN_COT)+negative-confirm(bit6),不执行对时。
+                            // 长度守卫:103 帧 = 6 控制 + 4 ASDU + 2 CA + 3 IOA + 7 CP56 = 22 字节,
+                            // 短于 22 视为畸形,按未知类型拒收回 COT=44(UNKNOWN_TYPE)+negative,不当合法对时处理。
+                            if data.len() >= 22 {
+                                let cot_in = cause & 0x3F;
+                                let is_activation = cot_in == 6;
+                                let ack_cot = if is_activation { 7u8 } else { 45 | 0x40 };
+                                let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s)
+                                };
+                                queue.lock().await.extend_from_slice(&ack);
+                                if let Some(ref lc) = log_collector {
+                                    lc.try_add(LogEntry::new(
+                                        Direction::Tx,
+                                        FrameLabel::ClockSync,
+                                        if is_activation {
+                                            format!("时钟同步确认 CA={}", ca)
+                                        } else {
+                                            format!(
+                                                "时钟同步 拒收(非激活 COT={}) CA={}",
+                                                cot_in, ca
+                                            )
+                                        },
+                                    ));
+                                }
+                            } else {
+                                // 畸形短帧:回 unknown-type 拒收(COT=44 + negative),不执行对时。
+                                let ack = {
+                                    let mut s = seq.lock().await;
+                                    build_response_frame(&data[..n], 44 | 0x40, &mut s) };
                         queue.lock().await.extend_from_slice(&ack);
                         if let Some(ref lc) = log_collector {
                             lc.try_add(LogEntry::new(
                                 Direction::Tx, FrameLabel::ClockSync,
-                                format!("时钟同步确认 CA={}", ca),
+                                format!("时钟同步 拒收(帧长 {}<22) CA={}", data.len(), ca),
                             ));
-                        }
+                                }
+                            }
                     }
                     45 => {
                         if data.len() >= 16 {
                             let ioa = u32::from_le_bytes([data[12], data[13], data[14], 0]);
                             let sco = data[15]; let value = sco & 0x01 != 0; let is_select = sco & 0x80 != 0;
-                            if !is_select {
+                            if !is_select && cause != 8 {
                                 let mut s = stations.write().await;
                                 if let Some(st) = s.get_mut(&ca) {
                                     if let Some(dp) = st.data_points.get_mut_by_category(ioa, DataCategory::SinglePoint) {
@@ -1256,11 +1360,17 @@ async fn handle_client_read_loop(
                                     st.data_points.mark_changed_by_category(ioa, DataCategory::SinglePoint);
                                 }
                             }
-                            if ops_snapshot.answer_commands {
-                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
+                                // answer_commands 抑制的是命令执行(写值/终止/突发),不抑制停止激活确认:
+                                // cause==8 时须仍回 cancel_ack_cot(=9),否则主站 t1 超时(与 GI/counter 去激活对称)。
+                                // 块内 !is_select && cause!=8 守卫保证 cause==8 不写值、不发终止/突发。
+                                if ops_snapshot.answer_commands || cause == 8 {
+                                    // COT=8(停止激活)→ 回 cancel_ack_cot(默认 9=停止确认);COT=6(激活)下 SBO select 回 select_ack_cot,execute 恒为 7。停止激活不执行、不写值、不发终止/突发。
+                                    let ack_cot = if cause == 8 {
+                                        ops_snapshot.cancel_ack_cot.as_u8()
+                                    } else if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
                             let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) };
                             queue.lock().await.extend_from_slice(&ack);
-                            if !is_select {
+                            if !is_select && cause != 8 {
                                 let term = { let mut s = seq.lock().await; build_response_frame(&data[..n], ops_snapshot.execute_ack_cot.as_u8(), &mut s) };
                                 queue.lock().await.extend_from_slice(&term);
                                 // Send spontaneous update (COT=3) after control execution
@@ -1291,7 +1401,7 @@ async fn handle_client_read_loop(
                         if data.len() >= 16 {
                             let ioa = u32::from_le_bytes([data[12], data[13], data[14], 0]);
                             let dco = data[15]; let value = dco & 0x03; let is_select = dco & 0x80 != 0;
-                            if !is_select {
+                            if !is_select && cause != 8 {
                                 let mut s = stations.write().await;
                                 if let Some(st) = s.get_mut(&ca) {
                                     if let Some(dp) = st.data_points.get_mut_by_category(ioa, DataCategory::DoublePoint) {
@@ -1301,11 +1411,17 @@ async fn handle_client_read_loop(
                                     st.data_points.mark_changed_by_category(ioa, DataCategory::DoublePoint);
                                 }
                             }
-                            if ops_snapshot.answer_commands {
-                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
+                                // answer_commands 抑制的是命令执行(写值/终止/突发),不抑制停止激活确认:
+                                // cause==8 时须仍回 cancel_ack_cot(=9),否则主站 t1 超时(与 GI/counter 去激活对称)。
+                                // 块内 !is_select && cause!=8 守卫保证 cause==8 不写值、不发终止/突发。
+                                if ops_snapshot.answer_commands || cause == 8 {
+                                    // COT=8(停止激活)→ 回 cancel_ack_cot(默认 9=停止确认);COT=6(激活)下 SBO select 回 select_ack_cot,execute 恒为 7。停止激活不执行、不写值、不发终止/突发。
+                                    let ack_cot = if cause == 8 {
+                                        ops_snapshot.cancel_ack_cot.as_u8()
+                                    } else if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
                             let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) };
                             queue.lock().await.extend_from_slice(&ack);
-                            if !is_select {
+                            if !is_select && cause != 8 {
                                 let term = { let mut s = seq.lock().await; build_response_frame(&data[..n], ops_snapshot.execute_ack_cot.as_u8(), &mut s) };
                                 queue.lock().await.extend_from_slice(&term);
                                 let sr = stations.read().await;
@@ -1335,7 +1451,7 @@ async fn handle_client_read_loop(
                         if data.len() >= 16 {
                             let ioa = u32::from_le_bytes([data[12], data[13], data[14], 0]);
                             let rco = data[15]; let step_val = rco & 0x03; let is_select = rco & 0x80 != 0;
-                            if !is_select {
+                            if !is_select && cause != 8 {
                                 let mut s = stations.write().await;
                                 if let Some(st) = s.get_mut(&ca) {
                                     if let Some(dp) = st.data_points.get_mut_by_category(ioa, DataCategory::StepPosition) {
@@ -1347,11 +1463,17 @@ async fn handle_client_read_loop(
                                     st.data_points.mark_changed_by_category(ioa, DataCategory::StepPosition);
                                 }
                             }
-                            if ops_snapshot.answer_commands {
-                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
+                                // answer_commands 抑制的是命令执行(写值/终止/突发),不抑制停止激活确认:
+                                // cause==8 时须仍回 cancel_ack_cot(=9),否则主站 t1 超时(与 GI/counter 去激活对称)。
+                                // 块内 !is_select && cause!=8 守卫保证 cause==8 不写值、不发终止/突发。
+                                if ops_snapshot.answer_commands || cause == 8 {
+                                    // COT=8(停止激活)→ 回 cancel_ack_cot(默认 9=停止确认);COT=6(激活)下 SBO select 回 select_ack_cot,execute 恒为 7。停止激活不执行、不写值、不发终止/突发。
+                                    let ack_cot = if cause == 8 {
+                                        ops_snapshot.cancel_ack_cot.as_u8()
+                                    } else if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
                             let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) };
                             queue.lock().await.extend_from_slice(&ack);
-                            if !is_select {
+                            if !is_select && cause != 8 {
                                 let term = { let mut s = seq.lock().await; build_response_frame(&data[..n], ops_snapshot.execute_ack_cot.as_u8(), &mut s) };
                                 queue.lock().await.extend_from_slice(&term);
                                 let sr = stations.read().await;
@@ -1384,7 +1506,7 @@ async fn handle_client_read_loop(
                             let nva = i16::from_le_bytes([data[15], data[16]]);
                             let qos = data[17]; let is_select = qos & 0x80 != 0;
                             let value = nva as f32 / 32767.0;
-                            if !is_select {
+                            if !is_select && cause != 8 {
                                 let mut s = stations.write().await;
                                 if let Some(st) = s.get_mut(&ca) {
                                     if let Some(dp) = st.data_points.get_mut_by_category(ioa, DataCategory::NormalizedMeasured) {
@@ -1394,11 +1516,17 @@ async fn handle_client_read_loop(
                                     st.data_points.mark_changed_by_category(ioa, DataCategory::NormalizedMeasured);
                                 }
                             }
-                            if ops_snapshot.answer_commands {
-                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
+                                // answer_commands 抑制的是命令执行(写值/终止/突发),不抑制停止激活确认:
+                                // cause==8 时须仍回 cancel_ack_cot(=9),否则主站 t1 超时(与 GI/counter 去激活对称)。
+                                // 块内 !is_select && cause!=8 守卫保证 cause==8 不写值、不发终止/突发。
+                                if ops_snapshot.answer_commands || cause == 8 {
+                                    // COT=8(停止激活)→ 回 cancel_ack_cot(默认 9=停止确认);COT=6(激活)下 SBO select 回 select_ack_cot,execute 恒为 7。停止激活不执行、不写值、不发终止/突发。
+                                    let ack_cot = if cause == 8 {
+                                        ops_snapshot.cancel_ack_cot.as_u8()
+                                    } else if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
                             let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) };
                             queue.lock().await.extend_from_slice(&ack);
-                            if !is_select {
+                            if !is_select && cause != 8 {
                                 let term = { let mut s = seq.lock().await; build_response_frame(&data[..n], ops_snapshot.execute_ack_cot.as_u8(), &mut s) };
                                 queue.lock().await.extend_from_slice(&term);
                                 let sr = stations.read().await;
@@ -1429,7 +1557,7 @@ async fn handle_client_read_loop(
                             let ioa = u32::from_le_bytes([data[12], data[13], data[14], 0]);
                             let sva = i16::from_le_bytes([data[15], data[16]]);
                             let qos = data[17]; let is_select = qos & 0x80 != 0;
-                            if !is_select {
+                            if !is_select && cause != 8 {
                                 let mut s = stations.write().await;
                                 if let Some(st) = s.get_mut(&ca) {
                                     if let Some(dp) = st.data_points.get_mut_by_category(ioa, DataCategory::ScaledMeasured) {
@@ -1439,11 +1567,17 @@ async fn handle_client_read_loop(
                                     st.data_points.mark_changed_by_category(ioa, DataCategory::ScaledMeasured);
                                 }
                             }
-                            if ops_snapshot.answer_commands {
-                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
+                                // answer_commands 抑制的是命令执行(写值/终止/突发),不抑制停止激活确认:
+                                // cause==8 时须仍回 cancel_ack_cot(=9),否则主站 t1 超时(与 GI/counter 去激活对称)。
+                                // 块内 !is_select && cause!=8 守卫保证 cause==8 不写值、不发终止/突发。
+                                if ops_snapshot.answer_commands || cause == 8 {
+                                    // COT=8(停止激活)→ 回 cancel_ack_cot(默认 9=停止确认);COT=6(激活)下 SBO select 回 select_ack_cot,execute 恒为 7。停止激活不执行、不写值、不发终止/突发。
+                                    let ack_cot = if cause == 8 {
+                                        ops_snapshot.cancel_ack_cot.as_u8()
+                                    } else if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
                             let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) };
                             queue.lock().await.extend_from_slice(&ack);
-                            if !is_select {
+                            if !is_select && cause != 8 {
                                 let term = { let mut s = seq.lock().await; build_response_frame(&data[..n], ops_snapshot.execute_ack_cot.as_u8(), &mut s) };
                                 queue.lock().await.extend_from_slice(&term);
                                 let sr = stations.read().await;
@@ -1474,7 +1608,7 @@ async fn handle_client_read_loop(
                             let ioa = u32::from_le_bytes([data[12], data[13], data[14], 0]);
                             let value = f32::from_le_bytes([data[15], data[16], data[17], data[18]]);
                             let qos = data[19]; let is_select = qos & 0x80 != 0;
-                            if !is_select {
+                            if !is_select && cause != 8 {
                                 let mut s = stations.write().await;
                                 if let Some(st) = s.get_mut(&ca) {
                                     if let Some(dp) = st.data_points.get_mut_by_category(ioa, DataCategory::FloatMeasured) {
@@ -1484,11 +1618,17 @@ async fn handle_client_read_loop(
                                     st.data_points.mark_changed_by_category(ioa, DataCategory::FloatMeasured);
                                 }
                             }
-                            if ops_snapshot.answer_commands {
-                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
+                                // answer_commands 抑制的是命令执行(写值/终止/突发),不抑制停止激活确认:
+                                // cause==8 时须仍回 cancel_ack_cot(=9),否则主站 t1 超时(与 GI/counter 去激活对称)。
+                                // 块内 !is_select && cause!=8 守卫保证 cause==8 不写值、不发终止/突发。
+                                if ops_snapshot.answer_commands || cause == 8 {
+                                    // COT=8(停止激活)→ 回 cancel_ack_cot(默认 9=停止确认);COT=6(激活)下 SBO select 回 select_ack_cot,execute 恒为 7。停止激活不执行、不写值、不发终止/突发。
+                                    let ack_cot = if cause == 8 {
+                                        ops_snapshot.cancel_ack_cot.as_u8()
+                                    } else if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
                             let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) };
                             queue.lock().await.extend_from_slice(&ack);
-                            if !is_select {
+                            if !is_select && cause != 8 {
                                 let term = { let mut s = seq.lock().await; build_response_frame(&data[..n], ops_snapshot.execute_ack_cot.as_u8(), &mut s) };
                                 queue.lock().await.extend_from_slice(&term);
                                 let sr = stations.read().await;
@@ -1526,6 +1666,11 @@ async fn handle_client_read_loop(
             }
         }
         } // end while reassembly_buf
+    }
+
+    // 连接断开:取消所有在途召唤扫描任务,避免句柄泄漏与对已关闭连接的后续上送。
+    for (_, h) in interrogation_tasks.drain() {
+        h.abort();
     }
 
     connections.write().await.remove(&peer_addr);
@@ -1631,13 +1776,35 @@ fn handle_client_blocking(
             } else if ctrl1 & 0x01 == 0 && data.len() >= 12 {
                 rt.block_on(async { let mut s = seq.lock().await; observe_recv_iframe(&mut s, data); });
                 let asdu_type = data[6];
-                let cause = data[8];
+                // COT 字节布局:bit0..5=cause,bit6=negative-confirm,bit7=test(IEC 60870-5-101 §7.2.2.3)。
+                // 取低 6 位作 cause 比较,使主站叠加 T/PN 位的去激活(COT=8|0x80)仍能命中停止激活分支,
+                // 而非误入激活路径(与 decode.rs cot=byte&0x3F 一致)。
+                let cause = data[8] & 0x3F;
                 let ca = u16::from_le_bytes([data[10], data[11]]);
 
                 let ops_snapshot = rt.block_on(async { remote_ops.read().await.clone() });
                 match asdu_type {
                     100 => {
-                        if !ops_snapshot.answer_general_interrogation {
+                        // 去激活确认先于 answer_general_interrogation 抑制:停止激活须确认,与数据上送开关无关。
+                        if cause == 8 {
+                            // 停止激活(COT=8):仅回停止确认(COT=9),不上送数据、不发激活终止。
+                            let ack = rt.block_on(async {
+                                let mut s = seq.lock().await;
+                                build_response_frame(
+                                    &data[..n],
+                                    ops_snapshot.cancel_ack_cot.as_u8(),
+                                    &mut s,
+                                )
+                            });
+                            let _ = stream.write_all(&ack);
+                            if let Some(ref lc) = log_collector {
+                                lc.try_add(LogEntry::new(
+                                    Direction::Tx,
+                                    FrameLabel::GeneralInterrogation,
+                                    format!("GI 停止确认 CA={}", ca),
+                                ));
+                            }
+                        } else if !ops_snapshot.answer_general_interrogation {
                             if let Some(ref lc) = log_collector {
                                 lc.try_add(LogEntry::new(
                                     Direction::Tx, FrameLabel::GeneralInterrogation,
@@ -1660,7 +1827,8 @@ fn handle_client_blocking(
                                         format!("GI 激活确认 CA={}", ca),
                                     ));
                                 }
-                                send_gi_response_blocking(stream, station, &seq_cl, &ops_for_send).await;
+                                send_gi_response_blocking(stream, station, &seq_cl, &ops_for_send,
+                                    ).await;
                             }
                             drop(stations_read);
                             let term = { let mut s = seq_cl.lock().await; build_response_frame(&data[..n], 10, &mut s) };
@@ -1676,7 +1844,26 @@ fn handle_client_blocking(
                     }
                     101 => {
                         // Counter Interrogation (C_CI_NA_1, Type 101)
-                        if !ops_snapshot.answer_counter_interrogation {
+                        // 去激活确认先于 answer_counter_interrogation 抑制:停止激活须确认。
+                        if cause == 8 {
+                            // 停止激活(COT=8):仅回停止确认(COT=9),不上送累计量、不发激活终止。
+                            let ack = rt.block_on(async {
+                                let mut s = seq.lock().await;
+                                build_response_frame(
+                                    &data[..n],
+                                    ops_snapshot.cancel_ack_cot.as_u8(),
+                                    &mut s,
+                                )
+                            });
+                            let _ = stream.write_all(&ack);
+                            if let Some(ref lc) = log_collector {
+                                lc.try_add(LogEntry::new(
+                                    Direction::Tx,
+                                    FrameLabel::CounterInterrogation,
+                                    format!("累计量召唤 停止确认 CA={}", ca),
+                                ));
+                            }
+                        } else if !ops_snapshot.answer_counter_interrogation {
                             if let Some(ref lc) = log_collector {
                                 lc.try_add(LogEntry::new(
                                     Direction::Tx, FrameLabel::CounterInterrogation,
@@ -1711,7 +1898,8 @@ fn handle_client_blocking(
                                     }
                                 }
                             }
-                            batch.extend_from_slice(&build_response_frame(&data[..n], 10, &mut s));
+                            batch.extend_from_slice(&build_response_frame(&data[..n], 10, &mut s,
+                                ));
                             if let Some(ref lc) = lc {
                                 lc.try_add(LogEntry::new(
                                     Direction::Tx, FrameLabel::CounterInterrogation,
@@ -1724,20 +1912,49 @@ fn handle_client_blocking(
                         }
                     }
                     103 => {
-                        let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], 7, &mut s) });
+                        // 时钟同步(C_CS_NA_1)规约为单次激活型命令(IEC 60870-5-101 §7.2.6.4),
+                        // 无 COT=8 去激活语义,禁止回 COT=9。仅 COT=6(激活)合法,回 COT=7(激活确认);
+                        // 非激活 COT(含 COT=8)属协议错误,按 lib60870 拒收路径回
+                        // COT=45(UNKNOWN_COT)+negative-confirm(bit6),不执行对时。
+                        // 长度守卫:103 帧 = 6 控制 + 4 ASDU + 2 CA + 3 IOA + 7 CP56 = 22 字节,
+                        // 短于 22 视为畸形,按未知类型拒收回 COT=44(UNKNOWN_TYPE)+negative,不当合法对时处理。
+                        if data.len() >= 22 {
+                            let cot_in = cause & 0x3F;
+                            let is_activation = cot_in == 6;
+                            let ack_cot = if is_activation { 7u8 } else { 45 | 0x40 };
+                            let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s)
+                            });
+                            let _ = stream.write_all(&ack);
+                            if let Some(ref lc) = log_collector {
+                                lc.try_add(LogEntry::new(
+                                    Direction::Tx,
+                                    FrameLabel::ClockSync,
+                                    if is_activation {
+                                        format!("时钟同步确认 CA={}", ca)
+                                    } else {
+                                        format!("时钟同步 拒收(非激活 COT={}) CA={}", cot_in, ca)
+                                    },
+                                ));
+                            }
+                        } else {
+                            // 畸形短帧:回 unknown-type 拒收(COT=44 + negative),不执行对时。
+                            let ack = rt.block_on(async {
+                                let mut s = seq.lock().await;
+                                build_response_frame(&data[..n], 44 | 0x40, &mut s) });
                         let _ = stream.write_all(&ack);
                         if let Some(ref lc) = log_collector {
                             lc.try_add(LogEntry::new(
                                 Direction::Tx, FrameLabel::ClockSync,
-                                format!("时钟同步确认 CA={}", ca),
+                                format!("时钟同步 拒收(帧长 {}<22) CA={}", data.len(), ca),
                             ));
+                            }
                         }
                     }
                     45 => {
                         if data.len() >= 16 {
                             let ioa = u32::from_le_bytes([data[12], data[13], data[14], 0]);
                             let sco = data[15]; let value = sco & 0x01 != 0; let is_select = sco & 0x80 != 0;
-                            if !is_select {
+                            if !is_select && cause != 8 {
                                 let rt = tokio::runtime::Handle::try_current();
                                 if let Ok(handle) = rt {
                                     let stations = stations.clone();
@@ -1753,11 +1970,17 @@ fn handle_client_blocking(
                                     });
                                 }
                             }
-                            if ops_snapshot.answer_commands {
-                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
+                            // answer_commands 抑制的是命令执行(写值/终止/突发),不抑制停止激活确认:
+                            // cause==8 时须仍回 cancel_ack_cot(=9),否则主站 t1 超时(与 GI/counter 去激活对称)。
+                            // 块内 !is_select && cause!=8 守卫保证 cause==8 不写值、不发终止/突发。
+                            if ops_snapshot.answer_commands || cause == 8 {
+                                // COT=8(停止激活)→ 回 cancel_ack_cot(默认 9=停止确认);COT=6(激活)下 SBO select 回 select_ack_cot,execute 恒为 7。停止激活不执行、不写值、不发终止/突发。
+                                let ack_cot = if cause == 8 {
+                                    ops_snapshot.cancel_ack_cot.as_u8()
+                                } else if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
                             let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) });
                             let _ = stream.write_all(&ack);
-                            if !is_select {
+                            if !is_select && cause != 8 {
                                 let term = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ops_snapshot.execute_ack_cot.as_u8(), &mut s) });
                                 let _ = stream.write_all(&term);
                                 if let Ok(handle) = tokio::runtime::Handle::try_current() {
@@ -1792,7 +2015,7 @@ fn handle_client_blocking(
                         if data.len() >= 16 {
                             let ioa = u32::from_le_bytes([data[12], data[13], data[14], 0]);
                             let dco = data[15]; let value = dco & 0x03; let is_select = dco & 0x80 != 0;
-                            if !is_select {
+                            if !is_select && cause != 8 {
                                 let rt = tokio::runtime::Handle::try_current();
                                 if let Ok(handle) = rt {
                                     let stations = stations.clone();
@@ -1808,11 +2031,17 @@ fn handle_client_blocking(
                                     });
                                 }
                             }
-                            if ops_snapshot.answer_commands {
-                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
+                            // answer_commands 抑制的是命令执行(写值/终止/突发),不抑制停止激活确认:
+                            // cause==8 时须仍回 cancel_ack_cot(=9),否则主站 t1 超时(与 GI/counter 去激活对称)。
+                            // 块内 !is_select && cause!=8 守卫保证 cause==8 不写值、不发终止/突发。
+                            if ops_snapshot.answer_commands || cause == 8 {
+                                // COT=8(停止激活)→ 回 cancel_ack_cot(默认 9=停止确认);COT=6(激活)下 SBO select 回 select_ack_cot,execute 恒为 7。停止激活不执行、不写值、不发终止/突发。
+                                let ack_cot = if cause == 8 {
+                                    ops_snapshot.cancel_ack_cot.as_u8()
+                                } else if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
                             let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) });
                             let _ = stream.write_all(&ack);
-                            if !is_select {
+                            if !is_select && cause != 8 {
                                 let term = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ops_snapshot.execute_ack_cot.as_u8(), &mut s) });
                                 let _ = stream.write_all(&term);
                                 if let Ok(handle) = tokio::runtime::Handle::try_current() {
@@ -1847,7 +2076,7 @@ fn handle_client_blocking(
                         if data.len() >= 16 {
                             let ioa = u32::from_le_bytes([data[12], data[13], data[14], 0]);
                             let rco = data[15]; let step_val = rco & 0x03; let is_select = rco & 0x80 != 0;
-                            if !is_select {
+                            if !is_select && cause != 8 {
                                 let rt = tokio::runtime::Handle::try_current();
                                 if let Ok(handle) = rt {
                                     let stations = stations.clone();
@@ -1865,11 +2094,17 @@ fn handle_client_blocking(
                                     });
                                 }
                             }
-                            if ops_snapshot.answer_commands {
-                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
+                            // answer_commands 抑制的是命令执行(写值/终止/突发),不抑制停止激活确认:
+                            // cause==8 时须仍回 cancel_ack_cot(=9),否则主站 t1 超时(与 GI/counter 去激活对称)。
+                            // 块内 !is_select && cause!=8 守卫保证 cause==8 不写值、不发终止/突发。
+                            if ops_snapshot.answer_commands || cause == 8 {
+                                // COT=8(停止激活)→ 回 cancel_ack_cot(默认 9=停止确认);COT=6(激活)下 SBO select 回 select_ack_cot,execute 恒为 7。停止激活不执行、不写值、不发终止/突发。
+                                let ack_cot = if cause == 8 {
+                                    ops_snapshot.cancel_ack_cot.as_u8()
+                                } else if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
                             let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) });
                             let _ = stream.write_all(&ack);
-                            if !is_select {
+                            if !is_select && cause != 8 {
                                 let term = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ops_snapshot.execute_ack_cot.as_u8(), &mut s) });
                                 let _ = stream.write_all(&term);
                                 if let Ok(handle) = tokio::runtime::Handle::try_current() {
@@ -1907,7 +2142,7 @@ fn handle_client_blocking(
                             let nva = i16::from_le_bytes([data[15], data[16]]);
                             let qos = data[17]; let is_select = qos & 0x80 != 0;
                             let value = nva as f32 / 32767.0;
-                            if !is_select {
+                            if !is_select && cause != 8 {
                                 let rt = tokio::runtime::Handle::try_current();
                                 if let Ok(handle) = rt {
                                     let stations = stations.clone();
@@ -1923,11 +2158,17 @@ fn handle_client_blocking(
                                     });
                                 }
                             }
-                            if ops_snapshot.answer_commands {
-                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
+                            // answer_commands 抑制的是命令执行(写值/终止/突发),不抑制停止激活确认:
+                            // cause==8 时须仍回 cancel_ack_cot(=9),否则主站 t1 超时(与 GI/counter 去激活对称)。
+                            // 块内 !is_select && cause!=8 守卫保证 cause==8 不写值、不发终止/突发。
+                            if ops_snapshot.answer_commands || cause == 8 {
+                                // COT=8(停止激活)→ 回 cancel_ack_cot(默认 9=停止确认);COT=6(激活)下 SBO select 回 select_ack_cot,execute 恒为 7。停止激活不执行、不写值、不发终止/突发。
+                                let ack_cot = if cause == 8 {
+                                    ops_snapshot.cancel_ack_cot.as_u8()
+                                } else if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
                             let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) });
                             let _ = stream.write_all(&ack);
-                            if !is_select {
+                            if !is_select && cause != 8 {
                                 let term = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ops_snapshot.execute_ack_cot.as_u8(), &mut s) });
                                 let _ = stream.write_all(&term);
                                 if let Ok(handle) = tokio::runtime::Handle::try_current() {
@@ -1963,7 +2204,7 @@ fn handle_client_blocking(
                             let ioa = u32::from_le_bytes([data[12], data[13], data[14], 0]);
                             let sva = i16::from_le_bytes([data[15], data[16]]);
                             let qos = data[17]; let is_select = qos & 0x80 != 0;
-                            if !is_select {
+                            if !is_select && cause != 8 {
                                 let rt = tokio::runtime::Handle::try_current();
                                 if let Ok(handle) = rt {
                                     let stations = stations.clone();
@@ -1979,11 +2220,17 @@ fn handle_client_blocking(
                                     });
                                 }
                             }
-                            if ops_snapshot.answer_commands {
-                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
+                            // answer_commands 抑制的是命令执行(写值/终止/突发),不抑制停止激活确认:
+                            // cause==8 时须仍回 cancel_ack_cot(=9),否则主站 t1 超时(与 GI/counter 去激活对称)。
+                            // 块内 !is_select && cause!=8 守卫保证 cause==8 不写值、不发终止/突发。
+                            if ops_snapshot.answer_commands || cause == 8 {
+                                // COT=8(停止激活)→ 回 cancel_ack_cot(默认 9=停止确认);COT=6(激活)下 SBO select 回 select_ack_cot,execute 恒为 7。停止激活不执行、不写值、不发终止/突发。
+                                let ack_cot = if cause == 8 {
+                                    ops_snapshot.cancel_ack_cot.as_u8()
+                                } else if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
                             let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) });
                             let _ = stream.write_all(&ack);
-                            if !is_select {
+                            if !is_select && cause != 8 {
                                 let term = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ops_snapshot.execute_ack_cot.as_u8(), &mut s) });
                                 let _ = stream.write_all(&term);
                                 if let Ok(handle) = tokio::runtime::Handle::try_current() {
@@ -2019,7 +2266,7 @@ fn handle_client_blocking(
                             let ioa = u32::from_le_bytes([data[12], data[13], data[14], 0]);
                             let value = f32::from_le_bytes([data[15], data[16], data[17], data[18]]);
                             let qos = data[19]; let is_select = qos & 0x80 != 0;
-                            if !is_select {
+                            if !is_select && cause != 8 {
                                 let rt = tokio::runtime::Handle::try_current();
                                 if let Ok(handle) = rt {
                                     let stations = stations.clone();
@@ -2035,11 +2282,17 @@ fn handle_client_blocking(
                                     });
                                 }
                             }
-                            if ops_snapshot.answer_commands {
-                            let ack_cot = if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
+                            // answer_commands 抑制的是命令执行(写值/终止/突发),不抑制停止激活确认:
+                            // cause==8 时须仍回 cancel_ack_cot(=9),否则主站 t1 超时(与 GI/counter 去激活对称)。
+                            // 块内 !is_select && cause!=8 守卫保证 cause==8 不写值、不发终止/突发。
+                            if ops_snapshot.answer_commands || cause == 8 {
+                                // COT=8(停止激活)→ 回 cancel_ack_cot(默认 9=停止确认);COT=6(激活)下 SBO select 回 select_ack_cot,execute 恒为 7。停止激活不执行、不写值、不发终止/突发。
+                                let ack_cot = if cause == 8 {
+                                    ops_snapshot.cancel_ack_cot.as_u8()
+                                } else if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
                             let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) });
                             let _ = stream.write_all(&ack);
-                            if !is_select {
+                            if !is_select && cause != 8 {
                                 let term = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ops_snapshot.execute_ack_cot.as_u8(), &mut s) });
                                 let _ = stream.write_all(&term);
                                 if let Ok(handle) = tokio::runtime::Handle::try_current() {

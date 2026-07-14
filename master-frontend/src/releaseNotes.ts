@@ -4,6 +4,9 @@ export const RELEASES_URL = 'https://github.com/Karl-Dai/IEC60870-5-104-Simulato
 
 // Keep in sync with CHANGELOG.md — see `release` skill.
 export const RELEASE_NOTES: string[] = [
+  '新增「停止激活」(COT=8)命令: 主站工具栏可对进行中的总召唤 / 计量召唤下发停止激活, 单 CA 直发、多 CA 弹菜单选具体 CA 或「全部 CA」并发, 「广播 ▾」下另有广播停止总召 / 广播停止计量召唤; 从站正确回「停止确认」(COT=9)而非误按激活处理',
+  '英文界面本地化补全 (修复 #27): 报文解析对话框 (标题 / 提示 / 模板按钮 / APCI·ASDU·信息对象表 / 双点值 Intermediate·Indeterminate) 此前在英文构建里硬编码中文绕过 i18n, 现全部走翻译层; 少量后端生成串 (通信日志 Detail 列等) 仍部分中文, 后续版本本地化',
+  '双点遥信值加 DPI 状态图例: 数据表双点遥信值旁标注 DPI 状态 (中间 / 分 / 合 / 不确定)',
   '自动更新源切换到自建大陆加速源 gh.carldai.cloud (大陆腾讯云节点, 链式回源新加坡反代取 GitHub, 302 改写让安装包下载也走大陆中继, 实测约 3.4MB/s); 更新源精简为 gh.carldai.cloud + GitHub 兜底, 移除 ghfast/gh-proxy/idayer 免费镜像; 顺序固化在已装版本里, 装上本版后后续更新才走新源',
   '本版 Master 端无功能改动; 性能优化集中在 Slave 与核心 (通信日志面板虚拟滚动、数据点单点查询、核心日志缓冲 O(1) 淘汰等), 详见 CHANGELOG.md',
   '本版本 Master 端无功能改动; Slave 端新增「按 IOA 表达式批量写值」(数据表工具栏「写值」按钮, 文本输入非连续/区间 IOA 批量写同一值), 详见 CHANGELOG.md',

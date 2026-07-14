@@ -387,6 +387,7 @@ pub async fn send_interrogation(
     state: State<'_, AppState>,
     id: String,
     common_address: u16,
+    cot: Option<u8>,
 ) -> Result<(), String> {
     let connections = state.connections.read().await;
     let conn = connections
@@ -394,9 +395,27 @@ pub async fn send_interrogation(
         .ok_or_else(|| format!("connection {} not found", id))?;
 
     conn.connection
-        .send_interrogation(common_address)
+        .send_interrogation_with_qoi(common_address, None, cot)
         .await
         .map_err(|e| format!("failed to send GI: {}", e))
+}
+
+/// 发送停止激活(COT=8)总召唤,取消进行中的 GI 周期。slave 回 COT=9 并停止上送。
+#[tauri::command]
+pub async fn send_interrogation_deactivation(
+    state: State<'_, AppState>,
+    id: String,
+    common_address: u16,
+) -> Result<(), String> {
+    let connections = state.connections.read().await;
+    let conn = connections
+        .get(&id)
+        .ok_or_else(|| format!("connection {} not found", id))?;
+
+    conn.connection
+        .send_interrogation_deactivation(common_address)
+        .await
+        .map_err(|e| format!("failed to send GI deactivation: {}", e))
 }
 
 #[tauri::command]
@@ -421,6 +440,7 @@ pub async fn send_counter_read(
     state: State<'_, AppState>,
     id: String,
     common_address: u16,
+    cot: Option<u8>,
 ) -> Result<(), String> {
     let connections = state.connections.read().await;
     let conn = connections
@@ -428,15 +448,34 @@ pub async fn send_counter_read(
         .ok_or_else(|| format!("connection {} not found", id))?;
 
     conn.connection
-        .send_counter_read(common_address)
+        .send_counter_read_with_qcc(common_address, None, cot)
         .await
         .map_err(|e| format!("failed to send counter read: {}", e))
+}
+
+/// 发送停止激活(COT=8)计数量召唤,取消进行中的累计量扫描。slave 回 COT=9 并停止上送。
+#[tauri::command]
+pub async fn send_counter_read_deactivation(
+    state: State<'_, AppState>,
+    id: String,
+    common_address: u16,
+) -> Result<(), String> {
+    let connections = state.connections.read().await;
+    let conn = connections
+        .get(&id)
+        .ok_or_else(|| format!("connection {} not found", id))?;
+
+    conn.connection
+        .send_counter_read_deactivation(common_address)
+        .await
+        .map_err(|e| format!("failed to send counter read deactivation: {}", e))
 }
 
 #[tauri::command]
 pub async fn send_broadcast_gi(
     state: State<'_, AppState>,
     id: String,
+    cot: Option<u8>,
 ) -> Result<(), String> {
     let connections = state.connections.read().await;
     let conn = connections
@@ -444,7 +483,7 @@ pub async fn send_broadcast_gi(
         .ok_or_else(|| format!("connection {} not found", id))?;
     let bcast = conn.connection.config().broadcast_address;
     conn.connection
-        .send_interrogation(bcast)
+        .send_interrogation_with_qoi(bcast, None, cot)
         .await
         .map_err(|e| format!("failed to send broadcast GI: {}", e))
 }
@@ -469,6 +508,7 @@ pub async fn send_broadcast_clock_sync(
 pub async fn send_broadcast_counter_read(
     state: State<'_, AppState>,
     id: String,
+    cot: Option<u8>,
 ) -> Result<(), String> {
     let connections = state.connections.read().await;
     let conn = connections
@@ -476,9 +516,43 @@ pub async fn send_broadcast_counter_read(
         .ok_or_else(|| format!("connection {} not found", id))?;
     let bcast = conn.connection.config().broadcast_address;
     conn.connection
-        .send_counter_read(bcast)
+        .send_counter_read_with_qcc(bcast, None, cot)
         .await
         .map_err(|e| format!("failed to send broadcast counter read: {}", e))
+}
+
+/// 广播停止激活(COT=8)总召唤:对广播地址取消进行中的 GI。slave 回 COT=9 并停止上送。
+#[tauri::command]
+pub async fn send_broadcast_gi_deactivation(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
+    let connections = state.connections.read().await;
+    let conn = connections
+        .get(&id)
+        .ok_or_else(|| format!("connection {} not found", id))?;
+    let bcast = conn.connection.config().broadcast_address;
+    conn.connection
+        .send_interrogation_deactivation(bcast)
+        .await
+        .map_err(|e| format!("failed to send broadcast GI deactivation: {}", e))
+}
+
+/// 广播停止激活(COT=8)计数量召唤:对广播地址取消进行中的累计量扫描。
+#[tauri::command]
+pub async fn send_broadcast_counter_read_deactivation(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
+    let connections = state.connections.read().await;
+    let conn = connections
+        .get(&id)
+        .ok_or_else(|| format!("connection {} not found", id))?;
+    let bcast = conn.connection.config().broadcast_address;
+    conn.connection
+        .send_counter_read_deactivation(bcast)
+        .await
+        .map_err(|e| format!("failed to send broadcast counter read deactivation: {}", e))
 }
 
 #[derive(Debug, Deserialize)]
@@ -565,8 +639,11 @@ pub async fn send_control_command(
     let mode = resolve_control_mode(request.control_mode.as_deref(), request.select);
     let ca = request.common_address;
     let ioa = request.ioa;
-    let qu = request.qualifier.unwrap_or_else(|| default_qualifier(&request.command_type));
-    let cot = request.cot.unwrap_or(6);
+    let qu = request
+        .qualifier
+        .unwrap_or_else(|| default_qualifier(&request.command_type));
+    // COT 字节低 6 位为 cause(bit6/7 为 negative/test);mask 防前端传入非法值(如 255)污染帧。
+    let cot = request.cot.unwrap_or(6) & 0x3F;
 
     eprintln!(
         "[send_control_command] enter type={} ioa={} ca={} mode={:?} | connections_read_lock={}ms",

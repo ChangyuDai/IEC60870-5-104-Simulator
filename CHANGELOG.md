@@ -2,6 +2,37 @@
 
 本项目的所有重要变更记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.13.0] - 2026-07-14
+
+### Highlights / 亮点
+
+- 🌐 **英文界面本地化补全(修复 #27)** / **English UI localization gaps closed (fixes #27)**:报文解析对话框、子站远程运行参数编辑器、批量写值下拉此前在英文构建里仍硬编码中文、绕过了 i18n;现已全部改走翻译层,双点值也本地化为 `Intermediate` / `Indeterminate` / The Frame Parser dialog, the slave remote-params editor and the batch-write type dropdown used to ship hard-coded Chinese in the English build; they now all route through i18n, including double-point values localized to `Intermediate` / `Indeterminate`.
+- 🛑 **新增「停止激活」(COT=8)命令** / **New "Deactivate" (COT=8) commands**:主站工具栏可对进行中的总召唤 / 计量召唤下发停止激活(单 CA 直发、多 CA 选具体 CA 或「全部 CA」、以及广播停止),子站正确回「停止确认」(COT=9)而非误按激活处理 / The master toolbar can now deactivate an in-progress general-interrogation / counter-read (single-CA direct, multi-CA pick or "All CAs", plus broadcast), and the slave correctly replies with a Deactivation Confirmation (COT=9) instead of mishandling it as an activation.
+- 🔵 **双点遥信值加 DPI 状态图例** / **Double-point value legend (DPI states)**:数据表双点遥信值旁标注 DPI 状态图例,直观区分中间态 / 分 / 合 / 不确定 / The data table now annotates double-point values with a DPI-state legend (intermediate / off / on / indeterminate).
+
+### Added 新增
+
+- **停止激活(COT=8)命令**:主站工具栏新增「停止总召」「停止计量召唤」及「广播 ▾」下的「广播停止总召」「广播停止计量召唤」;停止总召 / 停止计量召唤沿用与总召一致的选 CA 交互(多 CA 弹菜单选具体 CA 或「全部 CA」并发,单 CA 直发) / Master toolbar gains "Deactivate GI" and "Deactivate Counter Read", plus "Broadcast Deactivate GI" / "Broadcast Deactivate Counter Read" under the "Broadcast ▾" menu; the two per-CA deactivations reuse the same CA-picker as GI (multi-CA menu with a fan-out "All CAs", single-CA direct send).
+- **后端停止激活命令**:新增 4 个 Tauri 命令 `send_interrogation_deactivation` / `send_counter_read_deactivation` / `send_broadcast_gi_deactivation` / `send_broadcast_counter_read_deactivation`,并在从站侧实现对 COT=8 的规约正确处理 / Added 4 Tauri commands (`send_interrogation_deactivation` / `send_counter_read_deactivation` / `send_broadcast_gi_deactivation` / `send_broadcast_counter_read_deactivation`) and protocol-correct COT=8 handling on the slave side.
+- **双点遥信 DPI 状态图例**:双点遥信值后展示 DPI 图例(中间 / 分 / 合 / 不确定) / DPI-state legend after double-point telesignal values (intermediate / off / on / indeterminate).
+
+### Fixed 修复
+
+- **英文构建残留中文(#27)**:报文解析对话框(标题、提示、模板按钮、APCI/ASDU/信息对象表、双点值)、子站远程运行参数编辑器(分区标题、开关、时序提示、下拉项)、批量写值 ASDU 类型下拉与配置导入时序纠正提示——此前均硬编码中文,现全部走 i18n / English build showed leftover Chinese in the Frame Parser dialog (title, hints, template buttons, APCI/ASDU/object tables, double-point values), the slave remote-params editor (section headers, switches, timing hints, dropdowns), and the batch-write type dropdown + config-import timing notice — all now localized.
+- **从站误处理停止激活**:主站下发 COT=8(停止激活)时,从站现回 COT=9(停止确认 DeactivationCon)并取消进行中的操作,不再错误地按激活执行(不写值、不上送全量数据、不发激活终止);覆盖命令(TypeID 45–50)、总召唤(100)、计数量召唤(101) / When the master sends COT=8, the slave now replies COT=9 (Deactivation Confirmation) and cancels the in-progress operation instead of executing it as an activation (no writes, no full-data upload, no activation termination); covers commands (TypeID 45–50), GI (100) and counter-read (101).
+
+### Tests 测试
+
+- 新增回归测试 `command_deactivation.rs`:用裸 TCP 直接驱动从站,验证 COT=8 → 回 COT=9 的三类 ASDU(命令 / 总召唤 / 计数量召唤)行为 / Added regression test `command_deactivation.rs` driving the slave over raw TCP to verify COT=8 → COT=9 behavior across the three ASDU classes (command / GI / counter-read).
+
+### Internal 内部
+
+- CI:移除 Bark 下载通知,并让 Bark 失败可观测且非阻塞(不再吞掉失败) / CI: removed Bark download notifications and made Bark failures observable and non-blocking.
+
+### Notes 说明
+
+- 少量后端生成的字符串(通信日志 *Detail* 列、双点值文本、部分错误信息)与「更新内容」变更日志仍为部分中文,需后端改动,将在后续版本本地化 / A few backend-generated strings (communication-log *Detail* column, double-point value text, some error messages) and the "What's New" changelog remain partly Chinese; those need backend changes and will be localized in follow-up releases.
+
 ## [1.12.10] - 2026-07-01
 
 ### Highlights / 亮点
