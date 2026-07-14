@@ -129,6 +129,10 @@ export type DictShape = {
     legendTitle: string
     bits: Record<'iv' | 'nt' | 'sb' | 'bl' | 'ov', { name: string; desc: string }>
   }
+  doublePoint: {
+    legendTitle: string
+    states: Record<'intermediate' | 'off' | 'on' | 'indeterminate', string>
+  }
   log: {
     title: string
     noConnections: string
@@ -385,6 +389,15 @@ const dict: DictShape = {
       sb: { name: '被取代', desc: '人工置数 —— 非现场采集' },
       bl: { name: '被闭锁', desc: '已闭锁 —— 停止刷新' },
       ov: { name: '溢出', desc: '超出量程 —— 仅测量类' },
+    },
+  },
+  doublePoint: {
+    legendTitle: '双点遥信 DPI · 双位置状态',
+    states: {
+      intermediate: 'DPI=0 中间态 · 双位均为 0(动作过程 / 未定义)',
+      off: 'DPI=1 分闸(断开)',
+      on: 'DPI=2 合闸(闭合)',
+      indeterminate: 'DPI=3 不确定态 · 双位均为 1(故障 / 矛盾指示)',
     },
   },
   log: {

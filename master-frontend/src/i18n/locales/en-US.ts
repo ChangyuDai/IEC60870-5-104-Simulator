@@ -137,6 +137,15 @@ const dict: DictShape = {
       ov: { name: 'Overflow', desc: 'Out of range — measured types only' },
     },
   },
+  doublePoint: {
+    legendTitle: 'Double-point DPI · double-position states',
+    states: {
+      intermediate: 'DPI=0 Intermediate · both bits 0 (in transit / undefined)',
+      off: 'DPI=1 Open (OFF)',
+      on: 'DPI=2 Closed (ON)',
+      indeterminate: 'DPI=3 Indeterminate · both bits 1 (faulty / contradictory)',
+    },
+  },
   log: {
     title: 'Communication Log',
     noConnections: 'No connections',

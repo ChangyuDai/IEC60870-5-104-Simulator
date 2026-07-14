@@ -6,6 +6,7 @@ import { getControlConfig, asduHasTimestamp } from '../types'
 import ControlDialog from './ControlDialog.vue'
 import QualityIndicator from '@shared/components/QualityIndicator.vue'
 import QualityLegend from '@shared/components/QualityLegend.vue'
+import DoublePointLegend from './DoublePointLegend.vue'
 import { useI18n, localizeCategoryLabel } from '@shared/i18n'
 
 const { t } = useI18n()
@@ -379,7 +380,7 @@ function isCtxActiveOption(optValue: string): boolean {
               >
                 <td class="col-ioa">{{ point.ioa }}</td>
                 <td class="col-type">{{ point.asdu_type }} · {{ point.asdu_type_id }}</td>
-                <td :class="['col-value', { 'value-highlight': changedKeys.has(pointKey(point)) }]">{{ point.value }}</td>
+                <td :class="['col-value', { 'value-highlight': changedKeys.has(pointKey(point)) }]"><span class="value-text">{{ point.value }}</span><DoublePointLegend v-if="point.asdu_type.startsWith('M_DP')" /></td>
                 <td class="col-quality">
                   <QualityIndicator
                     :quality="{ ov: point.quality_ov, bl: point.quality_bl, sb: point.quality_sb, nt: point.quality_nt, iv: point.quality_iv }"
