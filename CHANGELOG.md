@@ -2,6 +2,34 @@
 
 本项目的所有重要变更记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.13.1] - 2026-07-17
+
+### Highlights / 亮点
+
+- 🛑 **修复 Windows 子站停止卡死(#28)** / **Fix Windows slave stop hang (#28)**:默认监听 `0.0.0.0` 时不再通过回连通配地址唤醒 `accept()`，改为直接取消监听任务并释放 socket；停止、原端口重启均在毫秒级完成 / Stopping a slave bound to the default `0.0.0.0` no longer tries to connect back to the wildcard address; the accept task is cancelled directly and the listening socket is released promptly.
+- 📄 **CSV 改用原生文件保存** / **Native CSV file export**:通信日志导出不再依赖 WebView 的 Blob 下载，改用系统保存对话框 + Rust 后端写文件，Windows WebView2 可可靠落盘 / Communication-log export now uses the system save dialog and a Rust file writer instead of an unreliable WebView Blob download.
+- 🎛️ **控制类型映射可见化** / **Visible control mappings**:运行参数面板明确展示 Type 45–50 按相同 `CA + IOA` 自动映射到对应状态 / 测量点 / The runtime-parameters panel now shows how Type 45–50 commands automatically map to corresponding status/measurement points by the same `CA + IOA`.
+
+### Fixed 修复
+
+- **运行参数保存卡死**:Windows 停止命令过去会永久占用全局服务器写锁，使运行参数保存、日志轮询等 IPC 全部排队；停止路径修复后该连锁冻结一并消除 / A hung Windows stop operation held the global server write lock indefinitely, blocking runtime-parameter saves and log polling; fixing shutdown removes the entire lock-contention cascade.
+- **CSV 导出按钮无响应**:即使日志面板折叠也可打开原生保存对话框并从后端导出完整日志；文件带 UTF-8 BOM，Excel 可正确识别中英文 / CSV export now works even while the log panel is collapsed; files include a UTF-8 BOM for correct Chinese/English display in Excel.
+- **CSV 字段转义**:详情中的引号、逗号按 CSV 规则正确转义，避免列错位 / Quotes and commas in log details are escaped correctly to prevent malformed columns.
+
+### Changed 变更
+
+- 启动 / 停止请求进行时暂时锁定两个按钮，避免重复点击产生并发操作 / Start and Stop buttons are disabled while a server action is pending to prevent duplicate concurrent requests.
+- 运行参数面板列出 `C_SC_NA_1`、`C_DC_NA_1`、`C_RC_NA_1`、`C_SE_NA_1`、`C_SE_NB_1`、`C_SE_NC_1` 到对应监视点的自动映射 / The runtime-parameters panel lists automatic mappings for all Type 45–50 command and set-point types.
+
+### Tests 测试
+
+- 新增默认 `0.0.0.0` 监听下停止 ≤500 ms、同端口重启回归；新增 Type 45–50 六类控制写回测试和原生 CSV 导出组件测试 / Added regressions for stopping a `0.0.0.0` listener within 500 ms and restarting on the same port, all Type 45–50 control writebacks, and native CSV export.
+- 验证通过：158 项核心单测、7 项控制端到端测试、15 项停止激活测试、17 项子站应用测试及前端生产构建 / Verified with 158 core unit tests, 7 control E2E tests, 15 deactivation tests, 17 slave-app tests, and the frontend production build.
+
+### Notes 说明
+
+- 本版本功能修复集中在 IEC104Slave；IEC104Master 同步版本号以保持双端发布一致 / Functional fixes are concentrated in IEC104Slave; IEC104Master receives the same version number to keep paired releases aligned.
+
 ## [1.13.0] - 2026-07-14
 
 ### Highlights / 亮点

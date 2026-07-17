@@ -52,26 +52,33 @@ async function manualCheckUpdate() {
 }
 
 const showNewServerModal = ref(false)
+const serverActionPending = ref(false)
 
 async function startServer() {
-  if (!selectedServerId.value) return
+  if (!selectedServerId.value || serverActionPending.value) return
+  serverActionPending.value = true
   try {
     await invoke('start_server', { id: selectedServerId.value })
     selectedServerState.value = 'Running'
     refreshTree()
   } catch (e) {
     await showAlert(String(e))
+  } finally {
+    serverActionPending.value = false
   }
 }
 
 async function stopServer() {
-  if (!selectedServerId.value) return
+  if (!selectedServerId.value || serverActionPending.value) return
+  serverActionPending.value = true
   try {
     await invoke('stop_server', { id: selectedServerId.value })
     selectedServerState.value = 'Stopped'
     refreshTree()
   } catch (e) {
     await showAlert(String(e))
+  } finally {
+    serverActionPending.value = false
   }
 }
 
@@ -146,7 +153,7 @@ async function openConfig() {
       <button
         class="toolbar-btn btn-start"
         @click="startServer"
-        :disabled="!selectedServerId || selectedServerState === 'Running'"
+        :disabled="serverActionPending || !selectedServerId || selectedServerState === 'Running'"
         :title="t('toolbar.titleStartServer')"
       >
         <span class="toolbar-label">{{ t('toolbar.start') }}</span>
@@ -154,7 +161,7 @@ async function openConfig() {
       <button
         class="toolbar-btn btn-stop"
         @click="stopServer"
-        :disabled="!selectedServerId || selectedServerState === 'Stopped'"
+        :disabled="serverActionPending || !selectedServerId || selectedServerState === 'Stopped'"
         :title="t('toolbar.titleStopServer')"
       >
         <span class="toolbar-label">{{ t('toolbar.stop') }}</span>

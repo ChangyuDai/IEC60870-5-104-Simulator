@@ -183,6 +183,100 @@ async fn test_setpoint_float_writeback() {
 }
 
 // =========================================================================
+// Regression: every Type 45-50 control maps to the corresponding monitor
+// point at the same CA + IOA. Control objects are therefore not configured as
+// separate data points in the slave UI.
+// =========================================================================
+#[tokio::test]
+async fn test_all_control_types_map_to_monitor_points() {
+    let port = free_port();
+    let transport = SlaveTransportConfig {
+        bind_address: "127.0.0.1".to_string(),
+        port,
+        ..Default::default()
+    };
+    let mut slave = SlaveServer::new(transport);
+    slave
+        .add_station(Station::with_default_points(1, "Test", 1))
+        .await
+        .unwrap();
+    slave.start().await.unwrap();
+    sleep(Duration::from_millis(200)).await;
+
+    let config = MasterConfig {
+        target_address: "127.0.0.1".to_string(),
+        port,
+        common_address: 1,
+        ..Default::default()
+    };
+    let mut master = MasterConnection::new(config);
+    master.connect().await.unwrap();
+    sleep(Duration::from_millis(300)).await;
+
+    master
+        .send_single_command(1, true, false, 1, 0, 6)
+        .await
+        .unwrap();
+    master
+        .send_double_command(1, 2, false, 1, 0, 6)
+        .await
+        .unwrap();
+    master
+        .send_step_command(1, 2, false, 1, 0, 6)
+        .await
+        .unwrap();
+    master
+        .send_setpoint_normalized(1, 16384, false, 1, 0, 6)
+        .await
+        .unwrap();
+    master
+        .send_setpoint_scaled(1, 1234, false, 1, 0, 6)
+        .await
+        .unwrap();
+    master
+        .send_setpoint_float(1, 42.5, false, 1, 0, 6)
+        .await
+        .unwrap();
+    sleep(Duration::from_millis(800)).await;
+
+    let stations = slave.stations.read().await;
+    let points = &stations.get(&1).unwrap().data_points;
+    assert_eq!(
+        points.get(1, AsduTypeId::MSpNa1).unwrap().value,
+        DataPointValue::SinglePoint { value: true }
+    );
+    assert_eq!(
+        points.get(1, AsduTypeId::MDpNa1).unwrap().value,
+        DataPointValue::DoublePoint { value: 2 }
+    );
+    assert_eq!(
+        points.get(1, AsduTypeId::MStNa1).unwrap().value,
+        DataPointValue::StepPosition {
+            value: 1,
+            transient: false,
+        }
+    );
+    assert_eq!(
+        points.get(1, AsduTypeId::MMeNa1).unwrap().value,
+        DataPointValue::Normalized {
+            value: 16384_f32 / 32767.0,
+        }
+    );
+    assert_eq!(
+        points.get(1, AsduTypeId::MMeNb1).unwrap().value,
+        DataPointValue::Scaled { value: 1234 }
+    );
+    assert_eq!(
+        points.get(1, AsduTypeId::MMeNc1).unwrap().value,
+        DataPointValue::ShortFloat { value: 42.5 }
+    );
+    drop(stations);
+
+    master.disconnect().await.unwrap();
+    slave.stop().await.unwrap();
+}
+
+// =========================================================================
 // Test: SbO (Select-before-Operate) single command
 // =========================================================================
 #[tokio::test]

@@ -4,6 +4,7 @@ export const RELEASES_URL = 'https://github.com/Karl-Dai/IEC60870-5-104-Simulato
 
 // Keep in sync with CHANGELOG.md — see `release` skill.
 export const RELEASE_NOTES: string[] = [
+  'v1.13.1 功能修复集中在 Slave: 修复 Windows 默认监听 0.0.0.0 时停止卡死及其引发的运行参数保存冻结, 通信日志 CSV 改用原生文件保存, 并明确展示 Type 45-50 到监视点的同 CA + IOA 自动映射; Master 同步版本号以保持双端发布一致',
   '新增「停止激活」(COT=8)命令: 主站工具栏可对进行中的总召唤 / 计量召唤下发停止激活, 单 CA 直发、多 CA 弹菜单选具体 CA 或「全部 CA」并发, 「广播 ▾」下另有广播停止总召 / 广播停止计量召唤; 从站正确回「停止确认」(COT=9)而非误按激活处理',
   '英文界面本地化补全 (修复 #27): 报文解析对话框 (标题 / 提示 / 模板按钮 / APCI·ASDU·信息对象表 / 双点值 Intermediate·Indeterminate) 此前在英文构建里硬编码中文绕过 i18n, 现全部走翻译层; 少量后端生成串 (通信日志 Detail 列等) 仍部分中文, 后续版本本地化',
   '双点遥信值加 DPI 状态图例: 数据表双点遥信值旁标注 DPI 状态 (中间 / 分 / 合 / 不确定)',

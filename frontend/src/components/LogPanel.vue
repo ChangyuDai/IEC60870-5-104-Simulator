@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { ref, shallowRef, computed, inject, watch, nextTick, onMounted, onUnmounted, type Ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import { save } from '@tauri-apps/plugin-dialog'
 import type { LogEntry } from '../types'
 import { useI18n } from '@shared/i18n'
+import { dialogKey } from '@shared/composables/useDialog'
+import type { showAlert as ShowAlert } from '@shared/composables/useDialog'
 
 const { t } = useI18n()
 
@@ -17,6 +20,7 @@ const emit = defineEmits<{
 
 const selectedServerId = inject<Ref<string | null>>('selectedServerId')!
 const openParseFrame = inject<(prefill?: string) => void>('openParseFrame')!
+const { showAlert } = inject<{ showAlert: typeof ShowAlert }>(dialogKey)!
 
 function rawBytesHex(raw: number[] | null | undefined): string {
   if (!raw) return ''
@@ -130,32 +134,27 @@ function formatDetail(log: LogEntry): string {
   return log.detail
 }
 
-function csvEscape(s: string): string {
-  return s.replace(/"/g, '""')
-}
+const isExporting = ref(false)
 
-function exportLogs() {
-  if (!selectedServerId.value || logs.value.length === 0) return
-  const lines: string[] = []
-  lines.push([
-    t('log.timeCol'), t('log.directionCol'), t('log.frameCol'), t('log.detailCol'),
-  ].map(h => `"${csvEscape(h)}"`).join(','))
-  for (const log of logs.value) {
-    lines.push([
-      `"${csvEscape(formatTimestamp(log.timestamp))}"`,
-      `"${csvEscape(log.direction)}"`,
-      `"${csvEscape(formatFrameLabel(log.frame_label))}"`,
-      `"${csvEscape(formatDetail(log))}"`,
-    ].join(','))
+async function exportLogs() {
+  if (!selectedServerId.value || isExporting.value) return
+  const path = await save({
+    filters: [{ name: 'CSV', extensions: ['csv'] }],
+    defaultPath: `iec104_log_${Date.now()}.csv`,
+  })
+  if (!path) return
+
+  isExporting.value = true
+  try {
+    await invoke('save_logs_csv', {
+      serverId: selectedServerId.value,
+      path,
+    })
+  } catch (e) {
+    await showAlert(`${t('log.exportFailed')}: ${e}`)
+  } finally {
+    isExporting.value = false
   }
-  const csv = '﻿' + lines.join('\r\n')
-  const blob = new Blob([csv], { type: 'text/csv' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `iec104_log_${Date.now()}.csv`
-  a.click()
-  URL.revokeObjectURL(url)
 }
 
 function formatTimestamp(ts: string): string {
@@ -239,7 +238,12 @@ onUnmounted(() => {
       <div class="log-controls" @click.stop>
         <button class="log-btn" @click="loadLogs" :title="t('log.titleRefresh')">{{ t('log.refresh') }}</button>
         <button class="log-btn" @click="clearLogs" :title="t('log.titleClear')">{{ t('log.clear') }}</button>
-        <button class="log-btn" @click="exportLogs" :title="t('log.titleExport')">{{ t('log.export') }}</button>
+        <button
+          class="log-btn"
+          @click="exportLogs"
+          :disabled="!selectedServerId || isExporting"
+          :title="t('log.titleExport')"
+        >{{ isExporting ? t('log.exporting') : t('log.export') }}</button>
       </div>
     </div>
 
@@ -333,6 +337,11 @@ onUnmounted(() => {
 
 .log-btn:hover {
   background: var(--c-surface0);
+}
+
+.log-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .log-body {

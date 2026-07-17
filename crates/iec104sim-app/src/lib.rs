@@ -41,6 +41,7 @@ pub fn run() {
             commands::get_communication_logs,
             commands::clear_communication_logs,
             commands::export_logs_csv,
+            commands::save_logs_csv,
             // Simulation commands
             commands::random_mutate_data_points,
             commands::set_cyclic_config,

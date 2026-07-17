@@ -959,11 +959,28 @@ pub async fn export_logs_csv(
     state: State<'_, AppState>,
     server_id: String,
 ) -> Result<String, String> {
-    let servers = state.servers.read().await;
-    let srv = servers
-        .get(&server_id)
-        .ok_or_else(|| format!("server {} not found", server_id))?;
-    Ok(srv.log_collector.export_csv().await)
+    let log_collector = {
+        let servers = state.servers.read().await;
+        let srv = servers
+            .get(&server_id)
+            .ok_or_else(|| format!("server {} not found", server_id))?;
+        srv.log_collector.clone()
+    };
+    Ok(log_collector.export_csv().await)
+}
+
+/// 将日志直接写入用户通过原生保存对话框选择的路径。WebView 中使用 Blob +
+/// `<a download>` 在 Tauri/Windows WebView2 下不会可靠触发系统下载，因此文件写入
+/// 必须由 Rust 后端完成。UTF-8 BOM 让 Windows Excel 能正确识别中英文详情。
+#[tauri::command]
+pub async fn save_logs_csv(
+    state: State<'_, AppState>,
+    server_id: String,
+    path: String,
+) -> Result<(), String> {
+    let csv = export_logs_csv(state, server_id).await?;
+    let content = format!("\u{FEFF}{}", csv);
+    std::fs::write(&path, content).map_err(|e| format!("写入 CSV 失败: {e}"))
 }
 
 // ---------------------------------------------------------------------------

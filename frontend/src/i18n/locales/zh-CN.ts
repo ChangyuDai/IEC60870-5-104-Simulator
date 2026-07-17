@@ -239,6 +239,8 @@ export type DictShape = {
     refresh: string
     clear: string
     export: string
+    exporting: string
+    exportFailed: string
     loading: string
     chooseServer: string
     noLogs: string
@@ -327,6 +329,7 @@ export type DictShape = {
     gi: string
     counterInterrogation: string
     commands: string
+    controlMappingHint: string
     giWithTimestamp: string
     cmdAckCot: string
     select: string
@@ -615,6 +618,8 @@ const dict: DictShape = {
     refresh: '刷新',
     clear: '清除',
     export: '导出CSV',
+    exporting: '导出中...',
+    exportFailed: '导出 CSV 失败',
     loading: '加载中...',
     chooseServer: '请先选择一个服务器',
     noLogs: '暂无日志',
@@ -703,6 +708,7 @@ const dict: DictShape = {
     gi: '总召唤',
     counterInterrogation: '累积量召唤',
     commands: '遥控、遥调',
+    controlMappingHint: '按相同 CA + IOA 自动映射到状态/测量点：',
     giWithTimestamp: '召唤含带时标点',
     cmdAckCot: '命令应答 COT',
     select: '选择',

@@ -63,6 +63,7 @@ function wireBackend(initial: DataPointInfo[]) {
       backend = backend.filter(p => !targets.some(t => t.ioa === p.ioa && t.asdu_type === p.asdu_type))
       return Promise.resolve(targets.length)
     }
+    if (cmd === 'list_point_mutations') return Promise.resolve([])
     return Promise.resolve()
   })
   return { lastCall: () => invokeMock.mock.calls.find(c => c[0] === 'batch_remove_data_points'), size: () => backend.length }
@@ -80,7 +81,7 @@ describe('DataPointTable 删除', () => {
 
     await wrapper.find('tbody tr').trigger('contextmenu')
     await nextTick()
-    await wrapper.find('.context-menu-item').trigger('click')
+    await wrapper.find('.context-menu-item.danger').trigger('click')
     await flushPromises()
     await nextTick()
 
@@ -109,7 +110,7 @@ describe('DataPointTable 删除', () => {
     // 右键已选中的行 -> 保留多选 -> 删除两点
     await rows[1].trigger('contextmenu')
     await nextTick()
-    await wrapper.find('.context-menu-item').trigger('click')
+    await wrapper.find('.context-menu-item.danger').trigger('click')
     await flushPromises()
     await nextTick()
 

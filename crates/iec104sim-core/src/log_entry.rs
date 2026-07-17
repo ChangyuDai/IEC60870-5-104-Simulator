@@ -173,7 +173,11 @@ impl LogEntry {
         let raw = self.raw_bytes.as_ref()
             .map(|b| b.iter().map(|v| format!("{:02X}", v)).collect::<Vec<_>>().join(" "))
             .unwrap_or_default();
-        format!("\"{}\",{},{},\"{}\",\"{}\"", timestamp, direction, label, self.detail, raw)
+        [timestamp.to_string(), direction, label, self.detail.clone(), raw]
+            .iter()
+            .map(|field| format!("\"{}\"", field.replace('"', "\"\"")))
+            .collect::<Vec<_>>()
+            .join(",")
     }
 
     /// CSV header row.
@@ -205,11 +209,16 @@ mod tests {
 
     #[test]
     fn test_csv_export() {
-        let entry = LogEntry::new(Direction::Tx, FrameLabel::GeneralInterrogation, "GI CA=1");
+        let entry = LogEntry::new(Direction::Tx, FrameLabel::GeneralInterrogation, "GI \"all\", CA=1");
         let row = entry.to_csv_row();
         assert!(row.contains("TX"));
         assert!(row.contains("GI"));
-        assert!(row.contains("GI CA=1"));
+        assert!(row.contains("\"GI \"\"all\"\", CA=1\""));
+        let expected_timestamp = format!(
+            "\"{}\"",
+            entry.timestamp.format("%Y-%m-%d %H:%M:%S%.3f")
+        );
+        assert_eq!(row.split(',').next(), Some(expected_timestamp.as_str()));
     }
 
     #[test]

@@ -4,6 +4,9 @@ export const RELEASES_URL = 'https://github.com/Karl-Dai/IEC60870-5-104-Simulato
 
 // Keep in sync with CHANGELOG.md — see `release` skill.
 export const RELEASE_NOTES: string[] = [
+  '修复 Windows 子站停止卡死 (#28): 默认监听 0.0.0.0 时不再回连通配地址唤醒 accept, 改为直接取消监听任务并释放 socket; 停止与原端口重启均快速完成, 连带解决停止命令占全局锁导致运行参数保存 / 日志轮询卡住',
+  '通信日志 CSV 改用系统原生保存对话框 + Rust 后端写文件, Windows WebView2 可可靠落盘; 折叠日志面板时也能导出, 文件带 UTF-8 BOM, 引号 / 逗号按 CSV 规则正确转义',
+  '运行参数面板明确展示 Type 45-50 控制映射: C_SC / C_DC / C_RC / C_SE_NA / C_SE_NB / C_SE_NC 按相同 CA + IOA 自动写回对应状态或测量点; 启停请求期间按钮锁定防重复点击',
   '英文界面本地化补全 (修复 #27): 报文解析对话框、子站远程运行参数编辑器 (分区标题 / 开关 / 时序提示 / 下拉)、批量写值 ASDU 类型下拉与配置导入时序纠正提示此前在英文构建里硬编码中文, 现全部走 i18n, 双点值本地化为 Intermediate / Indeterminate; 少量后端生成串仍部分中文, 后续版本本地化',
   '从站正确处理「停止激活」(COT=8): 主站下发停止激活时, 从站回「停止确认」(COT=9 DeactivationCon) 并取消进行中的操作, 不再误按激活执行 (不写值、不上送全量数据、不发激活终止); 覆盖命令 (TypeID 45-50)、总召唤 (100)、计数量召唤 (101), 带回归测试',
   '双点遥信值加 DPI 状态图例: 数据表双点遥信值旁标注 DPI 状态 (中间 / 分 / 合 / 不确定)',

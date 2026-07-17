@@ -983,10 +983,14 @@ impl SlaveServer {
         // 立即唤醒周期任务(否则它要等到下一个 interval tick 才检查退出标志,
         // 而 stop_server 命令在此期间持有全局写锁 → 前端所有轮询 IPC 被冻结)。
         self.shutdown_notify.notify_one();
-        // Connect briefly to unblock listener.accept()
-        let addr = format!("{}:{}", self.transport.bind_address, self.transport.port);
-        let _ = tokio::net::TcpStream::connect(&addr).await;
-        if let Some(h) = self.server_handle.take() { let _ = h.await; }
+        // 直接取消 accept 任务来释放监听 socket。过去通过回连监听地址唤醒
+        // listener.accept()，但默认监听地址是 0.0.0.0；Windows 不能把通配地址
+        // 当作连接目标，回连失败后 JoinHandle 会永远等在 accept()，同时
+        // stop_server 一直占着应用级写锁，最终令参数保存/日志轮询等 IPC 全部挂起。
+        if let Some(h) = self.server_handle.take() {
+            h.abort();
+            let _ = h.await;
+        }
         if let Some(h) = self.cyclic_handle.take() { let _ = h.await; }
         {
             let mut handles = self.point_mutation_handles.lock().await;
@@ -3043,19 +3047,18 @@ mod tests {
         assert!(server.add_station(Station::new(1, "重复")).await.is_err());
     }
 
-    // 回归:停止服务器必须立即返回。周期传输任务过去只在 `interval.tick()`
-    // (默认 2000ms) 之后才检查退出标志,导致 stop() 干等到下一个 tick;
-    // 由于 stop_server 命令在此期间持有全局写锁,前端所有轮询 IPC 被冻结,
-    // 表现为"断开服务器前端响应超级慢"。stop() 应在毫秒级返回。
+    // 回归:停止服务器必须立即返回。除周期任务外，Windows 不能连接
+    // 0.0.0.0 通配地址来唤醒 listener.accept()；停止逻辑必须直接取消 accept
+    // 任务，并确保监听 socket 已释放、同端口可以再次启动。
     #[tokio::test]
     async fn test_stop_returns_promptly_after_start() {
-        // 借一个空闲端口再释放,让 stop() 的自连接(用于唤醒 accept)可命中。
+        // 使用产品默认的通配监听地址，覆盖 Windows 上无法回连 0.0.0.0 的路径。
         let port = {
             let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
             l.local_addr().unwrap().port()
         };
         let transport = SlaveTransportConfig {
-            bind_address: "127.0.0.1".to_string(),
+            bind_address: "0.0.0.0".to_string(),
             port,
             tls: SlaveTlsConfig::default(),
         };
@@ -3066,15 +3069,17 @@ mod tests {
         // 真实场景中服务器已运行一段时间,停止时任务正卡在 interval.tick() 等待。
         tokio::time::sleep(std::time::Duration::from_millis(150)).await;
 
-        let t = std::time::Instant::now();
-        server.stop().await.expect("stop should succeed");
-        let elapsed = t.elapsed();
+        tokio::time::timeout(std::time::Duration::from_millis(500), server.stop())
+            .await
+            .expect("stop() 应在 500ms 内返回，不能依赖回连 0.0.0.0 唤醒 accept")
+            .expect("stop should succeed");
 
-        assert!(
-            elapsed < std::time::Duration::from_millis(500),
-            "stop() 耗时 {:?},应 < 500ms(周期任务需能被立即唤醒退出,而非干等 2s 的 interval tick)",
-            elapsed
-        );
+        // stop 返回即代表监听 socket 已释放；同一个 SlaveServer 必须可原端口重启。
+        server.start().await.expect("restart on the same port should succeed");
+        tokio::time::timeout(std::time::Duration::from_millis(500), server.stop())
+            .await
+            .expect("second stop should also return promptly")
+            .expect("second stop should succeed");
     }
 
     #[test]
