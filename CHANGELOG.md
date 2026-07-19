@@ -2,6 +2,53 @@
 
 本项目的所有重要变更记录在此文件。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [1.14.0] - 2026-07-19
+
+### Highlights / 亮点
+
+- 🎛️ **遥控点位成为一等公民** / **Control points as first-class data points**:14 种控制方向 ASDU(C_SC / C_DC / C_RC / C_SE_NA·NB·NC / C_BO 及其时标变体,Type 45–51 / 58–64)可像监视点一样添加、编辑、删除,支持跨 CA/IOA 映射到兼容监视点、逐点 QOC/QL 限定词与 S/E 执行模式(SBO);命令执行写入映射目标并按 COT 规约上送 / All 14 control-direction ASDU types (C_SC / C_DC / C_RC / C_SE_NA·NB·NC / C_BO plus timestamped twins, Type 45–51 / 58–64) can now be declared, edited and deleted like monitor points, with cross-CA/IOA mapping to a compatible monitor point, per-point QOC/QL qualifier and S/E execution mode (SBO); executed commands write the mapped target and upload with protocol-correct COTs.
+- 🧭 **升级零破坏** / **Zero-breakage upgrade**:旧版同 CA + IOA 自动写回保留为兼容开关且**默认开启**,既有主站遥控流程升级后原样可用 / The legacy same-CA+IOA auto write-back is kept as a compatibility switch that **defaults to ON**, so existing master-side control flows keep working after upgrade.
+- 🛡️ **协议加固** / **Protocol hardening**:未知 ASDU 类型回 COT=44 否定确认(受「应答遥控」开关门控,不再静默忽略);控制点位不再混入周期 / 总召 / 突发上送;仅逐点启用 SBO 时「选择有效期」现可见可调 / Unknown ASDU types now get a COT=44 negative confirmation (gated by "answer commands", no more silent drop); control points are excluded from cyclic / GI / spontaneous uploads; the SBO select-validity timeout is now visible even when only per-point SBO is enabled.
+- 🖥️ **主站树修复** / **Master tree fixes**:分类计数徽标与数据变位闪烁在分类稳定键迁移后恢复正常;通信日志 CSV 改用后端原生保存 / Category count badges and change-flash highlighting work again after the stable-category-key migration; the communication-log CSV export now uses the native backend writer.
+- 🔍 **审查加固** / **Review-hardened**:高强度多代理代码审查确认并修复 10 项正确性缺陷与 9 项清理;Playwright 真实无头浏览器中英文 42 项验证全绿 / A high-effort multi-agent code review confirmed and fixed 10 correctness defects plus 9 cleanups; 42 real-headless-browser Playwright checks pass in both zh-CN and en-US.
+- ⚙️ **新增 CI 测试流水线** / **New CI test workflow**:每次 push / PR 跑全 workspace Rust 测试与双前端构建 / Every push / PR now runs the full Rust workspace tests and both frontend builds.
+
+### Added 新增
+
+- **遥控点位声明与编辑**:点位添加对话框新增 14 种控制类型;右键 →「编辑点位配置」可修改名称 / 备注 / 映射 / QOC·QL 限定词 / S/E 执行模式(位串命令按规约不携带限定词与 S/E)/ Data-point dialog gains all 14 control types; right-click → "Edit Point Configuration" edits name / comment / mapping / QOC·QL qualifier / S/E mode (bitstring commands carry neither, per spec).
+- **跨 CA/IOA 控制映射**:每个控制点可映射到任一兼容类别的监视点,执行命令写目标点并触发上送;映射目标下拉按 CA / IOA 排序 / Each control point can map to any compatible monitor point across CA/IOA; executing the command writes the target and triggers upload; the target picker is sorted by CA / IOA.
+- **子站树控制分类**:连接树新增 8 个控制分类节点(单点命令 … 浮点设定值),数据表按分类过滤 / The slave tree gains 8 control-category nodes with table filtering.
+- **报文解析器控制帧解码**:decode.rs 支持全部控制帧(45–51 / 58–64)的元素级解码 / The frame parser now decodes all control-direction frames element by element.
+- **start_server 结构化错误**:端口占用等失败给出可读提示(含地址与系统错误码),不再是原始错误串 / `start_server` failures (port in use, …) now surface a readable structured message with address and OS error code.
+- **主站 CSV 后端导出**:`save_logs_csv` 对齐子站 v1.13.1 机制(系统保存对话框 + Rust 写文件 + UTF-8 BOM)/ Master log export aligned with the slave's v1.13.1 native mechanism (save dialog + Rust writer + UTF-8 BOM).
+- **CI**:新增 `.github/workflows/test.yml`(Rust workspace 测试 + 双前端构建,带 npm 缓存)/ New test workflow with npm caching.
+
+### Changed 改进
+
+- **分类稳定键**:前后端分类标识统一迁移到 snake_case 稳定键(`single_point` …),界面文案不变,旧配置中的中文分类标签仍被识别 / Category identifiers migrated to stable snake_case keys end to end; UI wording unchanged, legacy Chinese labels still recognized.
+- **未知类型应答**:未知 ASDU 类型从静默忽略改为回 COT=44|P/N 否定确认,受「应答遥控」开关门控 / Unknown ASDU types changed from silent-ignore to a COT=44 negative confirmation, gated by "answer commands".
+- **性能**:控制命令处理单次点位定义查找(原重复两次线性扫描);ACT_CON 与激活终止帧在单次序号锁内编码;映射目标排序去除逐比较字符串分配 / One definition lookup per control frame (was two linear scans); ACT_CON + termination built under a single sequence lock; target sorting no longer allocates per comparison.
+- **命令值日志格式对齐点表**:双点显示 OFF/ON,浮点 6 位小数 / Command log values now match the point table (double-point OFF/ON, floats at 6 decimals).
+
+### Fixed 修复
+
+- **升级兼容回归**:旧配置升级后同 CA + IOA 遥控写回保持默认开启,不再需要手动找开关 / Legacy configs keep the same-CA+IOA write-back enabled by default after upgrade.
+- **控制点位幻影上送**:在 UI 编辑控制点的值 / 品质不再以监视类型误发突发帧,也不再污染周期变位检测 / Editing a control point's value/quality in the UI no longer emits phantom monitor-type spontaneous frames nor poisons cyclic change detection.
+- **主站树徽标与闪烁**:分类计数徽标消失、变位闪烁失效(查询侧仍用旧中文标签)已修复 / Master tree count badges and change-flash fixed (lookups still used legacy labels).
+- **编辑控制点渲染**:QU/QL 上限(31 / 127)、S/E 显隐、类型下拉回显在编辑模式按类型正确渲染 / Edit mode now renders qualifier caps, S/E visibility and the type dropdown correctly per type.
+- **限定词清空报错**:清空 QOC/QL 输入后保存不再报 serde 反序列化错误(空值按未设置处理)/ Clearing the qualifier no longer fails the save with a serde error.
+- **SBO 超时不可见**:仅逐点启用 SBO 时「选择有效期」输入框现常显可调 / The select-validity input is now always visible.
+- **混合批量写值**:M_ME_NA 与 M_ME_ND 混合多选不再被误禁批量写值 / Mixed M_ME_NA + M_ME_ND selections can batch-write again.
+
+### Tests 测试
+
+- core e2e 扩展控制点声明 / 映射 / SBO / 限定词场景(control_e2e、headless_remote_ops、tls_e2e 等 6 个测试文件);`cargo test -p iec104sim-core` 22 个 suite 全绿(165 单元 + 76 集成)/ Core e2e extended across 6 test files; 22 suites all green (165 unit + 76 integration tests).
+- Playwright 无头真实浏览器 42 项验证(zh-CN + en-US × 子站 / 主站):编辑对话框、限定词序列化、SBO 可见性、混批、主站徽标等 / 42 real-headless-browser checks across both locales and both apps.
+
+### Internal 内部
+
+- README 教程截图重出(规范 ASDU 类型名、控制分类入镜);截图脚本修正 mock 数据格式与变位闪烁等待 / Tutorial screenshots regenerated; capture harness mock data fixed.
+
 ## [1.13.1] - 2026-07-17
 
 ### Highlights / 亮点

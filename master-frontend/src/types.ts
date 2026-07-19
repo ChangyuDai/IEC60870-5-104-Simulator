@@ -132,7 +132,7 @@ import { useI18n } from '@shared/i18n'
 export function getControlConfig(category: string): ControlConfig | null {
   const { t } = useI18n()
   switch (category) {
-    case '单点 (SP)':
+    case 'single_point':
       return {
         commandType: 'single',
         label: t('control.cmdSingle'),
@@ -142,7 +142,7 @@ export function getControlConfig(category: string): ControlConfig | null {
           { label: t('control.optOn'), value: 'true' },
         ],
       }
-    case '双点 (DP)':
+    case 'double_point':
       return {
         commandType: 'double',
         label: t('control.cmdDouble'),
@@ -154,7 +154,7 @@ export function getControlConfig(category: string): ControlConfig | null {
           { label: t('control.optInvalid'), value: '3' },
         ],
       }
-    case '步位置 (ST)':
+    case 'step_position':
       return {
         commandType: 'step',
         label: t('control.cmdStep'),
@@ -164,35 +164,35 @@ export function getControlConfig(category: string): ControlConfig | null {
           { label: t('control.optStepUp'), value: '2' },
         ],
       }
-    case '归一化 (ME_NA)':
+    case 'normalized_measured':
       return {
         commandType: 'setpoint_normalized',
         label: t('control.cmdSetNorm'),
         widget: 'slider',
         min: -1.0, max: 1.0, step: 0.001,
       }
-    case '标度化 (ME_NB)':
+    case 'scaled_measured':
       return {
         commandType: 'setpoint_scaled',
         label: t('control.cmdSetScaled'),
         widget: 'number_input',
         min: -32768, max: 32767, step: 1,
       }
-    case '浮点 (ME_NC)':
+    case 'float_measured':
       return {
         commandType: 'setpoint_float',
         label: t('control.cmdSetFloat'),
         widget: 'number_input',
         step: 0.1,
       }
-    case '位串 (BO)':
+    case 'bitstring':
       return {
         commandType: 'bitstring',
         label: t('control.cmdBitstring'),
         widget: 'number_input',
         min: 0, max: 0xFFFFFFFF, step: 1,
       }
-    case '累计量 (IT)':
+    case 'integrated_totals':
     default:
       return null
   }

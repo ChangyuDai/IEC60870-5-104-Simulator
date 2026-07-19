@@ -54,17 +54,6 @@ const syncTbCategories: { key: SyncTbKey; map: string }[] = [
   { key: 'me_nb', map: 'M_ME_NB_1 → M_ME_TE_1' },
   { key: 'me_nc', map: 'M_ME_NC_1 → M_ME_TF_1' },
 ]
-// 控制方向对象不单独占用数据点；从站按同一 CA + IOA 自动写回对应监视点。
-// 在参数页显式列出映射，避免用户误以为 Type 45-50 尚未实现。
-const commandMappings = [
-  'C_SC_NA_1 · 45 → M_SP_NA_1',
-  'C_DC_NA_1 · 46 → M_DP_NA_1',
-  'C_RC_NA_1 · 47 → M_ST_NA_1',
-  'C_SE_NA_1 · 48 → M_ME_NA_1',
-  'C_SE_NB_1 · 49 → M_ME_NB_1',
-  'C_SE_NC_1 · 50 → M_ME_NC_1',
-]
-
 const timingMeta: { key: 't0' | 't1' | 't2' | 't3' | 'k' | 'w'; hintKey: string; unit?: string; min: number; max: number }[] = [
   { key: 't0', hintKey: 'remoteParams.hintT0', unit: 's', min: 1, max: 255 },
   { key: 't1', hintKey: 'remoteParams.hintT1', unit: 's', min: 1, max: 255 },
@@ -127,7 +116,25 @@ const timingMeta: { key: 't0' | 't1' | 't2' | 't3' | 'k' | 'w'; hintKey: string;
       </label>
       <div class="rp-command-map">
         <span>{{ t('remoteParams.controlMappingHint') }}</span>
-        <code v-for="mapping in commandMappings" :key="mapping" class="rp-tag">{{ mapping }}</code>
+      </div>
+      <label class="rp-switch">
+        <input type="checkbox" v-model="ops.auto_map_commands" />
+        <span class="rp-switch-text">{{ t('remoteParams.autoMapCommands') }}</span>
+      </label>
+      <label class="rp-switch">
+        <input type="checkbox" v-model="ops.ack_unmapped_commands" />
+        <span class="rp-switch-text">{{ t('remoteParams.ackUnmappedCommands') }}</span>
+      </label>
+      <label class="rp-switch">
+        <input type="checkbox" v-model="ops.sbo_enforce" />
+        <span class="rp-switch-text">{{ t('remoteParams.sboEnforce') }}</span>
+      </label>
+      <div class="rp-field">
+        <label>{{ t('remoteParams.sboTimeout') }}</label>
+        <div class="rp-inline">
+          <input type="number" min="100" max="3600000" v-model.number="ops.sbo_timeout_ms" />
+          <span class="rp-unit">ms</span>
+        </div>
       </div>
       <label class="rp-switch">
         <input type="checkbox" v-model="ops.gi_include_timestamped" />

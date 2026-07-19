@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, inject, onMounted, onUnmounted, watch, type Ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import { save } from '@tauri-apps/plugin-dialog'
 import type { LogEntry, ConnectionInfo } from '../types'
 import { useI18n } from '@shared/i18n'
+import { dialogKey } from '@shared/composables/useDialog'
+import type { showAlert as ShowAlert } from '@shared/composables/useDialog'
 
 const { t, locale } = useI18n()
 
@@ -17,6 +20,7 @@ const emit = defineEmits<{
 
 const selectedConnectionId = inject<Ref<string | null>>('selectedConnectionId')!
 const openParseFrame = inject<(prefill?: string) => void>('openParseFrame')!
+const { showAlert } = inject<{ showAlert: typeof ShowAlert }>(dialogKey)!
 
 function onLogContextMenu(e: MouseEvent, log: LogEntry) {
   if (!log.raw_bytes || log.raw_bytes.length === 0) return
@@ -91,40 +95,23 @@ function formatDetail(log: LogEntry): string {
   return log.detail
 }
 
-function csvEscape(s: string): string {
-  return s.replace(/"/g, '""')
-}
+const isExporting = ref(false)
 
-function exportLogs() {
+async function exportLogs() {
   if (!selectedConnId.value || logs.value.length === 0) return
-  const lines: string[] = []
-  lines.push([
-    t('log.timeCol'), t('log.directionCol'), t('log.frameCol'), t('log.causeCol'), t('log.detailCol'), t('log.rawCol'),
-  ].map(h => `"${csvEscape(h)}"`).join(','))
-  for (const log of logs.value) {
-    const ts = formatTimestamp(log.timestamp)
-    const dir = formatDirection(log.direction)
-    const frame = formatFrameLabel(log.frame_label)
-    const cause = formatCause(log)
-    const detail = formatDetail(log)
-    const raw = formatRawBytes(log.raw_bytes)
-    lines.push([
-      `"${csvEscape(ts)}"`,
-      `"${csvEscape(dir)}"`,
-      `"${csvEscape(frame)}"`,
-      `"${csvEscape(cause)}"`,
-      `"${csvEscape(detail)}"`,
-      `"${csvEscape(raw)}"`,
-    ].join(','))
+  const path = await save({
+    filters: [{ name: 'CSV', extensions: ['csv'] }],
+    defaultPath: `iec104_master_log_${Date.now()}.csv`,
+  })
+  if (!path) return
+  isExporting.value = true
+  try {
+    await invoke('save_logs_csv', { connectionId: selectedConnId.value, path })
+  } catch (e) {
+    await showAlert(`${t('log.exportFailed')}: ${e}`)
+  } finally {
+    isExporting.value = false
   }
-  const csv = '﻿' + lines.join('\r\n')
-  const blob = new Blob([csv], { type: 'text/csv' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `iec104_master_log_${Date.now()}.csv`
-  a.click()
-  URL.revokeObjectURL(url)
 }
 
 function formatTimestamp(ts: string): string {
@@ -288,7 +275,7 @@ onUnmounted(() => {
         </select>
         <button class="log-btn" @click="loadLogs">{{ t('log.refresh') }}</button>
         <button class="log-btn" @click="clearLogs">{{ t('log.clear') }}</button>
-        <button class="log-btn" @click="exportLogs">{{ t('log.export') }}</button>
+        <button class="log-btn" :disabled="isExporting" @click="exportLogs">{{ isExporting ? t('log.exporting') : t('log.export') }}</button>
       </div>
     </div>
 

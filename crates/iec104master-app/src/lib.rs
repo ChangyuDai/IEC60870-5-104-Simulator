@@ -40,6 +40,7 @@ pub fn run() {
             commands::get_communication_logs,
             commands::clear_communication_logs,
             commands::export_logs_csv,
+            commands::save_logs_csv,
             commands::set_logging_enabled,
             // Config file save/open
             commands::save_config,

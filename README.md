@@ -26,6 +26,7 @@ Testing an IEC 104 integration usually means borrowing a real RTU or a master st
 
 - 🛰️ **Slave & Master in one repo** — simulate a substation device, or drive one, with no external hardware.
 - 🔌 **Full protocol coverage** — 8 monitored data types, every control command, GI / Counter / Clock-Sync, over **TCP or mutual TLS**.
+- 🎛️ **Control points as first-class objects** — declare command / setpoint points (Type 45–51 / 58–64), map each to a monitor point across CA/IOA, with per-point qualifier and Select-Before-Operate.
 - 🌐 **Multi-CA on a single link** — one TCP connection talks to many Common Addresses at once, each kept separate.
 - 🖥️ **Native desktop app** — small Rust + Tauri binaries for Windows, macOS and Linux, with in-app auto-update.
 - 🌏 **Bilingual UI** — full English / 简体中文, switchable at runtime.
@@ -70,7 +71,8 @@ The bottom log panel shows every TLS handshake step, U/I/S frame, COT decode, an
 - **Random mutation** and **cyclic transmission** — simulate value changes / periodic sending at a configurable interval
 - **Spontaneous transmission** (COT=3) — automatically pushes changed values to connected masters
 - **General Interrogation** (GI) and **Counter Interrogation** responses
-- **Control command handling** — Single, Double, Step and Setpoint commands
+- **Control command handling** — Single, Double, Step, Setpoint and Bitstring commands (Type 45–51 and timestamped 58–64), with protocol-correct negative confirmations (unknown IOA/type, qualifier mismatch, SBO violations)
+- **Control points as data points** — declare control-direction points, edit them in place, map each to a monitor point across CA/IOA, and set a per-point QOC/QL qualifier and S/E execution mode (direct / Select-Before-Operate); the legacy same-CA+IOA auto write-back stays available as a compatibility switch (on by default)
 - **Editable listen address/port** — change a stopped server's bind address/port in place, no delete-and-recreate
 - **Communication log** with hex frame display, drag-to-resize panel and CSV export
 - Server auto-starts on creation

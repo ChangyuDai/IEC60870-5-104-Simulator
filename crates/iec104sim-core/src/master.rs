@@ -1937,7 +1937,7 @@ fn filter_unknown_ca(
     // 命令类响应(C_IC=100 / C_CI=101 / C_CS=103)的 CA 仅 echo 广播地址,不代表
     // "有数据点的从站"。部分工业从站(如 Goldwind)协议异常时会用自己 CA 回 ActCon,
     // 学进 debouncer 会污染连接树。命令响应一律不学。
-    if matches!(typeid, 100 | 101 | 103) { return; }
+    if AsduTypeId::from_u8(typeid).is_some_and(|t| t.is_control()) || matches!(typeid, 100 | 101 | 103) { return; }
     // 注:v1.10.2 曾在此跳过 VSQ 低 7 位为 0 的帧,但实际现场反馈:
     // 用户希望"收到了的 CA"都能在树里看到,即使从站对该 CA 回的是 N=0 空数据帧
     // (Goldwind `M_DP_NA_1 CA=3 N=0`)—— 空节点本身就是从站协议异常的可视化信号。
@@ -1966,8 +1966,9 @@ fn parse_and_store_asdu(
     let num_objects = (vsq & 0x7F) as usize;
     let cause = data[8];
 
-    // Handle control command responses (Type 45-50): COT=7 (confirm) or COT=10 (terminate)
-    if matches!(asdu_type, 45..=50) {
+    // Handle all control command responses (45-51 / 58-64), including bitstring
+    // and CP56Time2a variants: COT=7 (confirm) or COT=10 (terminate).
+    if AsduTypeId::from_u8(asdu_type).is_some_and(|t| t.is_control()) {
         let cot = cause & 0x3F;
         let positive = cause & 0x40 == 0; // bit 6 = 0 means positive
         if data.len() >= 15 {
@@ -2667,7 +2668,7 @@ mod tests {
         assert_eq!(AsduTypeId::from_u8(47), Some(AsduTypeId::CRcNa1));
         assert_eq!(AsduTypeId::CRcNa1.name(), "C_RC_NA_1");
         assert_eq!(AsduTypeId::CRcNa1.description(), "步调节命令");
-        assert_eq!(AsduTypeId::CRcNa1.category(), crate::types::DataCategory::StepPosition);
+        assert_eq!(AsduTypeId::CRcNa1.category(), crate::types::DataCategory::StepCommand);
     }
 
     #[test]
@@ -2739,6 +2740,48 @@ mod tests {
         let mut hits: Vec<u16> = Vec::new();
         filter_unknown_ca(&frame, &configured, cfg.broadcast_address, |ca| hits.push(ca));
         assert_eq!(hits, vec![99]);
+    }
+
+    #[test]
+    fn receive_path_skips_all_control_response_types() {
+        let cfg = MasterConfig::default();
+        for type_id in [45u8, 50, 51, 58, 63, 64] {
+            let frame = vec![
+                0x68, 0x0E, 0, 0, 0, 0, type_id, 1, 7, 0, 99, 0, 1, 0, 0, 0,
+            ];
+            let mut hits = Vec::new();
+            filter_unknown_ca(&frame, &[], cfg.broadcast_address, |ca| hits.push(ca));
+            assert!(hits.is_empty(), "control response type {type_id} must not discover CA");
+        }
+    }
+
+    #[test]
+    fn master_dispatches_bitstring_and_timestamped_control_responses() {
+        let received: SharedReceivedData = Arc::new(RwLock::new(MasterReceivedData::new()));
+        let (tx, mut rx) = tokio::sync::broadcast::channel(16);
+        let configured_cas = Arc::new(std::sync::RwLock::new(Vec::<u16>::new()));
+
+        for type_id in [51u8, 58, 59, 60, 61, 62, 63, 64] {
+            let frame = vec![
+                0x68, 0x0E, 0, 0, 0, 0, type_id, 1, 7, 0, 1, 0, 0x34, 0x12, 0, 0,
+            ];
+            parse_and_store_asdu(
+                &frame,
+                &received,
+                &None,
+                &tx,
+                &None,
+                &configured_cas,
+                0xFFFF,
+            );
+            let response = rx.try_recv().unwrap_or_else(|_| {
+                panic!("control response type {type_id} should be dispatched")
+            });
+            assert_eq!(response.asdu_type, type_id);
+            assert_eq!(response.ioa, 0x1234);
+            assert_eq!(response.cot, 7);
+            assert!(response.positive);
+        }
     }
 
     #[test]

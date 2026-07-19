@@ -27,15 +27,16 @@ pub enum DataPointValue {
 
 impl DataPointValue {
     /// Create a default value for the given ASDU type.
+    /// 控制方向分类复用对应值域:控制点的 value 记录「最近一次收到的命令值」。
     pub fn default_for(asdu_type: AsduTypeId) -> Self {
         match asdu_type.category() {
-            DataCategory::SinglePoint => Self::SinglePoint { value: false },
-            DataCategory::DoublePoint => Self::DoublePoint { value: 1 }, // OFF
-            DataCategory::StepPosition => Self::StepPosition { value: 0, transient: false },
-            DataCategory::Bitstring => Self::Bitstring { value: 0 },
-            DataCategory::NormalizedMeasured => Self::Normalized { value: 0.0 },
-            DataCategory::ScaledMeasured => Self::Scaled { value: 0 },
-            DataCategory::FloatMeasured => Self::ShortFloat { value: 0.0 },
+            DataCategory::SinglePoint | DataCategory::SingleCommand => Self::SinglePoint { value: false },
+            DataCategory::DoublePoint | DataCategory::DoubleCommand => Self::DoublePoint { value: 1 }, // OFF
+            DataCategory::StepPosition | DataCategory::StepCommand => Self::StepPosition { value: 0, transient: false },
+            DataCategory::Bitstring | DataCategory::BitstringCommand => Self::Bitstring { value: 0 },
+            DataCategory::NormalizedMeasured | DataCategory::NormalizedSetpoint => Self::Normalized { value: 0.0 },
+            DataCategory::ScaledMeasured | DataCategory::ScaledSetpoint => Self::Scaled { value: 0 },
+            DataCategory::FloatMeasured | DataCategory::FloatSetpoint => Self::ShortFloat { value: 0.0 },
             DataCategory::IntegratedTotals => Self::IntegratedTotal { value: 0, carry: false, sequence: 0 },
             DataCategory::System => Self::SinglePoint { value: false },
         }
@@ -69,6 +70,18 @@ impl DataPointValue {
     }
 }
 
+/// 控制点 → 监视点的显式映射目标。控制方向与监视方向独立编址,
+/// 目标可以是任意 CA/IOA/类型(类型族须满足 `AsduTypeId::allowed_target_categories`)。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ControlTarget {
+    /// 目标站公共地址
+    pub common_address: u16,
+    /// 目标信息对象地址
+    pub ioa: u32,
+    /// 目标监视点 ASDU 类型
+    pub asdu_type: AsduTypeId,
+}
+
 /// Definition of an information object (analogous to RegisterDef).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InformationObjectDef {
@@ -84,6 +97,19 @@ pub struct InformationObjectDef {
     /// User-defined comment
     #[serde(default)]
     pub comment: String,
+    /// 控制点专用:执行命令时写回的监视点。None = 未映射
+    /// (未映射时是否仍正常应答由 `ack_unmapped_commands` 决定)。
+    /// 监视方向点位恒为 None。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mapping: Option<ControlTarget>,
+    /// 控制点期望的 QU (单/双/步命令,0..31) 或 QL (设点,0..127)。
+    /// None 保持旧配置的宽松行为，不校验收到的限定词。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command_qualifier: Option<u8>,
+    /// 控制点的 S/E 模式：Some(false)=仅直接执行，Some(true)=必须先选择，
+    /// None=兼容旧配置，宽松接受两种模式。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub select_before_operate: Option<bool>,
 }
 
 /// A single data point with current value, quality, and timestamp.
@@ -261,6 +287,13 @@ fn preferred_na_for(category: DataCategory) -> Option<AsduTypeId> {
         DataCategory::ScaledMeasured => Some(AsduTypeId::MMeNb1),
         DataCategory::FloatMeasured => Some(AsduTypeId::MMeNc1),
         DataCategory::IntegratedTotals => Some(AsduTypeId::MItNa1),
+        DataCategory::SingleCommand => Some(AsduTypeId::CScNa1),
+        DataCategory::DoubleCommand => Some(AsduTypeId::CDcNa1),
+        DataCategory::StepCommand => Some(AsduTypeId::CRcNa1),
+        DataCategory::BitstringCommand => Some(AsduTypeId::CBoNa1),
+        DataCategory::NormalizedSetpoint => Some(AsduTypeId::CSeNa1),
+        DataCategory::ScaledSetpoint => Some(AsduTypeId::CSeNb1),
+        DataCategory::FloatSetpoint => Some(AsduTypeId::CSeNc1),
         DataCategory::System => None,
     }
 }
@@ -317,15 +350,18 @@ mod tests {
         let mut st = Station::new(1, "");
         st.add_point(InformationObjectDef {
             ioa: 10, asdu_type: AsduTypeId::MSpNa1,
-            category: DataCategory::SinglePoint, name: String::new(), comment: String::new(),
+            category: DataCategory::SinglePoint, name: String::new(), comment: String::new(), mapping: None,
+            command_qualifier: None, select_before_operate: None
         }).unwrap();
         st.add_point(InformationObjectDef {
             ioa: 11, asdu_type: AsduTypeId::MSpNa1,
-            category: DataCategory::SinglePoint, name: String::new(), comment: String::new(),
+            category: DataCategory::SinglePoint, name: String::new(), comment: String::new(), mapping: None,
+            command_qualifier: None, select_before_operate: None
         }).unwrap();
         st.add_point(InformationObjectDef {
             ioa: 12, asdu_type: AsduTypeId::MMeNc1,
-            category: DataCategory::FloatMeasured, name: String::new(), comment: String::new(),
+            category: DataCategory::FloatMeasured, name: String::new(), comment: String::new(), mapping: None,
+            command_qualifier: None, select_before_operate: None
         }).unwrap();
         assert_eq!(st.data_points.len(), 3);
 

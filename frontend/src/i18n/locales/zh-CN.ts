@@ -103,6 +103,13 @@ export type DictShape = {
     scaled_measured: string
     float_measured: string
     integrated_totals: string
+    single_command: string
+    double_command: string
+    step_command: string
+    bitstring_command: string
+    normalized_setpoint: string
+    scaled_setpoint: string
+    float_setpoint: string
   }
   asduType: {
     sp: string
@@ -122,6 +129,20 @@ export type DictShape = {
     me_tf: string
     it: string
     it_tb: string
+    c_sc_na: string
+    c_dc_na: string
+    c_rc_na: string
+    c_se_na: string
+    c_se_nb: string
+    c_se_nc: string
+    c_bo_na: string
+    c_sc_ta: string
+    c_dc_ta: string
+    c_rc_ta: string
+    c_se_ta: string
+    c_se_tb: string
+    c_se_tc: string
+    c_bo_ta: string
   }
   table: {
     allPoints: string
@@ -140,6 +161,7 @@ export type DictShape = {
     qualityCol: string
     timestampCol: string
     deletePoint: string
+    editPoint: string
     startMutation: string
     stopMutation: string
     mutationPeriod: string
@@ -153,6 +175,7 @@ export type DictShape = {
   }
   pointModal: {
     title: string
+    editTitle: string
     ioaLabel: string
     ioaPlaceholder: string
     asduTypeLabel: string
@@ -162,6 +185,16 @@ export type DictShape = {
     commentPlaceholder: string
     saving: string
     add: string
+    save: string
+    mappingLabel: string
+    mappingNone: string
+    mappingHint: string
+    qualifierLabel: string
+    qualifierHint: string
+    executionModeLabel: string
+    executionModeFlexible: string
+    executionModeDirect: string
+    executionModeSbo: string
   }
   batchModal: {
     title: string
@@ -214,6 +247,7 @@ export type DictShape = {
     category: string
     name: string
     comment: string
+    mapping: string
     sectionCurrent: string
     value: string
     quality: string
@@ -271,6 +305,10 @@ export type DictShape = {
     invalidPort: string
     invalidCa: string
     invalidIoa: string
+    startBindInUse: string
+    startBindDenied: string
+    startBindUnavailable: string
+    startFailed: string
   }
   update: {
     available: string
@@ -330,6 +368,10 @@ export type DictShape = {
     counterInterrogation: string
     commands: string
     controlMappingHint: string
+    autoMapCommands: string
+    ackUnmappedCommands: string
+    sboEnforce: string
+    sboTimeout: string
     giWithTimestamp: string
     cmdAckCot: string
     select: string
@@ -476,6 +518,13 @@ const dict: DictShape = {
     scaled_measured: '标度化 (ME_NB)',
     float_measured: '浮点 (ME_NC)',
     integrated_totals: '累计量 (IT)',
+    single_command: '单点命令 (C_SC)',
+    double_command: '双点命令 (C_DC)',
+    step_command: '步调节命令 (C_RC)',
+    bitstring_command: '位串命令 (C_BO)',
+    normalized_setpoint: '归一化设定值 (C_SE_NA)',
+    scaled_setpoint: '标度化设定值 (C_SE_NB)',
+    float_setpoint: '浮点设定值 (C_SE_NC)',
   },
   asduType: {
     sp: 'M_SP_NA_1 - 单点信息',
@@ -495,6 +544,20 @@ const dict: DictShape = {
     me_tf: 'M_ME_TF_1 - 浮点 (带时标)',
     it: 'M_IT_NA_1 - 累计量',
     it_tb: 'M_IT_TB_1 - 累计量 (带时标)',
+    c_sc_na: 'C_SC_NA_1 - 单点命令',
+    c_dc_na: 'C_DC_NA_1 - 双点命令',
+    c_rc_na: 'C_RC_NA_1 - 步调节命令',
+    c_se_na: 'C_SE_NA_1 - 归一化设定值',
+    c_se_nb: 'C_SE_NB_1 - 标度化设定值',
+    c_se_nc: 'C_SE_NC_1 - 浮点设定值',
+    c_bo_na: 'C_BO_NA_1 - 位串命令',
+    c_sc_ta: 'C_SC_TA_1 - 单点命令 (带时标)',
+    c_dc_ta: 'C_DC_TA_1 - 双点命令 (带时标)',
+    c_rc_ta: 'C_RC_TA_1 - 步调节命令 (带时标)',
+    c_se_ta: 'C_SE_TA_1 - 归一化设定值 (带时标)',
+    c_se_tb: 'C_SE_TB_1 - 标度化设定值 (带时标)',
+    c_se_tc: 'C_SE_TC_1 - 浮点设定值 (带时标)',
+    c_bo_ta: 'C_BO_TA_1 - 位串命令 (带时标)',
   },
   table: {
     allPoints: '全部数据点',
@@ -513,6 +576,7 @@ const dict: DictShape = {
     qualityCol: '品质',
     timestampCol: '时间戳',
     deletePoint: '删除数据点',
+    editPoint: '编辑点位配置',
     startMutation: '启动周期变位',
     stopMutation: '停止周期变位',
     mutationPeriod: '周期',
@@ -526,6 +590,7 @@ const dict: DictShape = {
   },
   pointModal: {
     title: '添加数据点',
+    editTitle: '编辑数据点',
     ioaLabel: 'IOA (信息对象地址)',
     ioaPlaceholder: '例如: 100',
     asduTypeLabel: 'ASDU 类型',
@@ -535,6 +600,16 @@ const dict: DictShape = {
     commentPlaceholder: '可留空',
     saving: '添加中...',
     add: '确认',
+    save: '保存',
+    mappingLabel: '映射到监视点',
+    mappingNone: '不映射（仅应答命令）',
+    mappingHint: '控制与监视方向独立编址；可跨 CA、跨 IOA 映射到同值族的 NA/TB 点。',
+    qualifierLabel: 'QOC / QL 限定词（可选）',
+    qualifierHint: '控制命令 QU：0..31；设点 QL：0..127。留空表示接受任意值。',
+    executionModeLabel: 'S/E 执行模式',
+    executionModeFlexible: '宽松（兼容旧配置）',
+    executionModeDirect: '仅执行（直接控制）',
+    executionModeSbo: '选择后执行（SBO）',
   },
   batchModal: {
     title: '批量添加数据点',
@@ -587,6 +662,7 @@ const dict: DictShape = {
     category: '分类',
     name: '名称',
     comment: '备注',
+    mapping: '控制映射',
     sectionCurrent: '当前值',
     value: '值',
     quality: '品质',
@@ -650,6 +726,10 @@ const dict: DictShape = {
     invalidPort: '请输入有效的端口号 (1-65535)',
     invalidCa: '请输入有效的公共地址 (1-65534)',
     invalidIoa: '请输入有效的 IOA (>= 0)',
+    startBindInUse: '无法监听 {addr}：端口已被其他程序占用。请停止占用程序或更换端口。（系统错误 {osError}）',
+    startBindDenied: '无法监听 {addr}：系统拒绝访问该端口。Windows 上常见原因是 Hyper-V/WSL2 保留端口段、安全软件或独占绑定；请尝试未保留的高位端口，并检查 “netsh interface ipv4 show excludedportrange protocol=tcp”。（系统错误 {osError}）',
+    startBindUnavailable: '无法监听 {addr}：该地址不属于本机。请使用 0.0.0.0、127.0.0.1 或本机网卡地址。（系统错误 {osError}）',
+    startFailed: '服务器启动失败：{message}',
   },
   update: {
     available: '检测到新版本',
@@ -708,7 +788,11 @@ const dict: DictShape = {
     gi: '总召唤',
     counterInterrogation: '累积量召唤',
     commands: '遥控、遥调',
-    controlMappingHint: '按相同 CA + IOA 自动映射到状态/测量点：',
+    controlMappingHint: '控制点可在点位编辑器中独立映射到任意兼容的监视点。',
+    autoMapCommands: '兼容模式：未显式映射时按相同 CA + IOA 自动映射',
+    ackUnmappedCommands: '已声明但未映射的控制点仍正常应答 COT 7 → 10',
+    sboEnforce: '强制选择后执行 (SBO)',
+    sboTimeout: '选择有效期',
     giWithTimestamp: '召唤含带时标点',
     cmdAckCot: '命令应答 COT',
     select: '选择',

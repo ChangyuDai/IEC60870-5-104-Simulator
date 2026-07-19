@@ -61,6 +61,17 @@ pub struct DataPointInfo {
     pub category: String,
     pub name: String,
     pub comment: String,
+    /// Explicit monitor-direction target for a control point.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mapping_common_address: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mapping_ioa: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mapping_asdu_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command_qualifier: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub select_before_operate: Option<bool>,
     pub value: String,
     pub quality_ov: bool,
     pub quality_bl: bool,

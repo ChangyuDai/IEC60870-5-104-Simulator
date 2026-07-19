@@ -18,6 +18,11 @@ export interface DataPointInfo {
   category: string
   name: string
   comment: string
+  mapping_common_address?: number | null
+  mapping_ioa?: number | null
+  mapping_asdu_type?: string | null
+  command_qualifier?: number | null
+  select_before_operate?: boolean | null
   value: string
   quality_ov: boolean
   quality_bl: boolean
@@ -25,20 +30,6 @@ export interface DataPointInfo {
   quality_nt: boolean
   quality_iv: boolean
   timestamp: string | null
-}
-
-/** 由 ASDU 类型派生分类键,用于批量写值的"同分类"判定。
- *  归一化/标度化/浮点是不同分类(值类型不同),故 ME_NA/NB/NC 区分。 */
-export function categoryKeyOf(asduType: string): string {
-  if (asduType.startsWith('M_SP')) return 'single'
-  if (asduType.startsWith('M_DP')) return 'double'
-  if (asduType.startsWith('M_ST')) return 'step'
-  if (asduType.startsWith('M_BO')) return 'bitstring'
-  if (asduType.startsWith('M_ME_NA') || asduType.startsWith('M_ME_TD')) return 'me_na'
-  if (asduType.startsWith('M_ME_NB') || asduType.startsWith('M_ME_TE')) return 'me_nb'
-  if (asduType.startsWith('M_ME_NC') || asduType.startsWith('M_ME_TF')) return 'me_nc'
-  if (asduType.startsWith('M_IT')) return 'it'
-  return asduType
 }
 
 /** 测量类(OV 适用):M_ME_*。 */
@@ -117,6 +108,10 @@ export interface RemoteOperationConfig {
   cancel_ack_cot: CommandAckCot
   random_pacing: RandomMutationPacing
   auto_packing: boolean
+  auto_map_commands: boolean
+  ack_unmapped_commands: boolean
+  sbo_enforce: boolean
+  sbo_timeout_ms: number
 }
 
 /** 周期变位方式:翻转(两态振荡)/ 递增 / 递减(三角波)。 */
@@ -147,4 +142,8 @@ export const DEFAULT_REMOTE_OPS: RemoteOperationConfig = {
   cancel_ack_cot: 'deactivation_con',
   random_pacing: { batch_size: 2000, delay_ms: 50 },
   auto_packing: false,
+  auto_map_commands: true,
+  ack_unmapped_commands: true,
+  sbo_enforce: false,
+  sbo_timeout_ms: 30000,
 }

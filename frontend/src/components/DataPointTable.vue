@@ -16,7 +16,7 @@ const { t } = useI18n()
 const { showAlert } = inject<{ showAlert: typeof ShowAlert }>(dialogKey)!
 
 const emit = defineEmits<{
-  (e: 'point-select', points: { ioa: number; asdu_type: string; value: string }[]): void
+  (e: 'point-select', points: { ioa: number; asdu_type: string; category: string; value: string }[]): void
 }>()
 
 const selectedServerId = inject<Ref<string | null>>('selectedServerId')!
@@ -43,6 +43,8 @@ const editValue = ref('')
 const searchQuery = ref('')
 const scrollContainer = ref<HTMLDivElement | null>(null)
 const showAddModal = ref(false)
+const showEditModal = ref(false)
+const editingPointDefinition = ref<DataPointInfo | null>(null)
 const showBatchModal = ref(false)
 const showBatchWriteModal = ref(false)
 // 默认写值类型：取当前分类过滤命中的首个点的 asdu_type；无过滤则空（弹窗回退首个可用类型）。
@@ -98,7 +100,7 @@ function updateDisplay() {
   const arr = Array.from(dataMap.values())
   arr.sort((a, b) => a.ioa - b.ioa)
   displayPoints.value = arr
-  // Compute realtime category counts — backend returns Chinese category names directly
+  // Compute realtime category counts — backend returns snake_case category keys
   const counts = new Map<string, number>()
   for (const p of arr) {
     counts.set(p.category, (counts.get(p.category) || 0) + 1)
@@ -257,16 +259,24 @@ onUnmounted(() => {
 })
 
 // 按 asdu_type 前缀判分类，对 reactivity / HMR 错位下后端 category 字段
-// 失配也能稳定工作；时标版本 (Tx) 与不带时标 (Nx) 归同一分类。
+// 失配也能稳定工作；键为后端 snake_case 分类键(与 ConnectionTree CATEGORIES 一致),
+// 时标版本 (Tx) 与不带时标 (Nx) 归同一分类。
 const CATEGORY_TYPE_PREFIXES: Record<string, string[]> = {
-  '单点 (SP)': ['M_SP_'],
-  '双点 (DP)': ['M_DP_'],
-  '步位置 (ST)': ['M_ST_'],
-  '位串 (BO)': ['M_BO_'],
-  '归一化 (ME_NA)': ['M_ME_NA_', 'M_ME_TD_'],
-  '标度化 (ME_NB)': ['M_ME_NB_', 'M_ME_TE_'],
-  '浮点 (ME_NC)': ['M_ME_NC_', 'M_ME_TF_'],
-  '累计量 (IT)': ['M_IT_'],
+  single_point: ['M_SP_'],
+  double_point: ['M_DP_'],
+  step_position: ['M_ST_'],
+  bitstring: ['M_BO_'],
+  normalized_measured: ['M_ME_NA_', 'M_ME_ND_', 'M_ME_TD_'],
+  scaled_measured: ['M_ME_NB_', 'M_ME_TE_'],
+  float_measured: ['M_ME_NC_', 'M_ME_TF_'],
+  integrated_totals: ['M_IT_'],
+  single_command: ['C_SC_'],
+  double_command: ['C_DC_'],
+  step_command: ['C_RC_'],
+  bitstring_command: ['C_BO_'],
+  normalized_setpoint: ['C_SE_NA_', 'C_SE_TA_'],
+  scaled_setpoint: ['C_SE_NB_', 'C_SE_TB_'],
+  float_setpoint: ['C_SE_NC_', 'C_SE_TC_'],
 }
 
 // === Filtered points ===
@@ -351,6 +361,7 @@ function emitSelection() {
   const points = selectedRows.value.map(r => ({
     ioa: r.ioa,
     asdu_type: r.asdu_type,
+    category: r.category,
     value: r.value,
   }))
   emit('point-select', points)
@@ -468,6 +479,14 @@ function showContextMenu(e: MouseEvent, point: DataPointInfo) {
 
 function closeContextMenu() {
   contextMenu.value.show = false
+}
+
+function editSelectedPoint() {
+  const point = selectedRows.value[0]
+  if (!point || selectedRows.value.length !== 1) return
+  contextMenu.value.show = false
+  editingPointDefinition.value = point
+  showEditModal.value = true
 }
 
 const selectedCount = computed(() => selectedRows.value.length)
@@ -757,6 +776,9 @@ defineExpose({ loadData: loadDataPoints })
         {{ t('table.stopMutation') }}
       </div>
       <div class="context-menu-sep" />
+      <div v-if="selectedCount === 1" class="context-menu-item" @click="editSelectedPoint">
+        {{ t('table.editPoint') }}
+      </div>
       <div class="context-menu-item danger" @click="deleteSelectedPoints">
         {{ selectedCount > 1 ? `${t('table.deletePoint')} (${selectedCount})` : t('table.deletePoint') }}
       </div>
@@ -769,6 +791,15 @@ defineExpose({ loadData: loadDataPoints })
       :common-address="currentCA ?? 0"
       @close="showAddModal = false"
       @added="onPointAdded"
+    />
+
+    <DataPointModal
+      :visible="showEditModal"
+      :server-id="selectedServerId ?? ''"
+      :common-address="currentCA ?? 0"
+      :point="editingPointDefinition"
+      @close="showEditModal = false; editingPointDefinition = null"
+      @added="showEditModal = false; editingPointDefinition = null; onPointAdded()"
     />
 
     <!-- Batch Add Modal -->

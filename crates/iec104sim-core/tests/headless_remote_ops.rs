@@ -62,7 +62,11 @@ async fn ci_silenced_when_answer_off() {
 /// 遥控应答开关=false:master 发 C_SC 后 slave 值已变,但 master 收不到任何写回帧。
 #[tokio::test]
 async fn command_silenced_but_slave_value_updated() {
-    let ops = RemoteOperationConfig { answer_commands: false, ..Default::default() };
+    let ops = RemoteOperationConfig {
+        answer_commands: false,
+        auto_map_commands: true,
+        ..Default::default()
+    };
     let pair = Pair::spawn(ops).await;
 
     // 注意:这里 GI=true (默认),但 answer_commands=false → GI 仍会响应,命令静默。
@@ -176,7 +180,11 @@ async fn sp_sync_with_tb_emits_both_frames() {
 /// master 接收应答时 raw_bytes 的 COT 字节(offset 8)应为 7。
 #[tokio::test]
 async fn command_ack_cot_configurable() {
-    let ops = RemoteOperationConfig { execute_ack_cot: CommandAckCot::ActivationCon, ..Default::default() };
+    let ops = RemoteOperationConfig {
+        execute_ack_cot: CommandAckCot::ActivationCon,
+        auto_map_commands: true,
+        ..Default::default()
+    };
     let pair = Pair::spawn(ops).await;
 
     // 先 GI 填充。

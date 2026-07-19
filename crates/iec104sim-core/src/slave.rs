@@ -144,7 +144,8 @@ pub struct SyncTbByCategory {
 }
 
 impl SyncTbByCategory {
-    /// 该分类是否开启变位同步派生 TB。IntegratedTotals 永不派生(无开关)。
+    /// 该分类是否开启变位同步派生 TB。IntegratedTotals 永不派生(无开关);
+    /// 控制方向分类只应答不上送,亦不派生。
     pub fn enabled_for(&self, category: DataCategory) -> bool {
         match category {
             DataCategory::SinglePoint => self.sp,
@@ -154,8 +155,15 @@ impl SyncTbByCategory {
             DataCategory::NormalizedMeasured => self.me_na,
             DataCategory::ScaledMeasured => self.me_nb,
             DataCategory::FloatMeasured => self.me_nc,
-            DataCategory::IntegratedTotals => false,
-            DataCategory::System => false,
+            DataCategory::IntegratedTotals
+            | DataCategory::System
+            | DataCategory::SingleCommand
+            | DataCategory::DoubleCommand
+            | DataCategory::StepCommand
+            | DataCategory::BitstringCommand
+            | DataCategory::NormalizedSetpoint
+            | DataCategory::ScaledSetpoint
+            | DataCategory::FloatSetpoint => false,
         }
     }
 }
@@ -191,6 +199,18 @@ pub struct RemoteOperationConfig {
     pub cancel_ack_cot: CommandAckCot,
     pub random_pacing: RandomMutationPacing,
     pub auto_packing: bool,
+    /// 无显式映射的控制点按「同 CA + 同 IOA + 对应监视分类」自动写回
+    /// (兼容旧行为)。关闭后仅显式映射生效。
+    pub auto_map_commands: bool,
+    /// 已声明但没有映射目标的控制点仍按 COT 6→7→10 正常应答。
+    /// 关闭后未映射控制点回 COT=47 + P/N；未知 CA / IOA 始终分别回
+    /// COT=46 / COT=47 + P/N，避免任意地址假成功。
+    pub ack_unmapped_commands: bool,
+    /// Select-Before-Operate 强制模式:Execute 必须有同点位未过期的 Select,
+    /// 否则回否定 ACT_CON(7|0x40)。关闭时(默认)Select/Execute 均宽松接受。
+    pub sbo_enforce: bool,
+    /// SBO select 的有效期(毫秒),超时后 Execute 被拒。
+    pub sbo_timeout_ms: u64,
 }
 
 impl Default for RemoteOperationConfig {
@@ -208,6 +228,11 @@ impl Default for RemoteOperationConfig {
             cancel_ack_cot: CommandAckCot::DeactivationCon,
             random_pacing: RandomMutationPacing::default(),
             auto_packing: false,
+            // 默认保留旧版同 CA/IOA 自动写回,兼容既有部署;可显式关闭。
+            auto_map_commands: true,
+            ack_unmapped_commands: true,
+            sbo_enforce: false,
+            sbo_timeout_ms: 30_000,
         }
     }
 }
@@ -296,7 +321,8 @@ impl Station {
                     asdu_type: *asdu_type,
                     category: *category,
                     name: String::new(),
-                    comment: String::new(),
+                    comment: String::new(), mapping: None,
+                    command_qualifier: None, select_before_operate: None
                 });
             }
         }
@@ -383,7 +409,8 @@ impl Station {
             };
             if !existing.contains(&(ioa, asdu_type)) {
                 self.object_defs.push(InformationObjectDef {
-                    ioa, asdu_type, category, name, comment: String::new(),
+                    ioa, asdu_type, category, name, comment: String::new(), mapping: None,
+                    command_qualifier: None, select_before_operate: None
                 });
             }
         }
@@ -465,6 +492,11 @@ struct ConnectionWrite {
     /// Logger.
     #[allow(dead_code)]
     log_collector: Option<Arc<LogCollector>>,
+    /// 明文路径读任务句柄。stop() 用它 abort 驻留在 read().await 的读任务,
+    /// drop ReadHalf 以立即关闭已建立的连接 socket(写任务靠 shutdown_flag
+    /// 在 5ms 内自退并 drop WriteHalf)。TLS 阻塞任务不可 abort,恒为 None,
+    /// 由 100ms 读超时轮询 flag 自退。
+    reader_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 type SharedConnections = Arc<RwLock<HashMap<SocketAddr, ConnectionWrite>>>;
@@ -510,6 +542,388 @@ fn build_response_frame(recv: &[u8], cot: u8, seq: &mut SeqState) -> Vec<u8> {
     out
 }
 
+// ---------------------------------------------------------------------------
+// Control-direction command processing (Type 45-51 / 58-64)
+// 异步(明文 TCP)与阻塞(TLS)两条收包路径共用,消除历史上六份复制粘贴分支。
+// ---------------------------------------------------------------------------
+
+/// 控制命令携带的值(按命令族)。
+#[derive(Debug, Clone, Copy)]
+enum CommandValue {
+    Single(bool),
+    Double(u8),
+    /// RCS 原始低 2 位:1=降一步,2=升一步(0/3 为标准保留值,照记录不执行步进)。
+    Step(u8),
+    Bitstring(u32),
+    /// NVA 原始 i16(-32768..32767 ↔ -1.0..+1.0)。
+    Normalized(i16),
+    Scaled(i16),
+    Float(f32),
+}
+
+impl CommandValue {
+    /// 英文技术值串(日志 fallback / CSV 用;UI 经 detail_event 本地化)。
+    fn display(&self) -> String {
+        match self {
+            Self::Single(v) => if *v { "ON".into() } else { "OFF".into() },
+            Self::Double(v) => match v { 1 => "OFF".into(), 2 => "ON".into(), other => format!("{}", other) },
+            Self::Step(v) => match v { 1 => "LOWER".into(), 2 => "HIGHER".into(), other => format!("{}", other) },
+            Self::Bitstring(v) => format!("0x{:08X}", v),
+            Self::Normalized(v) => format!("{:.4}", *v as f32 / 32767.0),
+            Self::Scaled(v) => format!("{}", v),
+            Self::Float(v) => format!("{:.6}", v),
+        }
+    }
+}
+
+/// 解析后的控制方向命令。
+struct ParsedControlCommand {
+    type_id: AsduTypeId,
+    ioa: u32,
+    value: CommandValue,
+    is_select: bool,
+    /// SCO/DCO/RCO 的 QU(bit2-6)或 QOS 的 QL(bit0-6);位串命令无限定词,恒 0。
+    qu: u8,
+    frame_label: FrameLabel,
+}
+
+/// 解析 45-51 / 58-64 控制命令帧;长度不足或类型非控制方向返回 None。
+/// 帧布局:6 APCI + type(1) vsq(1) cot(2) ca(2) + ioa(3) + 值/限定词 [+ CP56Time2a(7)]。
+fn parse_control_command(asdu_type: u8, data: &[u8]) -> Option<ParsedControlCommand> {
+    let type_id = AsduTypeId::from_u8(asdu_type)?;
+    if !type_id.is_control() { return None; }
+    let time_len = if type_id.is_timestamped() { 7usize } else { 0 };
+    let base = type_id.untimestamped_variant();
+    let min_len = match base {
+        AsduTypeId::CScNa1 | AsduTypeId::CDcNa1 | AsduTypeId::CRcNa1 => 16 + time_len,
+        AsduTypeId::CSeNa1 | AsduTypeId::CSeNb1 => 18 + time_len,
+        AsduTypeId::CSeNc1 => 20 + time_len,
+        AsduTypeId::CBoNa1 => 19 + time_len,
+        _ => return None,
+    };
+    if data.len() < min_len { return None; }
+    let ioa = u32::from_le_bytes([data[12], data[13], data[14], 0]);
+    let (value, is_select, qu, frame_label) = match base {
+        AsduTypeId::CScNa1 => {
+            let sco = data[15];
+            (CommandValue::Single(sco & 0x01 != 0), sco & 0x80 != 0, (sco >> 2) & 0x1F, FrameLabel::SingleCommand)
+        }
+        AsduTypeId::CDcNa1 => {
+            let dco = data[15];
+            (CommandValue::Double(dco & 0x03), dco & 0x80 != 0, (dco >> 2) & 0x1F, FrameLabel::DoubleCommand)
+        }
+        AsduTypeId::CRcNa1 => {
+            let rco = data[15];
+            (CommandValue::Step(rco & 0x03), rco & 0x80 != 0, (rco >> 2) & 0x1F, FrameLabel::StepCommand)
+        }
+        AsduTypeId::CSeNa1 => {
+            let raw = i16::from_le_bytes([data[15], data[16]]);
+            let qos = data[17];
+            (CommandValue::Normalized(raw), qos & 0x80 != 0, qos & 0x7F, FrameLabel::SetpointNormalized)
+        }
+        AsduTypeId::CSeNb1 => {
+            let raw = i16::from_le_bytes([data[15], data[16]]);
+            let qos = data[17];
+            (CommandValue::Scaled(raw), qos & 0x80 != 0, qos & 0x7F, FrameLabel::SetpointScaled)
+        }
+        AsduTypeId::CSeNc1 => {
+            let raw = f32::from_le_bytes([data[15], data[16], data[17], data[18]]);
+            let qos = data[19];
+            (CommandValue::Float(raw), qos & 0x80 != 0, qos & 0x7F, FrameLabel::SetpointFloat)
+        }
+        AsduTypeId::CBoNa1 => {
+            let raw = u32::from_le_bytes([data[15], data[16], data[17], data[18]]);
+            // C_BO_NA_1/C_BO_TA_1 无 S/E 位与限定词(IEC 60870-5-101 §7.3.2.8)。
+            (CommandValue::Bitstring(raw), false, 0, FrameLabel::Bitstring)
+        }
+        _ => return None,
+    };
+    Some(ParsedControlCommand { type_id, ioa, value, is_select, qu, frame_label })
+}
+
+/// 每连接的 SBO select 状态:(ca, ioa, 精确控制类型) → select 时刻。
+/// 带时标和不带时标控制点允许独立配置，不能只按命令族合并。
+type SelectStateMap = std::collections::HashMap<(u16, u32, AsduTypeId), tokio::time::Instant>;
+
+/// 命令处理结果。replies 依序回送;spontaneous 为执行成功后需向所有连接
+/// 扇出突发上送(COT=3)的目标监视点。
+struct ControlCommandOutcome {
+    replies: Vec<Vec<u8>>,
+    log_entries: Vec<LogEntry>,
+    spontaneous: Option<(u16, (u32, AsduTypeId))>,
+}
+
+/// 将命令值转换为目标点位的新值。步调节命令对目标步位置做 ±1 增量并夹取。
+fn command_value_for_point(v: &CommandValue, current: &DataPointValue) -> DataPointValue {
+    match v {
+        CommandValue::Single(b) => DataPointValue::SinglePoint { value: *b },
+        CommandValue::Double(d) => DataPointValue::DoublePoint { value: *d },
+        CommandValue::Step(rcs) => {
+            if let DataPointValue::StepPosition { value, .. } = current {
+                let delta: i8 = match rcs { 1 => -1, 2 => 1, _ => 0 };
+                DataPointValue::StepPosition { value: value.saturating_add(delta).clamp(-64, 63), transient: false }
+            } else {
+                current.clone()
+            }
+        }
+        CommandValue::Bitstring(b) => DataPointValue::Bitstring { value: *b },
+        CommandValue::Normalized(nva) => DataPointValue::Normalized { value: *nva as f32 / 32767.0 },
+        CommandValue::Scaled(sva) => DataPointValue::Scaled { value: *sva },
+        CommandValue::Float(f) => DataPointValue::ShortFloat { value: *f },
+    }
+}
+
+/// 构造命令拒收日志(英文 fallback + detail_event 结构化,前端本地化)。
+fn command_rejected_log(cmd: &ParsedControlCommand, ca: u16, reason: &str, cot: u8) -> LogEntry {
+    LogEntry::new(
+        Direction::Tx,
+        cmd.frame_label.clone(),
+        format!("{} rejected ({}) IOA={} CA={}", cmd.type_id.name(), reason, cmd.ioa, ca),
+    )
+    .with_detail_event("cmdRejected", serde_json::json!({
+        "type": cmd.type_id.name(), "ioa": cmd.ioa, "ca": ca, "reason": reason, "cot": cot,
+    }))
+}
+
+/// 控制命令统一处理:COT 校验 → 目标解析(显式映射 / 自动同 CA+IOA / 未映射
+/// 策略)→ SBO 状态机 → 执行(写控制点自身 + 映射目标)→ 应答帧构造。
+/// 不做任何 IO;replies/spontaneous 由调用方按各自路径投递。
+async fn process_control_command(
+    data: &[u8],
+    cause: u8,
+    ca: u16,
+    cmd: ParsedControlCommand,
+    stations: &SharedStations,
+    ops: &RemoteOperationConfig,
+    seq: &SharedSeq,
+    select_state: &mut SelectStateMap,
+) -> ControlCommandOutcome {
+    let mut out = ControlCommandOutcome { replies: Vec::new(), log_entries: Vec::new(), spontaneous: None };
+    let sel_key = (ca, cmd.ioa, cmd.type_id);
+
+    // COT 校验:控制命令仅接受激活(6)/停止激活(8),其余回未知 COT 否定确认
+    // (COT=45|0x40,与 103 时钟同步拒收路径一致)。
+    if cause != 6 && cause != 8 {
+        if ops.answer_commands {
+            let ack = { let mut s = seq.lock().await; build_response_frame(data, 45 | 0x40, &mut s) };
+            out.replies.push(ack);
+        }
+        out.log_entries.push(command_rejected_log(&cmd, ca, "unexpected_cot", cause));
+        return out;
+    }
+
+    // 停止激活(COT=8):撤销未决 select,仅回停止确认,不执行、不写值、不突发。
+    if cause == 8 {
+        select_state.remove(&sel_key);
+        let ack = { let mut s = seq.lock().await; build_response_frame(data, ops.cancel_ack_cot.as_u8(), &mut s) };
+        out.replies.push(ack);
+        out.log_entries.push(
+            LogEntry::new(
+                Direction::Tx, cmd.frame_label.clone(),
+                format!("{} deactivation confirmed IOA={} CA={}", cmd.type_id.name(), cmd.ioa, ca),
+            )
+            .with_detail_event("cmdCancel", serde_json::json!({
+                "type": cmd.type_id.name(), "ioa": cmd.ioa, "ca": ca,
+            })),
+        );
+        return out;
+    }
+
+    // —— 目标解析 ——
+    // declared: (ca, ioa, type) 上声明了该控制点。带时标与不带时标控制点
+    // 可以各自映射到不同监视点，因此按精确类型查找。
+    // target: 显式映射(校验族匹配 + 目标点存在) > 自动同 CA+IOA 映射(可关)。
+    let (station_known, declared, target, mapping_broken, configured_qualifier, configured_sbo) = {
+        let guard = stations.read().await;
+        let station_known = guard.contains_key(&ca);
+        let (declared, explicit, point_options) = match guard.get(&ca) {
+            Some(st) => {
+                let def = st.object_defs.iter()
+                    .find(|d| d.ioa == cmd.ioa && d.asdu_type == cmd.type_id);
+                (
+                    st.data_points.contains(cmd.ioa, cmd.type_id),
+                    def.and_then(|d| d.mapping),
+                    def.map(|d| (d.command_qualifier, d.select_before_operate)),
+                )
+            }
+            None => (false, None, None),
+        };
+        let mut mapping_broken = false;
+        let target = if let Some(m) = explicit {
+            let family_ok = cmd.type_id.allowed_target_categories().contains(&m.asdu_type.category());
+            let exists = family_ok
+                && guard.get(&m.common_address)
+                    .map(|st| st.data_points.contains(m.ioa, m.asdu_type))
+                    .unwrap_or(false);
+            if exists {
+                Some((m.common_address, m.ioa, m.asdu_type))
+            } else {
+                mapping_broken = true;
+                None
+            }
+        } else if ops.auto_map_commands {
+            cmd.type_id.category().auto_map_monitor_category().and_then(|mc| {
+                guard.get(&ca).and_then(|st| {
+                    st.data_points.get_by_category(cmd.ioa, mc).map(|p| (ca, p.ioa, p.asdu_type))
+                })
+            })
+        } else {
+            None
+        };
+        let (configured_qualifier, configured_sbo) = point_options.unwrap_or((None, None));
+        (station_known, declared, target, mapping_broken, configured_qualifier, configured_sbo)
+    };
+
+    // 未知 CA / IOA 必须否定确认。ack_unmapped_commands 只控制“已声明的
+    // 控制点没有监视映射”是否仍正常应答，不能让任意未知地址假成功。
+    let rejection = if !station_known {
+        Some(("unknown_ca", 46u8))
+    } else if !declared && target.is_none() {
+        Some(("unknown_ioa", 47u8))
+    } else if declared && target.is_none() && !ops.ack_unmapped_commands {
+        Some((if mapping_broken { "mapping_target_missing" } else { "unmapped" }, 47u8))
+    } else {
+        None
+    };
+    if let Some((reason, cot)) = rejection {
+        if ops.answer_commands {
+            let ack = { let mut s = seq.lock().await; build_response_frame(data, cot | 0x40, &mut s) };
+            out.replies.push(ack);
+        }
+        out.log_entries.push(command_rejected_log(&cmd, ca, reason, cause));
+        return out;
+    }
+
+    // Per-point QOC/QL configuration is optional for legacy files. When set,
+    // a command with a different qualifier is rejected with a negative
+    // activation confirmation before any value is changed.
+    if let Some(expected) = configured_qualifier {
+        if expected != cmd.qu {
+            if ops.answer_commands {
+                let ack = { let mut s = seq.lock().await; build_response_frame(data, 7 | 0x40, &mut s) };
+                out.replies.push(ack);
+            }
+            out.log_entries.push(command_rejected_log(&cmd, ca, "qualifier_mismatch", cause));
+            return out;
+        }
+    }
+
+    // A configured direct-only point rejects a Select frame. Global SBO mode
+    // intentionally overrides that setting for test scenarios.
+    if cmd.is_select && configured_sbo == Some(false) && !ops.sbo_enforce {
+        if ops.answer_commands {
+            let ack = { let mut s = seq.lock().await; build_response_frame(data, 7 | 0x40, &mut s) };
+            out.replies.push(ack);
+        }
+        out.log_entries.push(command_rejected_log(&cmd, ca, "select_not_allowed", cause));
+        return out;
+    }
+
+    // —— Select(S/E=1):记录 SBO 状态,只回选择确认,不执行 ——
+    if cmd.is_select {
+        if ops.sbo_enforce || configured_sbo == Some(true) {
+            select_state.insert(sel_key, tokio::time::Instant::now());
+        }
+        if ops.answer_commands {
+            let ack = { let mut s = seq.lock().await; build_response_frame(data, ops.select_ack_cot.as_u8(), &mut s) };
+            out.replies.push(ack);
+        }
+        out.log_entries.push(
+            LogEntry::new(
+                Direction::Tx, cmd.frame_label.clone(),
+                format!("{} select acknowledged IOA={} QU={} CA={}", cmd.type_id.name(), cmd.ioa, cmd.qu, ca),
+            )
+            .with_detail_event("cmdSelect", serde_json::json!({
+                "type": cmd.type_id.name(), "ioa": cmd.ioa, "ca": ca, "qu": cmd.qu,
+            })),
+        );
+        return out;
+    }
+
+    // —— Execute:SBO 强制模式下须有未过期的 select ——
+    if ops.sbo_enforce || configured_sbo == Some(true) {
+        let fresh = select_state
+            .remove(&sel_key)
+            .map(|t| t.elapsed() <= std::time::Duration::from_millis(ops.sbo_timeout_ms))
+            .unwrap_or(false);
+        if !fresh {
+            if ops.answer_commands {
+                let ack = { let mut s = seq.lock().await; build_response_frame(data, 7 | 0x40, &mut s) };
+                out.replies.push(ack);
+            }
+            out.log_entries.push(command_rejected_log(&cmd, ca, "sbo_select_required", cause));
+            return out;
+        }
+    }
+
+    // —— 执行:控制点自身记录最近命令值;映射目标按族转换写入 ——
+    {
+        let mut guard = stations.write().await;
+        if declared {
+            if let Some(st) = guard.get_mut(&ca) {
+                if let Some(dp) = st.data_points.get_mut(cmd.ioa, cmd.type_id) {
+                    let next = command_value_for_point(&cmd.value, &dp.value);
+                    dp.value = next;
+                    dp.timestamp = Some(chrono::Utc::now());
+                }
+                st.data_points.mark_changed(cmd.ioa, cmd.type_id);
+            }
+        }
+        if let Some((tca, tioa, ttype)) = target {
+            if let Some(st) = guard.get_mut(&tca) {
+                if let Some(dp) = st.data_points.get_mut(tioa, ttype) {
+                    let next = command_value_for_point(&cmd.value, &dp.value);
+                    dp.value = next;
+                    dp.timestamp = Some(chrono::Utc::now());
+                }
+                st.data_points.mark_changed(tioa, ttype);
+            }
+        }
+    }
+
+    if ops.answer_commands {
+        let (ack, term) = {
+            let mut s = seq.lock().await;
+            (
+                build_response_frame(data, 7, &mut s),
+                build_response_frame(data, ops.execute_ack_cot.as_u8(), &mut s),
+            )
+        };
+        out.replies.push(ack);
+        out.replies.push(term);
+        out.spontaneous = target.map(|(tca, tioa, ttype)| (tca, (tioa, ttype)));
+    }
+
+    let target_desc = match target {
+        Some((tca, tioa, ttype)) => format!("{}@{}:{}", ttype.name(), tca, tioa),
+        None => "unmapped".to_string(),
+    };
+    out.log_entries.push(
+        LogEntry::new(
+            Direction::Tx, cmd.frame_label.clone(),
+            format!(
+                "{} executed val={} QU={} IOA={} CA={} target={}",
+                cmd.type_id.name(), cmd.value.display(), cmd.qu, cmd.ioa, ca, target_desc,
+            ),
+        )
+        .with_detail_event("cmdExecute", serde_json::json!({
+            "type": cmd.type_id.name(), "ioa": cmd.ioa, "ca": ca,
+            "val": cmd.value.display(), "qu": cmd.qu, "target": target_desc,
+        })),
+    );
+    if mapping_broken {
+        out.log_entries.push(
+            LogEntry::new(
+                Direction::Tx, cmd.frame_label.clone(),
+                format!("{} mapping target missing IOA={} CA={}", cmd.type_id.name(), cmd.ioa, ca),
+            )
+            .with_detail_event("cmdMappingBroken", serde_json::json!({
+                "type": cmd.type_id.name(), "ioa": cmd.ioa, "ca": ca,
+            })),
+        );
+    }
+    out
+}
 
 // ---------------------------------------------------------------------------
 // SlaveServer
@@ -696,7 +1110,7 @@ impl SlaveServer {
         let addr_str = format!("{}:{}", self.transport.bind_address, self.transport.port);
         let listener = AsyncTcpListener::bind(&addr_str)
             .await
-            .map_err(|e| SlaveError::BindError(format!("Failed to bind {}: {}", addr_str, e)))?;
+            .map_err(|e| classify_bind_error(&addr_str, &e))?;
 
         let tls_acceptor: Option<Arc<native_tls::TlsAcceptor>> = if self.transport.tls.enabled {
             let cfg = &self.transport.tls;
@@ -722,8 +1136,12 @@ impl SlaveServer {
             Some(Arc::new(builder.build().map_err(|e| SlaveError::TlsError(format!("创建接受器: {}", e)))?))
         } else { None };
 
+        // 每次启动重建停止标志与通知句柄:上一轮的任务(写任务 5ms 轮询、TLS 阻塞
+        // 任务 100ms 轮询)可能尚未观察到 flag=true;若复用同一 Arc 并 store(false),
+        // 快速 stop→start 会让旧任务永远错过停止信号而滞留。旧任务继续持有
+        // 旧 Arc(恒为 true),新任务用新 Arc。
+        self.shutdown_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let shutdown_flag = self.shutdown_flag.clone();
-        shutdown_flag.store(false, std::sync::atomic::Ordering::SeqCst);
         // 每次启动重建停止通知句柄,避免上一轮遗留的 permit 让新任务误退出。
         self.shutdown_notify = Arc::new(tokio::sync::Notify::new());
         let stations = self.stations.clone();
@@ -780,6 +1198,8 @@ impl SlaveServer {
                         for station in stations_read.values() {
                             if !station.cyclic_config.enabled { continue; }
                             for point in station.data_points.all_sorted() {
+                                // 控制方向点位只应答命令,不参与周期/变位上送。
+                                if point.asdu_type.category().is_control() { continue; }
                                 let value_str = point.value.display();
                                 if let Some(last) = conn.last_sent.get(&point.ioa) {
                                     if last == &value_str { continue; }
@@ -852,6 +1272,7 @@ impl SlaveServer {
                                 started: Arc::clone(&tls_started),
                                 last_sent: HashMap::new(),
                                 log_collector: lc.clone(),
+                                reader_handle: None,
                             });
                             let tls_connections = connections.clone();
                             tokio::task::spawn_blocking(move || {
@@ -917,6 +1338,7 @@ impl SlaveServer {
                                 started,
                                 last_sent: HashMap::new(),
                                 log_collector: lc.clone(),
+                                reader_handle: None,
                             });
 
                             // Spawn async write drain task (owns WriteHalf).
@@ -954,11 +1376,20 @@ impl SlaveServer {
                             });
 
                             // Spawn read task (owns ReadHalf + queue for enqueueing responses).
-                            tokio::spawn(async move {
+                            // Keep its handle so stop() can cancel read().await immediately.
+                            let connections_for_handle = Arc::clone(&connections);
+                            let reader_handle = tokio::spawn(async move {
                                 handle_client_read_loop(rh, stations_for_reader, lc_for_reader, flag, connections, queue_for_reader, seq_for_reader, started_for_reader, addr_for_read, conn_remote_ops, conn_protocol_timing).await;
                                 // 读循环退出 = 对端已断开,通知写任务退出以释放 WriteHalf。
                                 conn_closed_for_reader.store(true, std::sync::atomic::Ordering::SeqCst);
                             });
+                            let mut guard = connections_for_handle.write().await;
+                            if let Some(conn) = guard.get_mut(&peer_addr) {
+                                conn.reader_handle = Some(reader_handle);
+                            } else {
+                                // The peer disconnected between spawn and registration.
+                                reader_handle.abort();
+                            }
                         }
                     }
                     Err(_) => { tokio::time::sleep(std::time::Duration::from_millis(50)).await; }
@@ -990,6 +1421,19 @@ impl SlaveServer {
         if let Some(h) = self.server_handle.take() {
             h.abort();
             let _ = h.await;
+        }
+        // Plain readers can otherwise remain blocked in read().await after the
+        // listener is gone. TLS readers have a 100ms socket timeout and observe
+        // shutdown_flag; clearing the registry also prevents stale entries in a
+        // rapid stop -> start cycle.
+        {
+            let mut connections = self.connections.write().await;
+            for conn in connections.values_mut() {
+                if let Some(handle) = conn.reader_handle.take() {
+                    handle.abort();
+                }
+            }
+            connections.clear();
         }
         if let Some(h) = self.cyclic_handle.take() { let _ = h.await; }
         {
@@ -1038,6 +1482,9 @@ async fn handle_client_read_loop(
     // 不再继续上送数据帧或激活终止帧(IEC 60870-5-101 §7.2.6.1:去激活必须停止扫描)。
     let mut interrogation_tasks: std::collections::HashMap<(u16, u8), tokio::task::JoinHandle<()>> =
         std::collections::HashMap::new();
+
+    // SBO select 状态(每连接独立):select → execute 配对与超时校验用。
+    let mut select_state: SelectStateMap = SelectStateMap::new();
 
     loop {
         if shutdown_flag.load(std::sync::atomic::Ordering::SeqCst) { break; }
@@ -1198,10 +1645,12 @@ async fn handle_client_read_loop(
                                 let stations_read = stations.read().await;
                                 if let Some(station) = stations_read.get(&ca) {
                                     // GI (C_IC_NA_1) 只召唤过程信息;累积量 (M_IT) 仅由
-                                    // 计数量召唤 (C_CI_NA_1) 上送,此处排除。
+                                    // 计数量召唤 (C_CI_NA_1) 上送,此处排除。控制方向
+                                    // 点位不属于监视信息,同样排除。
                                     let pts: Vec<DataPoint> = station.data_points.all_sorted()
                                         .into_iter()
-                                        .filter(|p| !matches!(p.value, DataPointValue::IntegratedTotal { .. }))
+                                        .filter(|p| !matches!(p.value, DataPointValue::IntegratedTotal { .. })
+                                            && !p.asdu_type.category().is_control())
                                         .cloned().collect();
                                     (pts, Some(station.common_address.to_le_bytes()))
                                 } else {
@@ -1350,320 +1799,54 @@ async fn handle_client_read_loop(
                                 }
                             }
                     }
-                    45 => {
-                        if data.len() >= 16 {
-                            let ioa = u32::from_le_bytes([data[12], data[13], data[14], 0]);
-                            let sco = data[15]; let value = sco & 0x01 != 0; let is_select = sco & 0x80 != 0;
-                            if !is_select && cause != 8 {
-                                let mut s = stations.write().await;
-                                if let Some(st) = s.get_mut(&ca) {
-                                    if let Some(dp) = st.data_points.get_mut_by_category(ioa, DataCategory::SinglePoint) {
-                                        dp.value = DataPointValue::SinglePoint { value };
-                                        dp.timestamp = Some(chrono::Utc::now());
-                                    }
-                                    st.data_points.mark_changed_by_category(ioa, DataCategory::SinglePoint);
+                    45..=51 | 58..=64 => {
+                        match parse_control_command(asdu_type, &data[..n]) {
+                            Some(cmd) => {
+                                let outcome = process_control_command(
+                                    &data[..n], cause, ca, cmd,
+                                    &stations, &ops_snapshot, &seq, &mut select_state,
+                                ).await;
+                                if !outcome.replies.is_empty() {
+                                    let mut q = queue.lock().await;
+                                    for f in &outcome.replies { q.extend_from_slice(f); }
+                                }
+                                if let Some(ref lc) = log_collector {
+                                    for e in outcome.log_entries { lc.try_add(e); }
+                                }
+                                if let Some((tca, pair)) = outcome.spontaneous {
+                                    do_queue_spontaneous(
+                                        &stations, &connections, &remote_ops, &log_collector,
+                                        tca, &[pair],
+                                    ).await;
                                 }
                             }
-                                // answer_commands 抑制的是命令执行(写值/终止/突发),不抑制停止激活确认:
-                                // cause==8 时须仍回 cancel_ack_cot(=9),否则主站 t1 超时(与 GI/counter 去激活对称)。
-                                // 块内 !is_select && cause!=8 守卫保证 cause==8 不写值、不发终止/突发。
-                                if ops_snapshot.answer_commands || cause == 8 {
-                                    // COT=8(停止激活)→ 回 cancel_ack_cot(默认 9=停止确认);COT=6(激活)下 SBO select 回 select_ack_cot,execute 恒为 7。停止激活不执行、不写值、不发终止/突发。
-                                    let ack_cot = if cause == 8 {
-                                        ops_snapshot.cancel_ack_cot.as_u8()
-                                    } else if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
-                            let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) };
-                            queue.lock().await.extend_from_slice(&ack);
-                            if !is_select && cause != 8 {
-                                let term = { let mut s = seq.lock().await; build_response_frame(&data[..n], ops_snapshot.execute_ack_cot.as_u8(), &mut s) };
-                                queue.lock().await.extend_from_slice(&term);
-                                // Send spontaneous update (COT=3) after control execution
-                                let sr = stations.read().await;
-                                if let Some(st) = sr.get(&ca) {
-                                    if let Some(point) = st.data_points.get_by_category(ioa, DataCategory::SinglePoint) {
-                                        let ca_b = ca.to_le_bytes();
-                                        let _ioa_b = ioa.to_le_bytes();
-                                        let spont = {
-                                            let mut s = seq.lock().await;
-                                            encode_point_frame_ex(point, 3, &ca_b, &mut *s, None)
-                                        };
-                                        queue.lock().await.extend_from_slice(&spont);
-                                    }
+                            None => {
+                                // 已知控制类型但帧长不足:无法安全回显,丢弃并记日志。
+                                if let Some(ref lc) = log_collector {
+                                    lc.try_add(LogEntry::new(
+                                        Direction::Rx, FrameLabel::IFrame(format!("Type{}", asdu_type)),
+                                        format!("Malformed control frame type={} len={} CA={}", asdu_type, data.len(), ca),
+                                    ).with_detail_event("cmdMalformed", serde_json::json!({
+                                        "type": asdu_type, "len": data.len(), "ca": ca,
+                                    })));
                                 }
-                            }
-                            }
-                            if let Some(ref lc) = log_collector {
-                                let mode = if is_select { "Select" } else { "Execute" };
-                                lc.try_add(LogEntry::new(
-                                    Direction::Tx, FrameLabel::SingleCommand,
-                                    format!("单点命令确认 IOA={} val={} {} CA={}", ioa, value, mode, ca),
-                                ));
-                            }
-                        }
-                    }
-                    46 => {
-                        if data.len() >= 16 {
-                            let ioa = u32::from_le_bytes([data[12], data[13], data[14], 0]);
-                            let dco = data[15]; let value = dco & 0x03; let is_select = dco & 0x80 != 0;
-                            if !is_select && cause != 8 {
-                                let mut s = stations.write().await;
-                                if let Some(st) = s.get_mut(&ca) {
-                                    if let Some(dp) = st.data_points.get_mut_by_category(ioa, DataCategory::DoublePoint) {
-                                        dp.value = DataPointValue::DoublePoint { value };
-                                        dp.timestamp = Some(chrono::Utc::now());
-                                    }
-                                    st.data_points.mark_changed_by_category(ioa, DataCategory::DoublePoint);
-                                }
-                            }
-                                // answer_commands 抑制的是命令执行(写值/终止/突发),不抑制停止激活确认:
-                                // cause==8 时须仍回 cancel_ack_cot(=9),否则主站 t1 超时(与 GI/counter 去激活对称)。
-                                // 块内 !is_select && cause!=8 守卫保证 cause==8 不写值、不发终止/突发。
-                                if ops_snapshot.answer_commands || cause == 8 {
-                                    // COT=8(停止激活)→ 回 cancel_ack_cot(默认 9=停止确认);COT=6(激活)下 SBO select 回 select_ack_cot,execute 恒为 7。停止激活不执行、不写值、不发终止/突发。
-                                    let ack_cot = if cause == 8 {
-                                        ops_snapshot.cancel_ack_cot.as_u8()
-                                    } else if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
-                            let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) };
-                            queue.lock().await.extend_from_slice(&ack);
-                            if !is_select && cause != 8 {
-                                let term = { let mut s = seq.lock().await; build_response_frame(&data[..n], ops_snapshot.execute_ack_cot.as_u8(), &mut s) };
-                                queue.lock().await.extend_from_slice(&term);
-                                let sr = stations.read().await;
-                                if let Some(st) = sr.get(&ca) {
-                                    if let Some(point) = st.data_points.get_by_category(ioa, DataCategory::DoublePoint) {
-                                        let ca_b = ca.to_le_bytes();
-                                        let _ioa_b = ioa.to_le_bytes();
-                                        let spont = {
-                                            let mut s = seq.lock().await;
-                                            encode_point_frame_ex(point, 3, &ca_b, &mut *s, None)
-                                        };
-                                        queue.lock().await.extend_from_slice(&spont);
-                                    }
-                                }
-                            }
-                            }
-                            if let Some(ref lc) = log_collector {
-                                let mode = if is_select { "Select" } else { "Execute" };
-                                lc.try_add(LogEntry::new(
-                                    Direction::Tx, FrameLabel::DoubleCommand,
-                                    format!("双点命令确认 IOA={} val={} {} CA={}", ioa, value, mode, ca),
-                                ));
-                            }
-                        }
-                    }
-                    47 => {
-                        if data.len() >= 16 {
-                            let ioa = u32::from_le_bytes([data[12], data[13], data[14], 0]);
-                            let rco = data[15]; let step_val = rco & 0x03; let is_select = rco & 0x80 != 0;
-                            if !is_select && cause != 8 {
-                                let mut s = stations.write().await;
-                                if let Some(st) = s.get_mut(&ca) {
-                                    if let Some(dp) = st.data_points.get_mut_by_category(ioa, DataCategory::StepPosition) {
-                                        if let DataPointValue::StepPosition { ref mut value, .. } = dp.value {
-                                            match step_val { 1 => { if *value > -64 { *value -= 1; } } 2 => { if *value < 63 { *value += 1; } } _ => {} }
-                                            dp.timestamp = Some(chrono::Utc::now());
-                                        }
-                                    }
-                                    st.data_points.mark_changed_by_category(ioa, DataCategory::StepPosition);
-                                }
-                            }
-                                // answer_commands 抑制的是命令执行(写值/终止/突发),不抑制停止激活确认:
-                                // cause==8 时须仍回 cancel_ack_cot(=9),否则主站 t1 超时(与 GI/counter 去激活对称)。
-                                // 块内 !is_select && cause!=8 守卫保证 cause==8 不写值、不发终止/突发。
-                                if ops_snapshot.answer_commands || cause == 8 {
-                                    // COT=8(停止激活)→ 回 cancel_ack_cot(默认 9=停止确认);COT=6(激活)下 SBO select 回 select_ack_cot,execute 恒为 7。停止激活不执行、不写值、不发终止/突发。
-                                    let ack_cot = if cause == 8 {
-                                        ops_snapshot.cancel_ack_cot.as_u8()
-                                    } else if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
-                            let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) };
-                            queue.lock().await.extend_from_slice(&ack);
-                            if !is_select && cause != 8 {
-                                let term = { let mut s = seq.lock().await; build_response_frame(&data[..n], ops_snapshot.execute_ack_cot.as_u8(), &mut s) };
-                                queue.lock().await.extend_from_slice(&term);
-                                let sr = stations.read().await;
-                                if let Some(st) = sr.get(&ca) {
-                                    if let Some(point) = st.data_points.get_by_category(ioa, DataCategory::StepPosition) {
-                                        let ca_b = ca.to_le_bytes();
-                                        let _ioa_b = ioa.to_le_bytes();
-                                        let spont = {
-                                            let mut s = seq.lock().await;
-                                            encode_point_frame_ex(point, 3, &ca_b, &mut *s, None)
-                                        };
-                                        queue.lock().await.extend_from_slice(&spont);
-                                    }
-                                }
-                            }
-                            }
-                            if let Some(ref lc) = log_collector {
-                                let mode = if is_select { "Select" } else { "Execute" };
-                                let dir = match step_val { 1 => "降", 2 => "升", _ => "?" };
-                                lc.try_add(LogEntry::new(
-                                    Direction::Tx, FrameLabel::StepCommand,
-                                    format!("步调节命令确认 IOA={} {} {} CA={}", ioa, dir, mode, ca),
-                                ));
-                            }
-                        }
-                    }
-                    48 => {
-                        if data.len() >= 18 {
-                            let ioa = u32::from_le_bytes([data[12], data[13], data[14], 0]);
-                            let nva = i16::from_le_bytes([data[15], data[16]]);
-                            let qos = data[17]; let is_select = qos & 0x80 != 0;
-                            let value = nva as f32 / 32767.0;
-                            if !is_select && cause != 8 {
-                                let mut s = stations.write().await;
-                                if let Some(st) = s.get_mut(&ca) {
-                                    if let Some(dp) = st.data_points.get_mut_by_category(ioa, DataCategory::NormalizedMeasured) {
-                                        dp.value = DataPointValue::Normalized { value };
-                                        dp.timestamp = Some(chrono::Utc::now());
-                                    }
-                                    st.data_points.mark_changed_by_category(ioa, DataCategory::NormalizedMeasured);
-                                }
-                            }
-                                // answer_commands 抑制的是命令执行(写值/终止/突发),不抑制停止激活确认:
-                                // cause==8 时须仍回 cancel_ack_cot(=9),否则主站 t1 超时(与 GI/counter 去激活对称)。
-                                // 块内 !is_select && cause!=8 守卫保证 cause==8 不写值、不发终止/突发。
-                                if ops_snapshot.answer_commands || cause == 8 {
-                                    // COT=8(停止激活)→ 回 cancel_ack_cot(默认 9=停止确认);COT=6(激活)下 SBO select 回 select_ack_cot,execute 恒为 7。停止激活不执行、不写值、不发终止/突发。
-                                    let ack_cot = if cause == 8 {
-                                        ops_snapshot.cancel_ack_cot.as_u8()
-                                    } else if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
-                            let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) };
-                            queue.lock().await.extend_from_slice(&ack);
-                            if !is_select && cause != 8 {
-                                let term = { let mut s = seq.lock().await; build_response_frame(&data[..n], ops_snapshot.execute_ack_cot.as_u8(), &mut s) };
-                                queue.lock().await.extend_from_slice(&term);
-                                let sr = stations.read().await;
-                                if let Some(st) = sr.get(&ca) {
-                                    if let Some(point) = st.data_points.get_by_category(ioa, DataCategory::NormalizedMeasured) {
-                                        let ca_b = ca.to_le_bytes();
-                                        let _ioa_b = ioa.to_le_bytes();
-                                        let spont = {
-                                            let mut s = seq.lock().await;
-                                            encode_point_frame_ex(point, 3, &ca_b, &mut *s, None)
-                                        };
-                                        queue.lock().await.extend_from_slice(&spont);
-                                    }
-                                }
-                            }
-                            }
-                            if let Some(ref lc) = log_collector {
-                                let mode = if is_select { "Select" } else { "Execute" };
-                                lc.try_add(LogEntry::new(
-                                    Direction::Tx, FrameLabel::SetpointNormalized,
-                                    format!("归一化设定值确认 IOA={} val={:.4} {} CA={}", ioa, value, mode, ca),
-                                ));
-                            }
-                        }
-                    }
-                    49 => {
-                        if data.len() >= 18 {
-                            let ioa = u32::from_le_bytes([data[12], data[13], data[14], 0]);
-                            let sva = i16::from_le_bytes([data[15], data[16]]);
-                            let qos = data[17]; let is_select = qos & 0x80 != 0;
-                            if !is_select && cause != 8 {
-                                let mut s = stations.write().await;
-                                if let Some(st) = s.get_mut(&ca) {
-                                    if let Some(dp) = st.data_points.get_mut_by_category(ioa, DataCategory::ScaledMeasured) {
-                                        dp.value = DataPointValue::Scaled { value: sva };
-                                        dp.timestamp = Some(chrono::Utc::now());
-                                    }
-                                    st.data_points.mark_changed_by_category(ioa, DataCategory::ScaledMeasured);
-                                }
-                            }
-                                // answer_commands 抑制的是命令执行(写值/终止/突发),不抑制停止激活确认:
-                                // cause==8 时须仍回 cancel_ack_cot(=9),否则主站 t1 超时(与 GI/counter 去激活对称)。
-                                // 块内 !is_select && cause!=8 守卫保证 cause==8 不写值、不发终止/突发。
-                                if ops_snapshot.answer_commands || cause == 8 {
-                                    // COT=8(停止激活)→ 回 cancel_ack_cot(默认 9=停止确认);COT=6(激活)下 SBO select 回 select_ack_cot,execute 恒为 7。停止激活不执行、不写值、不发终止/突发。
-                                    let ack_cot = if cause == 8 {
-                                        ops_snapshot.cancel_ack_cot.as_u8()
-                                    } else if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
-                            let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) };
-                            queue.lock().await.extend_from_slice(&ack);
-                            if !is_select && cause != 8 {
-                                let term = { let mut s = seq.lock().await; build_response_frame(&data[..n], ops_snapshot.execute_ack_cot.as_u8(), &mut s) };
-                                queue.lock().await.extend_from_slice(&term);
-                                let sr = stations.read().await;
-                                if let Some(st) = sr.get(&ca) {
-                                    if let Some(point) = st.data_points.get_by_category(ioa, DataCategory::ScaledMeasured) {
-                                        let ca_b = ca.to_le_bytes();
-                                        let _ioa_b = ioa.to_le_bytes();
-                                        let spont = {
-                                            let mut s = seq.lock().await;
-                                            encode_point_frame_ex(point, 3, &ca_b, &mut *s, None)
-                                        };
-                                        queue.lock().await.extend_from_slice(&spont);
-                                    }
-                                }
-                            }
-                            }
-                            if let Some(ref lc) = log_collector {
-                                let mode = if is_select { "Select" } else { "Execute" };
-                                lc.try_add(LogEntry::new(
-                                    Direction::Tx, FrameLabel::SetpointScaled,
-                                    format!("标度化设定值确认 IOA={} val={} {} CA={}", ioa, sva, mode, ca),
-                                ));
-                            }
-                        }
-                    }
-                    50 => {
-                        if data.len() >= 20 {
-                            let ioa = u32::from_le_bytes([data[12], data[13], data[14], 0]);
-                            let value = f32::from_le_bytes([data[15], data[16], data[17], data[18]]);
-                            let qos = data[19]; let is_select = qos & 0x80 != 0;
-                            if !is_select && cause != 8 {
-                                let mut s = stations.write().await;
-                                if let Some(st) = s.get_mut(&ca) {
-                                    if let Some(dp) = st.data_points.get_mut_by_category(ioa, DataCategory::FloatMeasured) {
-                                        dp.value = DataPointValue::ShortFloat { value };
-                                        dp.timestamp = Some(chrono::Utc::now());
-                                    }
-                                    st.data_points.mark_changed_by_category(ioa, DataCategory::FloatMeasured);
-                                }
-                            }
-                                // answer_commands 抑制的是命令执行(写值/终止/突发),不抑制停止激活确认:
-                                // cause==8 时须仍回 cancel_ack_cot(=9),否则主站 t1 超时(与 GI/counter 去激活对称)。
-                                // 块内 !is_select && cause!=8 守卫保证 cause==8 不写值、不发终止/突发。
-                                if ops_snapshot.answer_commands || cause == 8 {
-                                    // COT=8(停止激活)→ 回 cancel_ack_cot(默认 9=停止确认);COT=6(激活)下 SBO select 回 select_ack_cot,execute 恒为 7。停止激活不执行、不写值、不发终止/突发。
-                                    let ack_cot = if cause == 8 {
-                                        ops_snapshot.cancel_ack_cot.as_u8()
-                                    } else if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
-                            let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) };
-                            queue.lock().await.extend_from_slice(&ack);
-                            if !is_select && cause != 8 {
-                                let term = { let mut s = seq.lock().await; build_response_frame(&data[..n], ops_snapshot.execute_ack_cot.as_u8(), &mut s) };
-                                queue.lock().await.extend_from_slice(&term);
-                                let sr = stations.read().await;
-                                if let Some(st) = sr.get(&ca) {
-                                    if let Some(point) = st.data_points.get_by_category(ioa, DataCategory::FloatMeasured) {
-                                        let ca_b = ca.to_le_bytes();
-                                        let _ioa_b = ioa.to_le_bytes();
-                                        let spont = {
-                                            let mut s = seq.lock().await;
-                                            encode_point_frame_ex(point, 3, &ca_b, &mut *s, None)
-                                        };
-                                        queue.lock().await.extend_from_slice(&spont);
-                                    }
-                                }
-                            }
-                            }
-                            if let Some(ref lc) = log_collector {
-                                let mode = if is_select { "Select" } else { "Execute" };
-                                lc.try_add(LogEntry::new(
-                                    Direction::Tx, FrameLabel::SetpointFloat,
-                                    format!("浮点设定值确认 IOA={} val={:.3} {} CA={}", ioa, value, mode, ca),
-                                ));
                             }
                         }
                     }
                     _ => {
+                        // 未知 ASDU 类型:回 COT=44(unknown type)+ P/N 否定确认,而非静默
+                        // 丢弃——静默会让主站 t1 超时(issue #28 主站侧 NG/超时来源之一)。
+                        if ops_snapshot.answer_commands {
+                            let ack = { let mut s = seq.lock().await; build_response_frame(&data[..n], 44 | 0x40, &mut s) };
+                            queue.lock().await.extend_from_slice(&ack);
+                        }
                         if let Some(ref lc) = log_collector {
                             lc.try_add(LogEntry::new(
-                                Direction::Rx, FrameLabel::IFrame(format!("Type{}", asdu_type)),
-                                format!("未知 ASDU 类型={} CA={} COT={}", asdu_type, ca, cause),
-                            ));
+                                Direction::Tx, FrameLabel::IFrame(format!("Type{}", asdu_type)),
+                                format!("Unknown ASDU type={} rejected (COT=44 negative) CA={} COT={}", asdu_type, ca, cause),
+                            ).with_detail_event("unknownType", serde_json::json!({
+                                "type": asdu_type, "ca": ca, "cot": cause,
+                            })));
                         }
                     }
                 }
@@ -1708,6 +1891,9 @@ fn handle_client_blocking(
 
     // Cache the runtime handle once — this function always runs inside spawn_blocking.
     let rt = tokio::runtime::Handle::current();
+
+    // SBO select 状态(每连接独立)。
+    let mut select_state: SelectStateMap = SelectStateMap::new();
 
     // Drain the shared write queue to the TLS stream.
     let drain_queue = |stream: &mut native_tls::TlsStream<TcpStream>, queue: &SharedQueue, rt: &tokio::runtime::Handle| {
@@ -1954,385 +2140,50 @@ fn handle_client_blocking(
                             }
                         }
                     }
-                    45 => {
-                        if data.len() >= 16 {
-                            let ioa = u32::from_le_bytes([data[12], data[13], data[14], 0]);
-                            let sco = data[15]; let value = sco & 0x01 != 0; let is_select = sco & 0x80 != 0;
-                            if !is_select && cause != 8 {
-                                let rt = tokio::runtime::Handle::try_current();
-                                if let Ok(handle) = rt {
-                                    let stations = stations.clone();
-                                    handle.block_on(async {
-                                        let mut s = stations.write().await;
-                                        if let Some(st) = s.get_mut(&ca) {
-                                            if let Some(dp) = st.data_points.get_mut_by_category(ioa, DataCategory::SinglePoint) {
-                                                dp.value = DataPointValue::SinglePoint { value };
-                                                dp.timestamp = Some(chrono::Utc::now());
-                                            }
-                                            st.data_points.mark_changed_by_category(ioa, DataCategory::SinglePoint);
-                                        }
-                                    });
-                                }
-                            }
-                            // answer_commands 抑制的是命令执行(写值/终止/突发),不抑制停止激活确认:
-                            // cause==8 时须仍回 cancel_ack_cot(=9),否则主站 t1 超时(与 GI/counter 去激活对称)。
-                            // 块内 !is_select && cause!=8 守卫保证 cause==8 不写值、不发终止/突发。
-                            if ops_snapshot.answer_commands || cause == 8 {
-                                // COT=8(停止激活)→ 回 cancel_ack_cot(默认 9=停止确认);COT=6(激活)下 SBO select 回 select_ack_cot,execute 恒为 7。停止激活不执行、不写值、不发终止/突发。
-                                let ack_cot = if cause == 8 {
-                                    ops_snapshot.cancel_ack_cot.as_u8()
-                                } else if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
-                            let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) });
-                            let _ = stream.write_all(&ack);
-                            if !is_select && cause != 8 {
-                                let term = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ops_snapshot.execute_ack_cot.as_u8(), &mut s) });
-                                let _ = stream.write_all(&term);
-                                if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                                    let stations = stations.clone();
-                                    handle.block_on(async {
-                                        let sr = stations.read().await;
-                                        if let Some(st) = sr.get(&ca) {
-                                            if let Some(point) = st.data_points.get_by_category(ioa, DataCategory::SinglePoint) {
-                                                let ca_b = ca.to_le_bytes();
-                                                let _ioa_b = ioa.to_le_bytes();
-                                                let spont = {
-                                                    let mut s = seq.lock().await;
-                                                    encode_point_frame_ex(point, 3, &ca_b, &mut *s, None)
-                                                };
-                                                let _ = stream.write_all(&spont);
-                                            }
-                                        }
-                                    });
-                                }
-                            }
-                            }
-                            if let Some(ref lc) = log_collector {
-                                let mode = if is_select { "Select" } else { "Execute" };
-                                lc.try_add(LogEntry::new(
-                                    Direction::Tx, FrameLabel::SingleCommand,
-                                    format!("单点命令确认 IOA={} val={} {} CA={}", ioa, value, mode, ca),
+                    45..=51 | 58..=64 => {
+                        match parse_control_command(asdu_type, &data[..n]) {
+                            Some(cmd) => {
+                                let outcome = rt.block_on(process_control_command(
+                                    &data[..n], cause, ca, cmd,
+                                    &stations, &ops_snapshot, &seq, &mut select_state,
                                 ));
-                            }
-                        }
-                    }
-                    46 => {
-                        if data.len() >= 16 {
-                            let ioa = u32::from_le_bytes([data[12], data[13], data[14], 0]);
-                            let dco = data[15]; let value = dco & 0x03; let is_select = dco & 0x80 != 0;
-                            if !is_select && cause != 8 {
-                                let rt = tokio::runtime::Handle::try_current();
-                                if let Ok(handle) = rt {
-                                    let stations = stations.clone();
-                                    handle.block_on(async {
-                                        let mut s = stations.write().await;
-                                        if let Some(st) = s.get_mut(&ca) {
-                                            if let Some(dp) = st.data_points.get_mut_by_category(ioa, DataCategory::DoublePoint) {
-                                                dp.value = DataPointValue::DoublePoint { value };
-                                                dp.timestamp = Some(chrono::Utc::now());
-                                            }
-                                            st.data_points.mark_changed_by_category(ioa, DataCategory::DoublePoint);
-                                        }
-                                    });
+                                for f in &outcome.replies { let _ = stream.write_all(f); }
+                                if let Some(ref lc) = log_collector {
+                                    for e in outcome.log_entries { lc.try_add(e); }
+                                }
+                                if let Some((tca, pair)) = outcome.spontaneous {
+                                    rt.block_on(do_queue_spontaneous(
+                                        &stations, &connections, &remote_ops, &log_collector,
+                                        tca, &[pair],
+                                    ));
                                 }
                             }
-                            // answer_commands 抑制的是命令执行(写值/终止/突发),不抑制停止激活确认:
-                            // cause==8 时须仍回 cancel_ack_cot(=9),否则主站 t1 超时(与 GI/counter 去激活对称)。
-                            // 块内 !is_select && cause!=8 守卫保证 cause==8 不写值、不发终止/突发。
-                            if ops_snapshot.answer_commands || cause == 8 {
-                                // COT=8(停止激活)→ 回 cancel_ack_cot(默认 9=停止确认);COT=6(激活)下 SBO select 回 select_ack_cot,execute 恒为 7。停止激活不执行、不写值、不发终止/突发。
-                                let ack_cot = if cause == 8 {
-                                    ops_snapshot.cancel_ack_cot.as_u8()
-                                } else if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
-                            let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) });
-                            let _ = stream.write_all(&ack);
-                            if !is_select && cause != 8 {
-                                let term = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ops_snapshot.execute_ack_cot.as_u8(), &mut s) });
-                                let _ = stream.write_all(&term);
-                                if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                                    let stations = stations.clone();
-                                    handle.block_on(async {
-                                        let sr = stations.read().await;
-                                        if let Some(st) = sr.get(&ca) {
-                                            if let Some(point) = st.data_points.get_by_category(ioa, DataCategory::DoublePoint) {
-                                                let ca_b = ca.to_le_bytes();
-                                                let _ioa_b = ioa.to_le_bytes();
-                                                let spont = {
-                                                    let mut s = seq.lock().await;
-                                                    encode_point_frame_ex(point, 3, &ca_b, &mut *s, None)
-                                                };
-                                                let _ = stream.write_all(&spont);
-                                            }
-                                        }
-                                    });
+                            None => {
+                                // 已知控制类型但帧长不足:无法安全回显,丢弃并记日志。
+                                if let Some(ref lc) = log_collector {
+                                    lc.try_add(LogEntry::new(
+                                        Direction::Rx, FrameLabel::IFrame(format!("Type{}", asdu_type)),
+                                        format!("Malformed control frame type={} len={} CA={}", asdu_type, data.len(), ca),
+                                    ).with_detail_event("cmdMalformed", serde_json::json!({
+                                        "type": asdu_type, "len": data.len(), "ca": ca,
+                                    })));
                                 }
-                            }
-                            }
-                            if let Some(ref lc) = log_collector {
-                                let mode = if is_select { "Select" } else { "Execute" };
-                                lc.try_add(LogEntry::new(
-                                    Direction::Tx, FrameLabel::DoubleCommand,
-                                    format!("双点命令确认 IOA={} val={} {} CA={}", ioa, value, mode, ca),
-                                ));
-                            }
-                        }
-                    }
-                    47 => {
-                        if data.len() >= 16 {
-                            let ioa = u32::from_le_bytes([data[12], data[13], data[14], 0]);
-                            let rco = data[15]; let step_val = rco & 0x03; let is_select = rco & 0x80 != 0;
-                            if !is_select && cause != 8 {
-                                let rt = tokio::runtime::Handle::try_current();
-                                if let Ok(handle) = rt {
-                                    let stations = stations.clone();
-                                    handle.block_on(async {
-                                        let mut s = stations.write().await;
-                                        if let Some(st) = s.get_mut(&ca) {
-                                            if let Some(dp) = st.data_points.get_mut_by_category(ioa, DataCategory::StepPosition) {
-                                                if let DataPointValue::StepPosition { ref mut value, .. } = dp.value {
-                                                    match step_val { 1 => { if *value > -64 { *value -= 1; } } 2 => { if *value < 63 { *value += 1; } } _ => {} }
-                                                    dp.timestamp = Some(chrono::Utc::now());
-                                                }
-                                            }
-                                            st.data_points.mark_changed_by_category(ioa, DataCategory::StepPosition);
-                                        }
-                                    });
-                                }
-                            }
-                            // answer_commands 抑制的是命令执行(写值/终止/突发),不抑制停止激活确认:
-                            // cause==8 时须仍回 cancel_ack_cot(=9),否则主站 t1 超时(与 GI/counter 去激活对称)。
-                            // 块内 !is_select && cause!=8 守卫保证 cause==8 不写值、不发终止/突发。
-                            if ops_snapshot.answer_commands || cause == 8 {
-                                // COT=8(停止激活)→ 回 cancel_ack_cot(默认 9=停止确认);COT=6(激活)下 SBO select 回 select_ack_cot,execute 恒为 7。停止激活不执行、不写值、不发终止/突发。
-                                let ack_cot = if cause == 8 {
-                                    ops_snapshot.cancel_ack_cot.as_u8()
-                                } else if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
-                            let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) });
-                            let _ = stream.write_all(&ack);
-                            if !is_select && cause != 8 {
-                                let term = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ops_snapshot.execute_ack_cot.as_u8(), &mut s) });
-                                let _ = stream.write_all(&term);
-                                if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                                    let stations = stations.clone();
-                                    handle.block_on(async {
-                                        let sr = stations.read().await;
-                                        if let Some(st) = sr.get(&ca) {
-                                            if let Some(point) = st.data_points.get_by_category(ioa, DataCategory::StepPosition) {
-                                                let ca_b = ca.to_le_bytes();
-                                                let _ioa_b = ioa.to_le_bytes();
-                                                let spont = {
-                                                    let mut s = seq.lock().await;
-                                                    encode_point_frame_ex(point, 3, &ca_b, &mut *s, None)
-                                                };
-                                                let _ = stream.write_all(&spont);
-                                            }
-                                        }
-                                    });
-                                }
-                            }
-                            }
-                            if let Some(ref lc) = log_collector {
-                                let mode = if is_select { "Select" } else { "Execute" };
-                                let dir = match step_val { 1 => "降", 2 => "升", _ => "?" };
-                                lc.try_add(LogEntry::new(
-                                    Direction::Tx, FrameLabel::StepCommand,
-                                    format!("步调节命令确认 IOA={} {} {} CA={}", ioa, dir, mode, ca),
-                                ));
-                            }
-                        }
-                    }
-                    48 => {
-                        if data.len() >= 18 {
-                            let ioa = u32::from_le_bytes([data[12], data[13], data[14], 0]);
-                            let nva = i16::from_le_bytes([data[15], data[16]]);
-                            let qos = data[17]; let is_select = qos & 0x80 != 0;
-                            let value = nva as f32 / 32767.0;
-                            if !is_select && cause != 8 {
-                                let rt = tokio::runtime::Handle::try_current();
-                                if let Ok(handle) = rt {
-                                    let stations = stations.clone();
-                                    handle.block_on(async {
-                                        let mut s = stations.write().await;
-                                        if let Some(st) = s.get_mut(&ca) {
-                                            if let Some(dp) = st.data_points.get_mut_by_category(ioa, DataCategory::NormalizedMeasured) {
-                                                dp.value = DataPointValue::Normalized { value };
-                                                dp.timestamp = Some(chrono::Utc::now());
-                                            }
-                                            st.data_points.mark_changed_by_category(ioa, DataCategory::NormalizedMeasured);
-                                        }
-                                    });
-                                }
-                            }
-                            // answer_commands 抑制的是命令执行(写值/终止/突发),不抑制停止激活确认:
-                            // cause==8 时须仍回 cancel_ack_cot(=9),否则主站 t1 超时(与 GI/counter 去激活对称)。
-                            // 块内 !is_select && cause!=8 守卫保证 cause==8 不写值、不发终止/突发。
-                            if ops_snapshot.answer_commands || cause == 8 {
-                                // COT=8(停止激活)→ 回 cancel_ack_cot(默认 9=停止确认);COT=6(激活)下 SBO select 回 select_ack_cot,execute 恒为 7。停止激活不执行、不写值、不发终止/突发。
-                                let ack_cot = if cause == 8 {
-                                    ops_snapshot.cancel_ack_cot.as_u8()
-                                } else if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
-                            let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) });
-                            let _ = stream.write_all(&ack);
-                            if !is_select && cause != 8 {
-                                let term = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ops_snapshot.execute_ack_cot.as_u8(), &mut s) });
-                                let _ = stream.write_all(&term);
-                                if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                                    let stations = stations.clone();
-                                    handle.block_on(async {
-                                        let sr = stations.read().await;
-                                        if let Some(st) = sr.get(&ca) {
-                                            if let Some(point) = st.data_points.get_by_category(ioa, DataCategory::NormalizedMeasured) {
-                                                let ca_b = ca.to_le_bytes();
-                                                let _ioa_b = ioa.to_le_bytes();
-                                                let spont = {
-                                                    let mut s = seq.lock().await;
-                                                    encode_point_frame_ex(point, 3, &ca_b, &mut *s, None)
-                                                };
-                                                let _ = stream.write_all(&spont);
-                                            }
-                                        }
-                                    });
-                                }
-                            }
-                            }
-                            if let Some(ref lc) = log_collector {
-                                let mode = if is_select { "Select" } else { "Execute" };
-                                lc.try_add(LogEntry::new(
-                                    Direction::Tx, FrameLabel::SetpointNormalized,
-                                    format!("归一化设定值确认 IOA={} val={:.4} {} CA={}", ioa, value, mode, ca),
-                                ));
-                            }
-                        }
-                    }
-                    49 => {
-                        if data.len() >= 18 {
-                            let ioa = u32::from_le_bytes([data[12], data[13], data[14], 0]);
-                            let sva = i16::from_le_bytes([data[15], data[16]]);
-                            let qos = data[17]; let is_select = qos & 0x80 != 0;
-                            if !is_select && cause != 8 {
-                                let rt = tokio::runtime::Handle::try_current();
-                                if let Ok(handle) = rt {
-                                    let stations = stations.clone();
-                                    handle.block_on(async {
-                                        let mut s = stations.write().await;
-                                        if let Some(st) = s.get_mut(&ca) {
-                                            if let Some(dp) = st.data_points.get_mut_by_category(ioa, DataCategory::ScaledMeasured) {
-                                                dp.value = DataPointValue::Scaled { value: sva };
-                                                dp.timestamp = Some(chrono::Utc::now());
-                                            }
-                                            st.data_points.mark_changed_by_category(ioa, DataCategory::ScaledMeasured);
-                                        }
-                                    });
-                                }
-                            }
-                            // answer_commands 抑制的是命令执行(写值/终止/突发),不抑制停止激活确认:
-                            // cause==8 时须仍回 cancel_ack_cot(=9),否则主站 t1 超时(与 GI/counter 去激活对称)。
-                            // 块内 !is_select && cause!=8 守卫保证 cause==8 不写值、不发终止/突发。
-                            if ops_snapshot.answer_commands || cause == 8 {
-                                // COT=8(停止激活)→ 回 cancel_ack_cot(默认 9=停止确认);COT=6(激活)下 SBO select 回 select_ack_cot,execute 恒为 7。停止激活不执行、不写值、不发终止/突发。
-                                let ack_cot = if cause == 8 {
-                                    ops_snapshot.cancel_ack_cot.as_u8()
-                                } else if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
-                            let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) });
-                            let _ = stream.write_all(&ack);
-                            if !is_select && cause != 8 {
-                                let term = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ops_snapshot.execute_ack_cot.as_u8(), &mut s) });
-                                let _ = stream.write_all(&term);
-                                if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                                    let stations = stations.clone();
-                                    handle.block_on(async {
-                                        let sr = stations.read().await;
-                                        if let Some(st) = sr.get(&ca) {
-                                            if let Some(point) = st.data_points.get_by_category(ioa, DataCategory::ScaledMeasured) {
-                                                let ca_b = ca.to_le_bytes();
-                                                let _ioa_b = ioa.to_le_bytes();
-                                                let spont = {
-                                                    let mut s = seq.lock().await;
-                                                    encode_point_frame_ex(point, 3, &ca_b, &mut *s, None)
-                                                };
-                                                let _ = stream.write_all(&spont);
-                                            }
-                                        }
-                                    });
-                                }
-                            }
-                            }
-                            if let Some(ref lc) = log_collector {
-                                let mode = if is_select { "Select" } else { "Execute" };
-                                lc.try_add(LogEntry::new(
-                                    Direction::Tx, FrameLabel::SetpointScaled,
-                                    format!("标度化设定值确认 IOA={} val={} {} CA={}", ioa, sva, mode, ca),
-                                ));
-                            }
-                        }
-                    }
-                    50 => {
-                        if data.len() >= 20 {
-                            let ioa = u32::from_le_bytes([data[12], data[13], data[14], 0]);
-                            let value = f32::from_le_bytes([data[15], data[16], data[17], data[18]]);
-                            let qos = data[19]; let is_select = qos & 0x80 != 0;
-                            if !is_select && cause != 8 {
-                                let rt = tokio::runtime::Handle::try_current();
-                                if let Ok(handle) = rt {
-                                    let stations = stations.clone();
-                                    handle.block_on(async {
-                                        let mut s = stations.write().await;
-                                        if let Some(st) = s.get_mut(&ca) {
-                                            if let Some(dp) = st.data_points.get_mut_by_category(ioa, DataCategory::FloatMeasured) {
-                                                dp.value = DataPointValue::ShortFloat { value };
-                                                dp.timestamp = Some(chrono::Utc::now());
-                                            }
-                                            st.data_points.mark_changed_by_category(ioa, DataCategory::FloatMeasured);
-                                        }
-                                    });
-                                }
-                            }
-                            // answer_commands 抑制的是命令执行(写值/终止/突发),不抑制停止激活确认:
-                            // cause==8 时须仍回 cancel_ack_cot(=9),否则主站 t1 超时(与 GI/counter 去激活对称)。
-                            // 块内 !is_select && cause!=8 守卫保证 cause==8 不写值、不发终止/突发。
-                            if ops_snapshot.answer_commands || cause == 8 {
-                                // COT=8(停止激活)→ 回 cancel_ack_cot(默认 9=停止确认);COT=6(激活)下 SBO select 回 select_ack_cot,execute 恒为 7。停止激活不执行、不写值、不发终止/突发。
-                                let ack_cot = if cause == 8 {
-                                    ops_snapshot.cancel_ack_cot.as_u8()
-                                } else if is_select { ops_snapshot.select_ack_cot.as_u8() } else { 7u8 /* ActivationCon: SBO 协议要求 execute ack 恒为 7,终止帧另用 execute_ack_cot */ };
-                            let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ack_cot, &mut s) });
-                            let _ = stream.write_all(&ack);
-                            if !is_select && cause != 8 {
-                                let term = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], ops_snapshot.execute_ack_cot.as_u8(), &mut s) });
-                                let _ = stream.write_all(&term);
-                                if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                                    let stations = stations.clone();
-                                    handle.block_on(async {
-                                        let sr = stations.read().await;
-                                        if let Some(st) = sr.get(&ca) {
-                                            if let Some(point) = st.data_points.get_by_category(ioa, DataCategory::FloatMeasured) {
-                                                let ca_b = ca.to_le_bytes();
-                                                let _ioa_b = ioa.to_le_bytes();
-                                                let spont = {
-                                                    let mut s = seq.lock().await;
-                                                    encode_point_frame_ex(point, 3, &ca_b, &mut *s, None)
-                                                };
-                                                let _ = stream.write_all(&spont);
-                                            }
-                                        }
-                                    });
-                                }
-                            }
-                            }
-                            if let Some(ref lc) = log_collector {
-                                let mode = if is_select { "Select" } else { "Execute" };
-                                lc.try_add(LogEntry::new(
-                                    Direction::Tx, FrameLabel::SetpointFloat,
-                                    format!("浮点设定值确认 IOA={} val={:.3} {} CA={}", ioa, value, mode, ca),
-                                ));
                             }
                         }
                     }
                     _ => {
+                        // 未知 ASDU 类型:回 COT=44(unknown type)+ P/N 否定确认(与异步路径一致)。
+                        if ops_snapshot.answer_commands {
+                            let ack = rt.block_on(async { let mut s = seq.lock().await; build_response_frame(&data[..n], 44 | 0x40, &mut s) });
+                            let _ = stream.write_all(&ack);
+                        }
                         if let Some(ref lc) = log_collector {
                             lc.try_add(LogEntry::new(
-                                Direction::Rx, FrameLabel::IFrame(format!("Type{}", asdu_type)),
-                                format!("未知 ASDU 类型={} CA={} COT={}", asdu_type, ca, cause),
-                            ));
+                                Direction::Tx, FrameLabel::IFrame(format!("Type{}", asdu_type)),
+                                format!("Unknown ASDU type={} rejected (COT=44 negative) CA={} COT={}", asdu_type, ca, cause),
+                            ).with_detail_event("unknownType", serde_json::json!({
+                                "type": asdu_type, "ca": ca, "cot": cause,
+                            })));
                         }
                     }
                 }
@@ -2356,7 +2207,9 @@ async fn send_gi_response_blocking(
         let mut s = seq.lock().await;
         for point in station.data_points.all_sorted() {
             // GI 排除累积量 (M_IT);累积量仅由计数量召唤 (C_CI_NA_1) 上送。
+            // 控制方向点位不属于监视信息,同样排除。
             if matches!(point.value, DataPointValue::IntegratedTotal { .. }) { continue; }
+            if point.asdu_type.category().is_control() { continue; }
             batch.extend_from_slice(&encode_point_frame_ex(point, 20, &ca_bytes, &mut s, None));
             if ops.gi_include_timestamped
                 && should_derive_tb(&station.data_points, point.asdu_type, point.ioa)
@@ -2842,6 +2695,7 @@ async fn do_queue_spontaneous(
             let mut s = conn.seq.lock().await;
             let mut points: Vec<&DataPoint> = Vec::new();
             for &(ioa, asdu_type) in changed {
+                if asdu_type.category().is_control() { continue; }
                 if let Some(p) = station.data_points.get(ioa, asdu_type) {
                     points.push(p);
                 }
@@ -2885,6 +2739,7 @@ async fn do_queue_spontaneous(
                         Some(p) => p,
                         None => continue,
                     };
+                    if point.asdu_type.category().is_control() { continue; }
                     batch.extend(encode_point_frame_ex(point, 3, &ca_bytes, &mut *s, None));
                     if ops.sync_tb_by_category.enabled_for(asdu_type.category())
                         && should_derive_tb(&station.data_points, asdu_type, ioa)
@@ -2930,12 +2785,99 @@ pub enum SlaveError {
     #[error("server is already running")] AlreadyRunning,
     #[error("server is not running")] NotRunning,
     #[error("bind error: {0}")] BindError(String),
+    /// 结构化 bind 失败:app 层据此给出可操作的本地化指引
+    /// (端口被占 / 系统保留段 / 权限或安全软件拦截)。
+    #[error("bind error: Failed to bind {addr}: {message}")]
+    BindFailed {
+        /// 机器可读分类:addr_in_use | access_denied | addr_not_available | bind_failed
+        code: &'static str,
+        addr: String,
+        /// OS 原始错误码(如 Windows 10013/10048),未知时为 0。
+        os_error: i32,
+        message: String,
+    },
     #[error("TLS error: {0}")] TlsError(String),
+}
+
+/// 把 bind 失败分类为结构化错误。Windows 上 10048(WSAEADDRINUSE)=端口被占,
+/// 10013(WSAEACCES)=访问被拒——后者通常是 Hyper-V/WSL2 排除端口段、其他进程
+/// 独占绑定(SO_EXCLUSIVEADDRUSE)或安全软件拦截,而非普通端口占用。
+fn classify_bind_error(addr: &str, e: &std::io::Error) -> SlaveError {
+    let code = match e.kind() {
+        std::io::ErrorKind::AddrInUse => "addr_in_use",
+        std::io::ErrorKind::PermissionDenied => "access_denied",
+        std::io::ErrorKind::AddrNotAvailable => "addr_not_available",
+        _ => match e.raw_os_error() {
+            Some(10013) => "access_denied",
+            Some(10048) => "addr_in_use",
+            Some(10049) => "addr_not_available",
+            _ => "bind_failed",
+        },
+    };
+    SlaveError::BindFailed {
+        code,
+        addr: addr.to_string(),
+        os_error: e.raw_os_error().unwrap_or(0),
+        message: e.to_string(),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::data_point::ControlTarget;
+
+    fn control_command(type_id: AsduTypeId, ioa: u32, value: CommandValue) -> ParsedControlCommand {
+        ParsedControlCommand {
+            type_id,
+            ioa,
+            value,
+            is_select: false,
+            qu: 0,
+            frame_label: FrameLabel::SingleCommand,
+        }
+    }
+
+    fn control_frame(type_id: AsduTypeId, ca: u16, ioa: u32) -> Vec<u8> {
+        let mut frame = vec![0u8; 16];
+        frame[0] = 0x68;
+        frame[1] = 14;
+        frame[6] = type_id as u8;
+        frame[7] = 1;
+        frame[8] = 6;
+        frame[10..12].copy_from_slice(&ca.to_le_bytes());
+        frame[12..15].copy_from_slice(&ioa.to_le_bytes()[..3]);
+        frame
+    }
+
+    #[test]
+    fn parses_every_control_type_45_through_51_and_58_through_64() {
+        let cases = [
+            (AsduTypeId::CScNa1, 16),
+            (AsduTypeId::CDcNa1, 16),
+            (AsduTypeId::CRcNa1, 16),
+            (AsduTypeId::CSeNa1, 18),
+            (AsduTypeId::CSeNb1, 18),
+            (AsduTypeId::CSeNc1, 20),
+            (AsduTypeId::CBoNa1, 19),
+            (AsduTypeId::CScTa1, 23),
+            (AsduTypeId::CDcTa1, 23),
+            (AsduTypeId::CRcTa1, 23),
+            (AsduTypeId::CSeTa1, 25),
+            (AsduTypeId::CSeTb1, 25),
+            (AsduTypeId::CSeTc1, 27),
+            (AsduTypeId::CBoTa1, 26),
+        ];
+        for (type_id, len) in cases {
+            let mut frame = vec![0u8; len];
+            frame[6] = type_id as u8;
+            frame[12..15].copy_from_slice(&0x010203u32.to_le_bytes()[..3]);
+            let parsed = parse_control_command(type_id as u8, &frame)
+                .unwrap_or_else(|| panic!("{} should parse", type_id.name()));
+            assert_eq!(parsed.type_id, type_id);
+            assert_eq!(parsed.ioa, 0x010203);
+        }
+    }
 
     #[test]
     fn test_station_creation() {
@@ -3047,6 +2989,297 @@ mod tests {
         assert!(server.add_station(Station::new(1, "重复")).await.is_err());
     }
 
+    #[tokio::test]
+    async fn explicit_control_mappings_are_independent_across_ca_ioa_and_type() {
+        let mut source = Station::new(1, "controls");
+        source
+            .add_point(InformationObjectDef {
+                ioa: 10,
+                asdu_type: AsduTypeId::CScNa1,
+                category: DataCategory::SingleCommand,
+                name: String::new(),
+                comment: String::new(),
+                mapping: Some(ControlTarget {
+                    common_address: 2,
+                    ioa: 20,
+                    asdu_type: AsduTypeId::MSpNa1,
+                }),
+                command_qualifier: None,
+                select_before_operate: None,
+            })
+            .unwrap();
+        source
+            .add_point(InformationObjectDef {
+                ioa: 10,
+                asdu_type: AsduTypeId::CScTa1,
+                category: DataCategory::SingleCommand,
+                name: String::new(),
+                comment: String::new(),
+                mapping: Some(ControlTarget {
+                    common_address: 2,
+                    ioa: 21,
+                    asdu_type: AsduTypeId::MSpTb1,
+                }),
+                command_qualifier: None,
+                select_before_operate: None,
+            })
+            .unwrap();
+
+        let mut target = Station::new(2, "monitoring");
+        for (ioa, asdu_type) in [(20, AsduTypeId::MSpNa1), (21, AsduTypeId::MSpTb1)] {
+            target
+                .add_point(InformationObjectDef {
+                    ioa,
+                    asdu_type,
+                    category: DataCategory::SinglePoint,
+                    name: String::new(),
+                    comment: String::new(),
+                    mapping: None,
+                    command_qualifier: None,
+                    select_before_operate: None,
+                })
+                .unwrap();
+        }
+
+        let stations = Arc::new(RwLock::new(HashMap::from([(1, source), (2, target)])));
+        let seq = Arc::new(tokio::sync::Mutex::new(SeqState::default()));
+        let mut selections = SelectStateMap::new();
+        let ops = RemoteOperationConfig::default();
+
+        let first = process_control_command(
+            &control_frame(AsduTypeId::CScNa1, 1, 10),
+            6,
+            1,
+            control_command(AsduTypeId::CScNa1, 10, CommandValue::Single(true)),
+            &stations,
+            &ops,
+            &seq,
+            &mut selections,
+        )
+        .await;
+        assert_eq!(first.spontaneous, Some((2, (20, AsduTypeId::MSpNa1))));
+        {
+            let guard = stations.read().await;
+            assert_eq!(
+                guard.get(&2).unwrap().data_points.get(20, AsduTypeId::MSpNa1).unwrap().value,
+                DataPointValue::SinglePoint { value: true }
+            );
+            assert_eq!(
+                guard.get(&2).unwrap().data_points.get(21, AsduTypeId::MSpTb1).unwrap().value,
+                DataPointValue::SinglePoint { value: false }
+            );
+        }
+
+        let second = process_control_command(
+            &control_frame(AsduTypeId::CScTa1, 1, 10),
+            6,
+            1,
+            control_command(AsduTypeId::CScTa1, 10, CommandValue::Single(true)),
+            &stations,
+            &ops,
+            &seq,
+            &mut selections,
+        )
+        .await;
+        assert_eq!(second.spontaneous, Some((2, (21, AsduTypeId::MSpTb1))));
+        let guard = stations.read().await;
+        assert_eq!(
+            guard.get(&2).unwrap().data_points.get(21, AsduTypeId::MSpTb1).unwrap().value,
+            DataPointValue::SinglePoint { value: true }
+        );
+    }
+
+    #[tokio::test]
+    async fn declared_unmapped_command_acknowledges_but_unknown_ioa_is_rejected() {
+        let mut station = Station::new(1, "controls");
+        station
+            .add_point(InformationObjectDef {
+                ioa: 10,
+                asdu_type: AsduTypeId::CScNa1,
+                category: DataCategory::SingleCommand,
+                name: String::new(),
+                comment: String::new(),
+                mapping: None,
+                command_qualifier: None,
+                select_before_operate: None,
+            })
+            .unwrap();
+        let stations = Arc::new(RwLock::new(HashMap::from([(1, station)])));
+        let seq = Arc::new(tokio::sync::Mutex::new(SeqState::default()));
+        let mut selections = SelectStateMap::new();
+        let ops = RemoteOperationConfig::default();
+
+        let accepted = process_control_command(
+            &control_frame(AsduTypeId::CScNa1, 1, 10),
+            6,
+            1,
+            control_command(AsduTypeId::CScNa1, 10, CommandValue::Single(true)),
+            &stations,
+            &ops,
+            &seq,
+            &mut selections,
+        )
+        .await;
+        assert_eq!(accepted.replies.len(), 2);
+        assert_eq!(accepted.replies[0][8] & 0x3f, 7);
+        assert_eq!(accepted.replies[1][8] & 0x3f, 10);
+        assert_eq!(
+            stations.read().await.get(&1).unwrap().data_points.get(10, AsduTypeId::CScNa1).unwrap().value,
+            DataPointValue::SinglePoint { value: true }
+        );
+
+        let rejected = process_control_command(
+            &control_frame(AsduTypeId::CScNa1, 1, 999),
+            6,
+            1,
+            control_command(AsduTypeId::CScNa1, 999, CommandValue::Single(true)),
+            &stations,
+            &ops,
+            &seq,
+            &mut selections,
+        )
+        .await;
+        assert_eq!(rejected.replies.len(), 1);
+        assert_eq!(rejected.replies[0][8] & 0x3f, 47);
+        assert_ne!(rejected.replies[0][8] & 0x40, 0);
+    }
+
+    #[tokio::test]
+    async fn sbo_enforcement_requires_matching_exact_type_select() {
+        let mut station = Station::new(1, "controls");
+        for type_id in [AsduTypeId::CScNa1, AsduTypeId::CScTa1] {
+            station
+                .add_point(InformationObjectDef {
+                    ioa: 10,
+                    asdu_type: type_id,
+                    category: DataCategory::SingleCommand,
+                    name: String::new(),
+                    comment: String::new(),
+                    mapping: None,
+                    command_qualifier: None,
+                    select_before_operate: None,
+                })
+                .unwrap();
+        }
+        let stations = Arc::new(RwLock::new(HashMap::from([(1, station)])));
+        let seq = Arc::new(tokio::sync::Mutex::new(SeqState::default()));
+        let mut selections = SelectStateMap::new();
+        let ops = RemoteOperationConfig { sbo_enforce: true, ..Default::default() };
+
+        let direct = process_control_command(
+            &control_frame(AsduTypeId::CScNa1, 1, 10),
+            6,
+            1,
+            control_command(AsduTypeId::CScNa1, 10, CommandValue::Single(true)),
+            &stations,
+            &ops,
+            &seq,
+            &mut selections,
+        )
+        .await;
+        assert_eq!(direct.replies.len(), 1);
+        assert_ne!(direct.replies[0][8] & 0x40, 0);
+
+        let mut select = control_command(AsduTypeId::CScNa1, 10, CommandValue::Single(true));
+        select.is_select = true;
+        let selected = process_control_command(
+            &control_frame(AsduTypeId::CScNa1, 1, 10),
+            6,
+            1,
+            select,
+            &stations,
+            &ops,
+            &seq,
+            &mut selections,
+        )
+        .await;
+        assert_eq!(selected.replies.len(), 1);
+        assert_eq!(selected.replies[0][8] & 0x3f, 7);
+
+        let wrong_type = process_control_command(
+            &control_frame(AsduTypeId::CScTa1, 1, 10),
+            6,
+            1,
+            control_command(AsduTypeId::CScTa1, 10, CommandValue::Single(true)),
+            &stations,
+            &ops,
+            &seq,
+            &mut selections,
+        )
+        .await;
+        assert_eq!(wrong_type.replies.len(), 1);
+        assert_ne!(wrong_type.replies[0][8] & 0x40, 0);
+
+        let executed = process_control_command(
+            &control_frame(AsduTypeId::CScNa1, 1, 10),
+            6,
+            1,
+            control_command(AsduTypeId::CScNa1, 10, CommandValue::Single(true)),
+            &stations,
+            &ops,
+            &seq,
+            &mut selections,
+        )
+        .await;
+        assert_eq!(executed.replies.len(), 2);
+        assert_eq!(
+            stations.read().await.get(&1).unwrap().data_points.get(10, AsduTypeId::CScNa1).unwrap().value,
+            DataPointValue::SinglePoint { value: true }
+        );
+    }
+
+    #[tokio::test]
+    async fn per_point_qoc_and_sbo_options_are_enforced() {
+        let mut station = Station::new(1, "controls");
+        station
+            .add_point(InformationObjectDef {
+                ioa: 10,
+                asdu_type: AsduTypeId::CScNa1,
+                category: DataCategory::SingleCommand,
+                name: String::new(),
+                comment: String::new(),
+                mapping: None,
+                command_qualifier: Some(2),
+                select_before_operate: Some(true),
+            })
+            .unwrap();
+        let stations = Arc::new(RwLock::new(HashMap::from([(1, station)])));
+        let seq = Arc::new(tokio::sync::Mutex::new(SeqState::default()));
+        let mut selections = SelectStateMap::new();
+        let ops = RemoteOperationConfig::default();
+
+        let wrong_q = process_control_command(
+            &control_frame(AsduTypeId::CScNa1, 1, 10),
+            6,
+            1,
+            control_command(AsduTypeId::CScNa1, 10, CommandValue::Single(true)),
+            &stations, &ops, &seq, &mut selections,
+        ).await;
+        assert_eq!(wrong_q.replies.len(), 1);
+        assert_ne!(wrong_q.replies[0][8] & 0x40, 0);
+
+        let mut select = control_command(AsduTypeId::CScNa1, 10, CommandValue::Single(true));
+        select.qu = 2;
+        select.is_select = true;
+        let selected = process_control_command(
+            &control_frame(AsduTypeId::CScNa1, 1, 10),
+            6, 1, select, &stations, &ops, &seq, &mut selections,
+        ).await;
+        assert_eq!(selected.replies.len(), 1);
+
+        let mut execute = control_command(AsduTypeId::CScNa1, 10, CommandValue::Single(true));
+        execute.qu = 2;
+        let executed = process_control_command(
+            &control_frame(AsduTypeId::CScNa1, 1, 10),
+            6, 1, execute, &stations, &ops, &seq, &mut selections,
+        ).await;
+        assert_eq!(executed.replies.len(), 2);
+        assert_eq!(
+            stations.read().await.get(&1).unwrap().data_points.get(10, AsduTypeId::CScNa1).unwrap().value,
+            DataPointValue::SinglePoint { value: true }
+        );
+    }
+
     // 回归:停止服务器必须立即返回。除周期任务外，Windows 不能连接
     // 0.0.0.0 通配地址来唤醒 listener.accept()；停止逻辑必须直接取消 accept
     // 任务，并确保监听 socket 已释放、同端口可以再次启动。
@@ -3064,6 +3297,12 @@ mod tests {
         };
         let mut server = SlaveServer::new(transport);
         server.start().await.expect("start should succeed");
+
+        // Keep an established plain TCP reader blocked while stopping. The server must
+        // own and abort that reader task instead of waiting for the peer to disconnect.
+        let _client = tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .expect("client should connect");
 
         // 预热:让周期任务越过"立即触发"的首个 tick,park 在下一个 2s tick 上。
         // 真实场景中服务器已运行一段时间,停止时任务正卡在 interval.tick() 等待。
@@ -3090,7 +3329,8 @@ mod tests {
             asdu_type: AsduTypeId::MSpNa1,
             category: DataCategory::SinglePoint,
             name: "SP".to_string(),
-            comment: String::new(),
+            comment: String::new(), mapping: None,
+            command_qualifier: None, select_before_operate: None
         };
         station.add_point(def_sp).unwrap();
         assert_eq!(station.data_points.len(), 1);
@@ -3102,7 +3342,8 @@ mod tests {
             asdu_type: AsduTypeId::MMeNc1,
             category: DataCategory::FloatMeasured,
             name: "Float".to_string(),
-            comment: String::new(),
+            comment: String::new(), mapping: None,
+            command_qualifier: None, select_before_operate: None
         };
         station.add_point(def_float).unwrap();
         assert_eq!(station.data_points.len(), 2); // both coexist

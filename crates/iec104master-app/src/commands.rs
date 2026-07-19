@@ -976,7 +976,7 @@ fn point_to_info(ca: u16, p: &iec104sim_core::data_point::DataPoint) -> Received
         common_address: ca,
         asdu_type: p.asdu_type.name().to_string(),
         asdu_type_id: p.asdu_type as u8,
-        category: p.asdu_type.category().name().to_string(),
+        category: p.asdu_type.category().key().to_string(),
         value: match &p.value {
             iec104sim_core::data_point::DataPointValue::Normalized { value } => normalized_raw_string(*value),
             _ => p.value.display(),
@@ -1089,6 +1089,20 @@ pub async fn export_logs_csv(
         .get(&connection_id)
         .ok_or_else(|| format!("connection {} not found", connection_id))?;
     Ok(conn.log_collector.export_csv().await)
+}
+
+/// 将日志直接写入用户通过原生保存对话框选择的路径。WebView 中使用 Blob +
+/// `<a download>` 在 Tauri/Windows WebView2 下不会可靠触发系统下载，因此文件写入
+/// 必须由 Rust 后端完成。UTF-8 BOM 让 Windows Excel 能正确识别中英文详情。
+#[tauri::command]
+pub async fn save_logs_csv(
+    state: State<'_, AppState>,
+    connection_id: String,
+    path: String,
+) -> Result<(), String> {
+    let csv = export_logs_csv(state, connection_id).await?;
+    std::fs::write(&path, format!("\u{FEFF}{csv}"))
+        .map_err(|e| format!("写入 CSV 失败: {e}"))
 }
 
 // ---------------------------------------------------------------------------

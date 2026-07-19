@@ -6,32 +6,47 @@ import type { showAlert as ShowAlert } from '@shared/composables/useDialog'
 import type { ServerInfo, StationInfo } from '../types'
 import { useI18n, localizeCategoryLabel } from '@shared/i18n'
 import EmptyState from '@shared/components/EmptyState.vue'
+import { formatStartServerError } from '../errors'
 
 const { t } = useI18n()
 const { showAlert } = inject<{ showAlert: typeof ShowAlert }>(dialogKey)!
 
 const CATEGORIES = [
-  '单点 (SP)',
-  '双点 (DP)',
-  '步位置 (ST)',
-  '位串 (BO)',
-  '归一化 (ME_NA)',
-  '标度化 (ME_NB)',
-  '浮点 (ME_NC)',
-  '累计量 (IT)',
+  'single_point',
+  'double_point',
+  'step_position',
+  'bitstring',
+  'normalized_measured',
+  'scaled_measured',
+  'float_measured',
+  'integrated_totals',
+  'single_command',
+  'double_command',
+  'step_command',
+  'bitstring_command',
+  'normalized_setpoint',
+  'scaled_setpoint',
+  'float_setpoint',
 ]
 
 // 每个监视方向 category 对应的 ASDU TypeId: 无时标 · CP56 时标
 // 与 crates/iec104sim-core/src/types.rs::AsduTypeId::category 一致
 const CATEGORY_TYPEIDS: Record<string, string> = {
-  '单点 (SP)': '1 · 30',
-  '双点 (DP)': '3 · 31',
-  '步位置 (ST)': '5 · 32',
-  '位串 (BO)': '7 · 33',
-  '归一化 (ME_NA)': '9 · 34',
-  '标度化 (ME_NB)': '11 · 35',
-  '浮点 (ME_NC)': '13 · 36',
-  '累计量 (IT)': '15 · 37',
+  single_point: '1 · 30',
+  double_point: '3 · 31',
+  step_position: '5 · 32',
+  bitstring: '7 · 33',
+  normalized_measured: '9 · 21 · 34',
+  scaled_measured: '11 · 35',
+  float_measured: '13 · 36',
+  integrated_totals: '15 · 37',
+  single_command: '45 · 58',
+  double_command: '46 · 59',
+  step_command: '47 · 60',
+  bitstring_command: '51 · 64',
+  normalized_setpoint: '48 · 61',
+  scaled_setpoint: '49 · 62',
+  float_setpoint: '50 · 63',
 }
 
 const sharedCategoryCounts = inject<Ref<Map<string, number>>>('categoryCounts')!
@@ -154,7 +169,7 @@ async function ctxStartServer() {
     await invoke('start_server', { id: contextMenu.value.serverId })
     await loadTree()
   } catch (e) {
-    await showAlert(String(e))
+    await showAlert(formatStartServerError(e, t))
   }
 }
 

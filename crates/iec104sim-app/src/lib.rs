@@ -27,6 +27,8 @@ pub fn run() {
             commands::list_stations,
             // Data point commands
             commands::add_data_point,
+            commands::update_data_point_definition,
+            commands::list_control_mapping_targets,
             commands::batch_add_data_points,
             commands::remove_data_point,
             commands::batch_remove_data_points,

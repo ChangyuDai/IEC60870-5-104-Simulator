@@ -1,6 +1,6 @@
 use iec104sim_core::data_point::DataPointValue;
 use iec104sim_core::master::{MasterConfig, MasterConnection};
-use iec104sim_core::slave::{SlaveServer, SlaveTransportConfig, Station};
+use iec104sim_core::slave::{RemoteOperationConfig, SlaveServer, SlaveTransportConfig, Station};
 use iec104sim_core::types::AsduTypeId;
 use tokio::time::{sleep, Duration};
 
@@ -23,6 +23,12 @@ async fn test_single_command_writeback() {
         ..Default::default()
     };
     let mut slave = SlaveServer::new(transport);
+    slave
+        .set_remote_ops(RemoteOperationConfig {
+            auto_map_commands: true,
+            ..Default::default()
+        })
+        .await;
     slave.add_station(Station::with_default_points(1, "Test", 2)).await.unwrap();
     slave.start().await.unwrap();
     sleep(Duration::from_millis(300)).await;
@@ -88,6 +94,12 @@ async fn test_double_command_writeback() {
         ..Default::default()
     };
     let mut slave = SlaveServer::new(transport);
+    slave
+        .set_remote_ops(RemoteOperationConfig {
+            auto_map_commands: true,
+            ..Default::default()
+        })
+        .await;
     slave.add_station(Station::with_default_points(1, "Test", 2)).await.unwrap();
     slave.start().await.unwrap();
     sleep(Duration::from_millis(300)).await;
@@ -142,6 +154,12 @@ async fn test_setpoint_float_writeback() {
         ..Default::default()
     };
     let mut slave = SlaveServer::new(transport);
+    slave
+        .set_remote_ops(RemoteOperationConfig {
+            auto_map_commands: true,
+            ..Default::default()
+        })
+        .await;
     slave.add_station(Station::with_default_points(1, "Test", 2)).await.unwrap();
     slave.start().await.unwrap();
     sleep(Duration::from_millis(300)).await;
@@ -183,9 +201,7 @@ async fn test_setpoint_float_writeback() {
 }
 
 // =========================================================================
-// Regression: every Type 45-50 control maps to the corresponding monitor
-// point at the same CA + IOA. Control objects are therefore not configured as
-// separate data points in the slave UI.
+// Regression: legacy automatic mapping remains available as an explicit opt-in.
 // =========================================================================
 #[tokio::test]
 async fn test_all_control_types_map_to_monitor_points() {
@@ -196,6 +212,12 @@ async fn test_all_control_types_map_to_monitor_points() {
         ..Default::default()
     };
     let mut slave = SlaveServer::new(transport);
+    slave
+        .set_remote_ops(RemoteOperationConfig {
+            auto_map_commands: true,
+            ..Default::default()
+        })
+        .await;
     slave
         .add_station(Station::with_default_points(1, "Test", 1))
         .await
@@ -289,6 +311,12 @@ async fn test_sbo_single_command() {
         ..Default::default()
     };
     let mut slave = SlaveServer::new(transport);
+    slave
+        .set_remote_ops(RemoteOperationConfig {
+            auto_map_commands: true,
+            ..Default::default()
+        })
+        .await;
     slave.add_station(Station::with_default_points(1, "Test", 2)).await.unwrap();
     slave.start().await.unwrap();
     sleep(Duration::from_millis(300)).await;

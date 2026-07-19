@@ -104,6 +104,14 @@ fn asdu_element_size(asdu_type: u8) -> Option<(usize, bool)> {
         48 => Some((3, false)),  // C_SE_NA_1: NVA(2) + QOS(1)
         49 => Some((3, false)),  // C_SE_NB_1: SVA(2) + QOS(1)
         50 => Some((5, false)),  // C_SE_NC_1: float(4) + QOS(1)
+        51 => Some((4, false)),  // C_BO_NA_1: BSI(4)
+        58 => Some((1, true)),   // C_SC_TA_1: SCO + CP56Time2a
+        59 => Some((1, true)),   // C_DC_TA_1: DCO + CP56Time2a
+        60 => Some((1, true)),   // C_RC_TA_1: RCO + CP56Time2a
+        61 => Some((3, true)),   // C_SE_TA_1: NVA + QOS + CP56Time2a
+        62 => Some((3, true)),   // C_SE_TB_1: SVA + QOS + CP56Time2a
+        63 => Some((5, true)),   // C_SE_TC_1: float + QOS + CP56Time2a
+        64 => Some((4, true)),   // C_BO_TA_1: BSI + CP56Time2a
         100 => Some((1, false)), // C_IC_NA_1: QOI
         101 => Some((1, false)), // C_CI_NA_1: QCC
         103 => Some((7, false)), // C_CS_NA_1: CP56Time2a as value
@@ -243,37 +251,49 @@ fn decode_element(
             (Some(value), Some(q), ts)
         }
         // ---- Control: SCO/DCO/RCO are 1-byte command qualifiers ----
-        45 => {
+        45 | 58 => {
             let sco = elem[0];
             let value = DataPointValue::SinglePoint { value: sco & 0x01 != 0 };
-            (Some(value), None, None)
+            let ts = if asdu_type == 58 { decode_cp56time2a(&elem[1..]) } else { None };
+            (Some(value), None, ts)
         }
-        46 => {
+        46 | 59 => {
             let dco = elem[0];
             let value = DataPointValue::DoublePoint { value: dco & 0x03 };
-            (Some(value), None, None)
+            let ts = if asdu_type == 59 { decode_cp56time2a(&elem[1..]) } else { None };
+            (Some(value), None, ts)
         }
-        47 => {
+        47 | 60 => {
             let rco = elem[0];
             let v = (rco & 0x03) as i8;
             let value = DataPointValue::StepPosition { value: v, transient: false };
-            (Some(value), None, None)
+            let ts = if asdu_type == 60 { decode_cp56time2a(&elem[1..]) } else { None };
+            (Some(value), None, ts)
         }
         // ---- Control set-points: NVA / SVA / float + QOS ----
-        48 => {
+        48 | 61 => {
             let nva = i16::from_le_bytes([elem[0], elem[1]]);
             let value = DataPointValue::Normalized { value: nva as f32 / 32767.0 };
-            (Some(value), None, None)
+            let ts = if asdu_type == 61 { decode_cp56time2a(&elem[3..]) } else { None };
+            (Some(value), None, ts)
         }
-        49 => {
+        49 | 62 => {
             let sva = i16::from_le_bytes([elem[0], elem[1]]);
             let value = DataPointValue::Scaled { value: sva };
-            (Some(value), None, None)
+            let ts = if asdu_type == 62 { decode_cp56time2a(&elem[3..]) } else { None };
+            (Some(value), None, ts)
         }
-        50 => {
+        50 | 63 => {
             let f = f32::from_le_bytes([elem[0], elem[1], elem[2], elem[3]]);
             let value = DataPointValue::ShortFloat { value: f };
-            (Some(value), None, None)
+            let ts = if asdu_type == 63 { decode_cp56time2a(&elem[5..]) } else { None };
+            (Some(value), None, ts)
+        }
+        51 | 64 => {
+            let bsi = u32::from_le_bytes([elem[0], elem[1], elem[2], elem[3]]);
+            let value = DataPointValue::Bitstring { value: bsi };
+            let ts = if asdu_type == 64 { decode_cp56time2a(&elem[4..]) } else { None };
+            (Some(value), None, ts)
         }
         // ---- System commands: QOI / QCC are single qualifier bytes ----
         100 | 101 => {

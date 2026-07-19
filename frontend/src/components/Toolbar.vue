@@ -10,6 +10,7 @@ import LangSwitch from '@shared/components/LangSwitch.vue'
 import VersionBadge from '@shared/components/VersionBadge.vue'
 import NewServerModal from './NewServerModal.vue'
 import { useI18n } from '@shared/i18n'
+import { formatStartServerError } from '../errors'
 
 const { t } = useI18n()
 const showAbout = ref(false)
@@ -62,7 +63,7 @@ async function startServer() {
     selectedServerState.value = 'Running'
     refreshTree()
   } catch (e) {
-    await showAlert(String(e))
+    await showAlert(formatStartServerError(e, t))
   } finally {
     serverActionPending.value = false
   }

@@ -150,6 +150,8 @@ export type DictShape = {
     refresh: string
     clear: string
     export: string
+    exporting: string
+    exportFailed: string
     singleCommand: string
     doubleCommand: string
     stepCommand: string
@@ -451,6 +453,8 @@ const dict: DictShape = {
     refresh: '刷新',
     clear: '清空',
     export: '导出',
+    exporting: '导出中…',
+    exportFailed: '导出 CSV 失败',
     singleCommand: '单点命令 IOA={ioa} val={val}',
     doubleCommand: '双点命令 IOA={ioa} val={val}',
     stepCommand: '步调节命令 IOA={ioa} val={val}',

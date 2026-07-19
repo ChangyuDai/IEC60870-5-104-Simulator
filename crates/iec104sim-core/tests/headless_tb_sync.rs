@@ -29,7 +29,8 @@ async fn add_explicit_point(pair: &Pair, ioa: u32, asdu: AsduTypeId, cat: DataCa
         asdu_type: asdu,
         category: cat,
         name: String::new(),
-        comment: String::new(),
+        comment: String::new(), mapping: None,
+        command_qualifier: None, select_before_operate: None
     })
     .unwrap();
 }

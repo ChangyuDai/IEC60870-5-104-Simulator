@@ -53,6 +53,22 @@ pub enum AsduTypeId {
     CSeNb1 = 49,
     /// Set-point, short floating point (Type 50)
     CSeNc1 = 50,
+    /// Bitstring of 32 bit command (Type 51)
+    CBoNa1 = 51,
+    /// Single command with CP56Time2a (Type 58)
+    CScTa1 = 58,
+    /// Double command with CP56Time2a (Type 59)
+    CDcTa1 = 59,
+    /// Step command with CP56Time2a (Type 60)
+    CRcTa1 = 60,
+    /// Set-point, normalized with CP56Time2a (Type 61)
+    CSeTa1 = 61,
+    /// Set-point, scaled with CP56Time2a (Type 62)
+    CSeTb1 = 62,
+    /// Set-point, short float with CP56Time2a (Type 63)
+    CSeTc1 = 63,
+    /// Bitstring command with CP56Time2a (Type 64)
+    CBoTa1 = 64,
 
     // ---- System commands ----
     /// Interrogation command (Type 100)
@@ -90,6 +106,14 @@ impl AsduTypeId {
             Self::CSeNa1 => "C_SE_NA_1",
             Self::CSeNb1 => "C_SE_NB_1",
             Self::CSeNc1 => "C_SE_NC_1",
+            Self::CBoNa1 => "C_BO_NA_1",
+            Self::CScTa1 => "C_SC_TA_1",
+            Self::CDcTa1 => "C_DC_TA_1",
+            Self::CRcTa1 => "C_RC_TA_1",
+            Self::CSeTa1 => "C_SE_TA_1",
+            Self::CSeTb1 => "C_SE_TB_1",
+            Self::CSeTc1 => "C_SE_TC_1",
+            Self::CBoTa1 => "C_BO_TA_1",
             Self::CIcNa1 => "C_IC_NA_1",
             Self::CCiNa1 => "C_CI_NA_1",
             Self::CCsNa1 => "C_CS_NA_1",
@@ -108,12 +132,13 @@ impl AsduTypeId {
             Self::MMeNb1 | Self::MMeTe1 => "标度化测量值",
             Self::MMeNc1 | Self::MMeTf1 => "短浮点测量值",
             Self::MItNa1 | Self::MItTb1 => "累计量",
-            Self::CScNa1 => "单点命令",
-            Self::CDcNa1 => "双点命令",
-            Self::CRcNa1 => "步调节命令",
-            Self::CSeNa1 => "归一化设定值",
-            Self::CSeNb1 => "标度化设定值",
-            Self::CSeNc1 => "短浮点设定值",
+            Self::CScNa1 | Self::CScTa1 => "单点命令",
+            Self::CDcNa1 | Self::CDcTa1 => "双点命令",
+            Self::CRcNa1 | Self::CRcTa1 => "步调节命令",
+            Self::CSeNa1 | Self::CSeTa1 => "归一化设定值",
+            Self::CSeNb1 | Self::CSeTb1 => "标度化设定值",
+            Self::CSeNc1 | Self::CSeTc1 => "短浮点设定值",
+            Self::CBoNa1 | Self::CBoTa1 => "位串命令",
             Self::CIcNa1 => "总召唤",
             Self::CCiNa1 => "累计量召唤",
             Self::CCsNa1 => "时钟同步",
@@ -131,13 +156,52 @@ impl AsduTypeId {
             Self::MMeNb1 | Self::MMeTe1 => DataCategory::ScaledMeasured,
             Self::MMeNc1 | Self::MMeTf1 => DataCategory::FloatMeasured,
             Self::MItNa1 | Self::MItTb1 => DataCategory::IntegratedTotals,
-            Self::CScNa1 => DataCategory::SinglePoint,
-            Self::CDcNa1 => DataCategory::DoublePoint,
-            Self::CRcNa1 => DataCategory::StepPosition,
-            Self::CSeNa1 => DataCategory::NormalizedMeasured,
-            Self::CSeNb1 => DataCategory::ScaledMeasured,
-            Self::CSeNc1 => DataCategory::FloatMeasured,
+            Self::CScNa1 | Self::CScTa1 => DataCategory::SingleCommand,
+            Self::CDcNa1 | Self::CDcTa1 => DataCategory::DoubleCommand,
+            Self::CRcNa1 | Self::CRcTa1 => DataCategory::StepCommand,
+            Self::CSeNa1 | Self::CSeTa1 => DataCategory::NormalizedSetpoint,
+            Self::CSeNb1 | Self::CSeTb1 => DataCategory::ScaledSetpoint,
+            Self::CSeNc1 | Self::CSeTc1 => DataCategory::FloatSetpoint,
+            Self::CBoNa1 | Self::CBoTa1 => DataCategory::BitstringCommand,
             Self::CIcNa1 | Self::CCiNa1 | Self::CCsNa1 => DataCategory::System,
+        }
+    }
+
+    /// Whether this is a control-direction (command / set-point) type.
+    pub fn is_control(&self) -> bool {
+        matches!(
+            self,
+            Self::CScNa1
+                | Self::CDcNa1
+                | Self::CRcNa1
+                | Self::CSeNa1
+                | Self::CSeNb1
+                | Self::CSeNc1
+                | Self::CBoNa1
+                | Self::CScTa1
+                | Self::CDcTa1
+                | Self::CRcTa1
+                | Self::CSeTa1
+                | Self::CSeTb1
+                | Self::CSeTc1
+                | Self::CBoTa1
+        )
+    }
+
+    /// 该控制类型允许映射到的监视方向分类(控制与监视方向独立,同族即可:
+    /// 45/58→SP(1/30), 46/59→DP(3/31), 47/60→ST(5/32), 51/64→BO(7/33),
+    /// 48/61→ME_NA(9/34/21), 49/62→ME_NB(11/35), 50/63→ME_NC(13/36))。
+    /// 非控制类型返回空切片。
+    pub fn allowed_target_categories(&self) -> &'static [DataCategory] {
+        match self.category() {
+            DataCategory::SingleCommand => &[DataCategory::SinglePoint],
+            DataCategory::DoubleCommand => &[DataCategory::DoublePoint],
+            DataCategory::StepCommand => &[DataCategory::StepPosition],
+            DataCategory::BitstringCommand => &[DataCategory::Bitstring],
+            DataCategory::NormalizedSetpoint => &[DataCategory::NormalizedMeasured],
+            DataCategory::ScaledSetpoint => &[DataCategory::ScaledMeasured],
+            DataCategory::FloatSetpoint => &[DataCategory::FloatMeasured],
+            _ => &[],
         }
     }
 
@@ -153,12 +217,20 @@ impl AsduTypeId {
                 | Self::MMeTe1
                 | Self::MMeTf1
                 | Self::MItTb1
+                | Self::CScTa1
+                | Self::CDcTa1
+                | Self::CRcTa1
+                | Self::CSeTa1
+                | Self::CSeTb1
+                | Self::CSeTc1
+                | Self::CBoTa1
         )
     }
 
-    /// Map a monitor-direction NA (no timestamp) type to its CP56Time2a-bearing
-    /// counterpart. Returns `None` for control / system types and for types that
-    /// are already timestamped.
+    /// Map an NA (no timestamp) type to its CP56Time2a-bearing counterpart.
+    /// Covers monitor types (M_SP_NA_1 → M_SP_TB_1) and control types
+    /// (C_SC_NA_1 → C_SC_TA_1). Returns `None` for system types and for
+    /// types that are already timestamped.
     pub fn timestamped_variant(&self) -> Option<AsduTypeId> {
         match self {
             Self::MSpNa1 => Some(Self::MSpTb1),
@@ -169,11 +241,18 @@ impl AsduTypeId {
             Self::MMeNb1 => Some(Self::MMeTe1),
             Self::MMeNc1 => Some(Self::MMeTf1),
             Self::MItNa1 => Some(Self::MItTb1),
+            Self::CScNa1 => Some(Self::CScTa1),
+            Self::CDcNa1 => Some(Self::CDcTa1),
+            Self::CRcNa1 => Some(Self::CRcTa1),
+            Self::CSeNa1 => Some(Self::CSeTa1),
+            Self::CSeNb1 => Some(Self::CSeTb1),
+            Self::CSeNc1 => Some(Self::CSeTc1),
+            Self::CBoNa1 => Some(Self::CBoTa1),
             _ => None,
         }
     }
 
-    /// Inverse of [`Self::timestamped_variant`]: strip the timestamp from a TB
+    /// Inverse of [`Self::timestamped_variant`]: strip the timestamp from a TB/TA
     /// type back to its NA peer. Identity for already-untimestamped types.
     pub fn untimestamped_variant(&self) -> AsduTypeId {
         match self {
@@ -185,6 +264,13 @@ impl AsduTypeId {
             Self::MMeTe1 => Self::MMeNb1,
             Self::MMeTf1 => Self::MMeNc1,
             Self::MItTb1 => Self::MItNa1,
+            Self::CScTa1 => Self::CScNa1,
+            Self::CDcTa1 => Self::CDcNa1,
+            Self::CRcTa1 => Self::CRcNa1,
+            Self::CSeTa1 => Self::CSeNa1,
+            Self::CSeTb1 => Self::CSeNb1,
+            Self::CSeTc1 => Self::CSeNc1,
+            Self::CBoTa1 => Self::CBoNa1,
             other => *other,
         }
     }
@@ -215,6 +301,14 @@ impl AsduTypeId {
             48 => Some(Self::CSeNa1),
             49 => Some(Self::CSeNb1),
             50 => Some(Self::CSeNc1),
+            51 => Some(Self::CBoNa1),
+            58 => Some(Self::CScTa1),
+            59 => Some(Self::CDcTa1),
+            60 => Some(Self::CRcTa1),
+            61 => Some(Self::CSeTa1),
+            62 => Some(Self::CSeTb1),
+            63 => Some(Self::CSeTc1),
+            64 => Some(Self::CBoTa1),
             100 => Some(Self::CIcNa1),
             101 => Some(Self::CCiNa1),
             103 => Some(Self::CCsNa1),
@@ -243,6 +337,20 @@ pub enum DataCategory {
     FloatMeasured,
     /// M_IT_* (integrated totals / counters)
     IntegratedTotals,
+    /// C_SC_NA/TA (single command, control direction)
+    SingleCommand,
+    /// C_DC_NA/TA (double command, control direction)
+    DoubleCommand,
+    /// C_RC_NA/TA (regulating step command, control direction)
+    StepCommand,
+    /// C_BO_NA/TA (bitstring command, control direction)
+    BitstringCommand,
+    /// C_SE_NA/TA (set-point normalized, control direction)
+    NormalizedSetpoint,
+    /// C_SE_NB/TB (set-point scaled, control direction)
+    ScaledSetpoint,
+    /// C_SE_NC/TC (set-point short float, control direction)
+    FloatSetpoint,
     /// System commands (GI, Counter Read, Clock Sync)
     System,
 }
@@ -268,7 +376,66 @@ impl DataCategory {
             Self::ScaledMeasured => "标度化 (ME_NB)",
             Self::FloatMeasured => "浮点 (ME_NC)",
             Self::IntegratedTotals => "累计量 (IT)",
+            Self::SingleCommand => "单点命令 (C_SC)",
+            Self::DoubleCommand => "双点命令 (C_DC)",
+            Self::StepCommand => "步调节命令 (C_RC)",
+            Self::BitstringCommand => "位串命令 (C_BO)",
+            Self::NormalizedSetpoint => "归一化设定值 (C_SE_NA)",
+            Self::ScaledSetpoint => "标度化设定值 (C_SE_NB)",
+            Self::FloatSetpoint => "浮点设定值 (C_SE_NC)",
             Self::System => "系统命令",
+        }
+    }
+
+    /// 稳定标识串(serde snake_case 变体名)。跨 IPC 传给前端做匹配/本地化,
+    /// 替代旧的中文 `name()` 键——UI 展示文案由前端字典按此键翻译。
+    pub fn key(&self) -> &'static str {
+        match self {
+            Self::SinglePoint => "single_point",
+            Self::DoublePoint => "double_point",
+            Self::StepPosition => "step_position",
+            Self::Bitstring => "bitstring",
+            Self::NormalizedMeasured => "normalized_measured",
+            Self::ScaledMeasured => "scaled_measured",
+            Self::FloatMeasured => "float_measured",
+            Self::IntegratedTotals => "integrated_totals",
+            Self::SingleCommand => "single_command",
+            Self::DoubleCommand => "double_command",
+            Self::StepCommand => "step_command",
+            Self::BitstringCommand => "bitstring_command",
+            Self::NormalizedSetpoint => "normalized_setpoint",
+            Self::ScaledSetpoint => "scaled_setpoint",
+            Self::FloatSetpoint => "float_setpoint",
+            Self::System => "system",
+        }
+    }
+
+    /// Whether this is a control-direction (command / set-point) category.
+    pub fn is_control(&self) -> bool {
+        matches!(
+            self,
+            Self::SingleCommand
+                | Self::DoubleCommand
+                | Self::StepCommand
+                | Self::BitstringCommand
+                | Self::NormalizedSetpoint
+                | Self::ScaledSetpoint
+                | Self::FloatSetpoint
+        )
+    }
+
+    /// 控制方向分类在旧「同 CA+IOA 自动映射」下对应的监视方向分类。
+    /// 非控制分类返回 None。
+    pub fn auto_map_monitor_category(&self) -> Option<DataCategory> {
+        match self {
+            Self::SingleCommand => Some(Self::SinglePoint),
+            Self::DoubleCommand => Some(Self::DoublePoint),
+            Self::StepCommand => Some(Self::StepPosition),
+            Self::BitstringCommand => Some(Self::Bitstring),
+            Self::NormalizedSetpoint => Some(Self::NormalizedMeasured),
+            Self::ScaledSetpoint => Some(Self::ScaledMeasured),
+            Self::FloatSetpoint => Some(Self::FloatMeasured),
+            _ => None,
         }
     }
 
@@ -283,6 +450,19 @@ impl DataCategory {
             Self::ScaledMeasured,
             Self::FloatMeasured,
             Self::IntegratedTotals,
+        ]
+    }
+
+    /// All control-direction categories (for tree display).
+    pub fn control_categories() -> &'static [DataCategory] {
+        &[
+            Self::SingleCommand,
+            Self::DoubleCommand,
+            Self::StepCommand,
+            Self::BitstringCommand,
+            Self::NormalizedSetpoint,
+            Self::ScaledSetpoint,
+            Self::FloatSetpoint,
         ]
     }
 }
@@ -457,8 +637,9 @@ mod tests {
     }
 
     #[test]
-    fn test_timestamped_variant_none_for_control() {
-        assert_eq!(AsduTypeId::CScNa1.timestamped_variant(), None);
+    fn test_timestamped_variant_for_control_and_none_for_system() {
+        assert_eq!(AsduTypeId::CScNa1.timestamped_variant(), Some(AsduTypeId::CScTa1));
+        assert_eq!(AsduTypeId::CScTa1.untimestamped_variant(), AsduTypeId::CScNa1);
         assert_eq!(AsduTypeId::CIcNa1.timestamped_variant(), None);
         assert_eq!(AsduTypeId::MSpTb1.timestamped_variant(), None);
     }

@@ -1,6 +1,8 @@
 use iec104sim_core::data_point::DataPointValue;
 use iec104sim_core::master::{MasterConfig, MasterConnection, TlsConfig};
-use iec104sim_core::slave::{SlaveServer, SlaveTlsConfig, SlaveTransportConfig, Station};
+use iec104sim_core::slave::{
+    RemoteOperationConfig, SlaveServer, SlaveTlsConfig, SlaveTransportConfig, Station,
+};
 use iec104sim_core::types::AsduTypeId;
 use std::process::Command;
 use tokio::time::{sleep, Duration};
@@ -381,6 +383,12 @@ async fn test_tls_full_protocol() {
         },
     };
     let mut slave = SlaveServer::new(transport);
+    slave
+        .set_remote_ops(RemoteOperationConfig {
+            auto_map_commands: true,
+            ..Default::default()
+        })
+        .await;
     let mut station = Station::new(1, "TLS Protocol Test");
     station.batch_add_points(100, 1, AsduTypeId::MSpNa1, "SP").unwrap();
     station.batch_add_points(200, 1, AsduTypeId::MMeNc1, "FL").unwrap();
@@ -449,6 +457,12 @@ async fn test_tls_mtls_full_protocol() {
         },
     };
     let mut slave = SlaveServer::new(transport);
+    slave
+        .set_remote_ops(RemoteOperationConfig {
+            auto_map_commands: true,
+            ..Default::default()
+        })
+        .await;
     let mut station = Station::new(1, "mTLS Protocol Test");
     station.batch_add_points(100, 1, AsduTypeId::MSpNa1, "SP").unwrap();
     station.batch_add_points(200, 1, AsduTypeId::MMeNc1, "FL").unwrap();

@@ -168,7 +168,7 @@ function selectCategory(conn: TreeConnection, cat: { key: string; label: string 
     ? `${conn.info.id}:${cat.key}`
     : `${conn.info.id}:ca:${ca}:${cat.key}`
   selectedNodeId.value = id
-  emit('category-select', conn.info.id, cat.label, ca)
+  emit('category-select', conn.info.id, cat.key, ca)
 }
 
 function toggleExpand(conn: TreeConnection) {
@@ -252,14 +252,14 @@ function stateClass(state: string): string {
                 :key="`${ca}-${cat.key}`"
                 :class="['tree-node', 'tree-child', 'tree-grand', {
                   selected: selectedNodeId === `${conn.info.id}:ca:${ca}:${cat.key}`,
-                  'cat-flash': flashingCategories.has(flashKey(conn.info.id, ca, cat.label)),
+                  'cat-flash': flashingCategories.has(flashKey(conn.info.id, ca, cat.key)),
                 }]"
                 @click="selectCategory(conn, cat, ca)"
               >
                 <span class="node-label">{{ t(`category.${cat.key}`) }}</span>
                 <span class="node-typeid">{{ CATEGORY_TYPEIDS[cat.key] }}</span>
-                <span class="node-count" v-if="countFor(conn.info.id, cat.label, ca) > 0">
-                  {{ countFor(conn.info.id, cat.label, ca) }}
+                <span class="node-count" v-if="countFor(conn.info.id, cat.key, ca) > 0">
+                  {{ countFor(conn.info.id, cat.key, ca) }}
                 </span>
               </div>
             </div>
@@ -274,14 +274,14 @@ function stateClass(state: string): string {
             :key="cat.key"
             :class="['tree-node', 'tree-child', {
               selected: selectedNodeId === `${conn.info.id}:${cat.key}`,
-              'cat-flash': flashingCategories.has(flashKey(conn.info.id, conn.info.common_addresses[0], cat.label)),
+              'cat-flash': flashingCategories.has(flashKey(conn.info.id, conn.info.common_addresses[0], cat.key)),
             }]"
             @click="selectCategory(conn, cat, null)"
           >
             <span class="node-label">{{ t(`category.${cat.key}`) }}</span>
             <span class="node-typeid">{{ CATEGORY_TYPEIDS[cat.key] }}</span>
-            <span class="node-count" v-if="countFor(conn.info.id, cat.label, null) > 0">
-              {{ countFor(conn.info.id, cat.label, null) }}
+            <span class="node-count" v-if="countFor(conn.info.id, cat.key, null) > 0">
+              {{ countFor(conn.info.id, cat.key, null) }}
             </span>
           </div>
         </template>

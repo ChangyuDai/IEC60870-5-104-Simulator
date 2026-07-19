@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { dialogKey } from '@shared/composables/useDialog'
 import type { showAlert as ShowAlert } from '@shared/composables/useDialog'
 import { useI18n } from '@shared/i18n'
+import { formatStartServerError } from '../errors'
 
 const { t } = useI18n()
 const { showAlert } = inject<{ showAlert: typeof ShowAlert }>(dialogKey)!
@@ -62,7 +63,7 @@ async function submit() {
     await invoke('start_server', { id: info.id })
     refreshTree()
   } catch (e) {
-    await showAlert(String(e))
+    await showAlert(formatStartServerError(e, t))
   }
 }
 </script>

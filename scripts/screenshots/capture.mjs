@@ -32,15 +32,16 @@ const DARK_BG = 'rgb(17, 17, 27)' // body background once shared tokens.css appl
 // ----------------------------------------------------------------------------
 const q = { quality_ov: false, quality_bl: false, quality_sb: false, quality_nt: false, quality_iv: false }
 
+// asdu_type/category 须与后端 AsduTypeId::name() / DataCategory::key() 一致
 const slavePoints = [
-  { ioa: 1, asdu_type: 'M_SP_NA_1', category: '单点 (SP)', name: '断路器合位', comment: '断路器 QF1', value: '1', ...q, timestamp: null },
-  { ioa: 2, asdu_type: 'M_DP_NA_3', category: '双点 (DP)', name: '隔离开关', comment: '刀闸 QS1', value: '2', ...q, timestamp: null },
-  { ioa: 3, asdu_type: 'M_ST_NA_5', category: '步位置 (ST)', name: '有载调压档位', comment: '', value: '8', ...q, timestamp: null },
-  { ioa: 4, asdu_type: 'M_BO_NA_7', category: '位串 (BO)', name: '保护动作字', comment: '', value: '16711680', ...q, timestamp: null },
-  { ioa: 5, asdu_type: 'M_ME_NA_9', category: '归一化 (ME_NA)', name: '母线电压', comment: '10kV I 母', value: '0.95', ...q, timestamp: null },
-  { ioa: 6, asdu_type: 'M_ME_NB_11', category: '标度化 (ME_NB)', name: '有功功率', comment: '', value: '1250', ...q, timestamp: null },
-  { ioa: 7, asdu_type: 'M_ME_NC_13', category: '浮点 (ME_NC)', name: '系统频率', comment: '', value: '50.02', ...q, timestamp: null },
-  { ioa: 8, asdu_type: 'M_IT_NA_15', category: '累计量 (IT)', name: '正向有功电度', comment: '', value: '123456', ...q, timestamp: null },
+  { ioa: 1, asdu_type: 'M_SP_NA_1', category: 'single_point', name: '断路器合位', comment: '断路器 QF1', value: '1', ...q, timestamp: null },
+  { ioa: 2, asdu_type: 'M_DP_NA_1', category: 'double_point', name: '隔离开关', comment: '刀闸 QS1', value: '2', ...q, timestamp: null },
+  { ioa: 3, asdu_type: 'M_ST_NA_1', category: 'step_position', name: '有载调压档位', comment: '', value: '8', ...q, timestamp: null },
+  { ioa: 4, asdu_type: 'M_BO_NA_1', category: 'bitstring', name: '保护动作字', comment: '', value: '16711680', ...q, timestamp: null },
+  { ioa: 5, asdu_type: 'M_ME_NA_1', category: 'normalized_measured', name: '母线电压', comment: '10kV I 母', value: '0.95', ...q, timestamp: null },
+  { ioa: 6, asdu_type: 'M_ME_NB_1', category: 'scaled_measured', name: '有功功率', comment: '', value: '1250', ...q, timestamp: null },
+  { ioa: 7, asdu_type: 'M_ME_NC_1', category: 'float_measured', name: '系统频率', comment: '', value: '50.02', ...q, timestamp: null },
+  { ioa: 8, asdu_type: 'M_IT_NA_1', category: 'integrated_totals', name: '正向有功电度', comment: '', value: '123456', ...q, timestamp: null },
 ]
 
 const masterPoints = slavePoints.map((p, i) => ({
@@ -69,7 +70,7 @@ const masterLogs = [
 // IPC stub — runs in the browser BEFORE the app boots (no closure over Node).
 // ----------------------------------------------------------------------------
 function installTauriMock(cfg) {
-  try { localStorage.setItem('iec104.language', cfg.locale) } catch (e) { /* ignore */ }
+  try { localStorage.setItem('iec104.locale', cfg.locale) } catch (e) { /* ignore */ }
   const DATA = cfg.commands || {}
   // these two return an incremental {seq,total_count,points} envelope; once the
   // poller has caught up (sinceSeq >= seq) return an empty delta so it stays put.
@@ -144,7 +145,7 @@ const shots = [
     async act(page) {
       await page.getByText('127.0.0.1', { exact: false }).first().click().catch(() => {})
       await page.waitForFunction(() => document.querySelectorAll('table tbody tr').length >= 8, { timeout: 6000 }).catch(() => {})
-      await page.waitForTimeout(500)
+      await page.waitForTimeout(3600) // 等首轮数据触发的分类变位闪烁(3s)退去
     },
   },
   {
@@ -155,7 +156,7 @@ const shots = [
       await page.getByText('127.0.0.1', { exact: false }).first().click().catch(() => {})
       await page.waitForTimeout(800)
       await page.getByText('通信日志', { exact: false }).first().click().catch(() => {})
-      await page.waitForTimeout(1500)
+      await page.waitForTimeout(3600) // 等首轮数据触发的分类变位闪烁(3s)退去
     },
   },
 ]

@@ -4,7 +4,6 @@ import { invoke } from '@tauri-apps/api/core'
 import { dialogKey } from '@shared/composables/useDialog'
 import type { showAlert as ShowAlert } from '@shared/composables/useDialog'
 import type { DataPointInfo } from '../types'
-import { categoryKeyOf } from '../types'
 import { useI18n, localizeCategoryLabel } from '@shared/i18n'
 import EmptyState from '@shared/components/EmptyState.vue'
 import QualityIndicator from '@shared/components/QualityIndicator.vue'
@@ -13,7 +12,7 @@ const { t } = useI18n()
 const { showAlert } = inject<{ showAlert: typeof ShowAlert }>(dialogKey)!
 const selectedServerId = inject<Ref<string | null>>('selectedServerId')!
 const selectedCA = inject<Ref<number | null>>('selectedCA')!
-const selectedPoints = inject<Ref<{ ioa: number; asdu_type: string; value: string }[]>>('selectedPoints')!
+const selectedPoints = inject<Ref<{ ioa: number; asdu_type: string; category: string; value: string }[]>>('selectedPoints')!
 
 const hasSelection = computed(() => selectedPoints.value.length > 0)
 const isSingle = computed(() => selectedPoints.value.length === 1)
@@ -128,12 +127,12 @@ type QualityBits = { ov: boolean; bl: boolean; sb: boolean; nt: boolean; iv: boo
 const batchQuality = ref<QualityBits>({ ov: false, bl: false, sb: false, nt: false, iv: false })
 const batchValue = ref('')
 
-// 选中点是否全同分类(批量写值前提)
+// 选中点是否全同分类(批量写值前提),直接比对后端权威的 category 字段
 const allSameCategory = computed(() => {
   const pts = selectedPoints.value
   if (pts.length === 0) return false
-  const k = categoryKeyOf(pts[0].asdu_type)
-  return pts.every((p) => categoryKeyOf(p.asdu_type) === k)
+  const k = pts[0].category
+  return pts.every((p) => p.category === k)
 })
 // 选中点是否全为测量类(OV 适用)
 const allMeasured = computed(
@@ -235,6 +234,10 @@ function handleEditKeydown(e: KeyboardEvent) {
         <div v-if="pointDetail.comment" class="detail-row">
           <span class="detail-label">{{ t('valuePanel.comment') }}</span>
           <span class="detail-value">{{ pointDetail.comment }}</span>
+        </div>
+        <div v-if="pointDetail.mapping_common_address != null" class="detail-row">
+          <span class="detail-label">{{ t('valuePanel.mapping') }}</span>
+          <span class="detail-value mono">CA {{ pointDetail.mapping_common_address }} · IOA {{ pointDetail.mapping_ioa }} · {{ pointDetail.mapping_asdu_type }}</span>
         </div>
       </div>
 

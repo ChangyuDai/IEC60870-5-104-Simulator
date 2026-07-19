@@ -1,10 +1,10 @@
 use crate::state::{AppState, DataPointInfo, IncrementalDataResponse, ServerInfo, SlaveServerState, StationInfo};
-use iec104sim_core::data_point::{DataPoint, DataPointValue, InformationObjectDef};
+use iec104sim_core::data_point::{ControlTarget, DataPoint, DataPointValue, InformationObjectDef};
 use iec104sim_core::log_collector::LogCollector;
 use iec104sim_core::log_entry::LogEntry;
 use iec104sim_core::slave::{
     MutationMode, MutationParams, ProtocolTimingConfig, RemoteOperationConfig, ServerState,
-    SlaveServer, SlaveTransportConfig, Station,
+    SlaveError, SlaveServer, SlaveTransportConfig, Station,
 };
 use iec104sim_core::types::{AsduTypeId, QualityFlags};
 use rand::Rng;
@@ -123,26 +123,55 @@ pub async fn start_server(
     state: State<'_, AppState>,
     app_handle: AppHandle,
     id: String,
-) -> Result<(), String> {
+) -> Result<(), StartServerError> {
     let state_str: String;
     {
         let mut servers = state.servers.write().await;
         let srv = servers
             .get_mut(&id)
-            .ok_or_else(|| format!("server {} not found", id))?;
+            .ok_or_else(|| StartServerError::new("server_not_found", format!("server {} not found", id)))?;
 
-        srv.server
-            .start()
-            .await
-            .map_err(|e| format!("failed to start: {}", e))?;
+        if let Err(error) = srv.server.start().await {
+            return Err(StartServerError::from_slave(error));
+        }
         state_str = format!("{:?}", srv.server.state());
     }
 
     app_handle.emit("server-state-changed", ServerStateEvent {
         id, state: state_str,
-    }).map_err(|e| e.to_string())?;
+    }).map_err(|e| StartServerError::new("event_failed", e.to_string()))?;
 
     Ok(())
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct StartServerError {
+    pub code: String,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub addr: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub os_error: Option<i32>,
+}
+
+impl StartServerError {
+    fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self { code: code.into(), message: message.into(), addr: None, os_error: None }
+    }
+
+    fn from_slave(error: SlaveError) -> Self {
+        match error {
+            SlaveError::BindFailed { code, addr, os_error, message } => Self {
+                code: code.to_string(),
+                message,
+                addr: Some(addr),
+                os_error: Some(os_error),
+            },
+            SlaveError::AlreadyRunning => Self::new("already_running", "server is already running"),
+            other => Self::new("start_failed", other.to_string()),
+        }
+    }
 }
 
 #[tauri::command]
@@ -374,8 +403,98 @@ fn parse_asdu_type(s: &str) -> Result<AsduTypeId, String> {
         "mmetf1" => Ok(AsduTypeId::MMeTf1),
         "mitna1" => Ok(AsduTypeId::MItNa1),
         "mittb1" => Ok(AsduTypeId::MItTb1),
+        "cscna1" => Ok(AsduTypeId::CScNa1),
+        "cdcna1" => Ok(AsduTypeId::CDcNa1),
+        "crcna1" => Ok(AsduTypeId::CRcNa1),
+        "csena1" => Ok(AsduTypeId::CSeNa1),
+        "csenb1" => Ok(AsduTypeId::CSeNb1),
+        "csenc1" => Ok(AsduTypeId::CSeNc1),
+        "cbona1" => Ok(AsduTypeId::CBoNa1),
+        "cscta1" => Ok(AsduTypeId::CScTa1),
+        "cdcta1" => Ok(AsduTypeId::CDcTa1),
+        "crcta1" => Ok(AsduTypeId::CRcTa1),
+        "cseta1" => Ok(AsduTypeId::CSeTa1),
+        "csetb1" => Ok(AsduTypeId::CSeTb1),
+        "csetc1" => Ok(AsduTypeId::CSeTc1),
+        "cbota1" => Ok(AsduTypeId::CBoTa1),
         _ => Err(format!("unknown ASDU type: {}", s)),
     }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct ControlTargetRequest {
+    pub common_address: u16,
+    pub ioa: u32,
+    pub asdu_type: String,
+}
+
+fn resolve_control_target(
+    stations: &std::collections::HashMap<u16, Station>,
+    source_type: AsduTypeId,
+    request: Option<&ControlTargetRequest>,
+) -> Result<Option<ControlTarget>, String> {
+    let Some(request) = request else { return Ok(None) };
+    if !source_type.is_control() {
+        return Err("only control-direction points can define a mapping".to_string());
+    }
+    let target_type = parse_asdu_type(&request.asdu_type)?;
+    if !source_type.allowed_target_categories().contains(&target_type.category()) {
+        return Err(format!(
+            "{} cannot map to {}",
+            source_type.name(),
+            target_type.name(),
+        ));
+    }
+    let target_exists = stations
+        .get(&request.common_address)
+        .map(|station| station.data_points.contains(request.ioa, target_type))
+        .unwrap_or(false);
+    if !target_exists {
+        return Err(format!(
+            "mapping target not found: CA={} IOA={} {}",
+            request.common_address,
+            request.ioa,
+            target_type.name(),
+        ));
+    }
+    Ok(Some(ControlTarget {
+        common_address: request.common_address,
+        ioa: request.ioa,
+        asdu_type: target_type,
+    }))
+}
+
+fn validate_control_point_options(
+    asdu_type: AsduTypeId,
+    qualifier: Option<u8>,
+    select_before_operate: Option<bool>,
+) -> Result<(), String> {
+    if !asdu_type.is_control() {
+        if qualifier.is_some() || select_before_operate.is_some() {
+            return Err("QU/QL and S/E can only be configured on control points".to_string());
+        }
+        return Ok(());
+    }
+    match asdu_type.untimestamped_variant() {
+        AsduTypeId::CScNa1 | AsduTypeId::CDcNa1 | AsduTypeId::CRcNa1 => {
+            if qualifier.is_some_and(|q| q > 31) {
+                return Err("command qualifier QU must be in 0..31".to_string());
+            }
+        }
+        AsduTypeId::CSeNa1 | AsduTypeId::CSeNb1 | AsduTypeId::CSeNc1 => {
+            if qualifier.is_some_and(|q| q > 127) {
+                return Err("set-point qualifier QL must be in 0..127".to_string());
+            }
+        }
+        AsduTypeId::CBoNa1 => {
+            if qualifier.is_some() || select_before_operate.is_some() {
+                return Err("bitstring commands do not carry QU/QL or S/E".to_string());
+            }
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 #[derive(Debug, Deserialize)]
@@ -387,6 +506,9 @@ pub struct AddDataPointRequest {
     pub asdu_type: String,
     pub name: Option<String>,
     pub comment: Option<String>,
+    pub mapping: Option<ControlTargetRequest>,
+    pub command_qualifier: Option<u8>,
+    pub select_before_operate: Option<bool>,
 }
 
 #[tauri::command]
@@ -400,21 +522,137 @@ pub async fn add_data_point(
         .ok_or_else(|| format!("server {} not found", request.server_id))?;
 
     let asdu_type = parse_asdu_type(&request.asdu_type)?;
+    validate_control_point_options(
+        asdu_type,
+        request.command_qualifier,
+        request.select_before_operate,
+    )?;
+    let mut stations = srv.server.stations.write().await;
+    let mapping = resolve_control_target(&stations, asdu_type, request.mapping.as_ref())?;
     let def = InformationObjectDef {
         ioa: request.ioa,
         asdu_type,
         category: asdu_type.category(),
         name: request.name.unwrap_or_default(),
         comment: request.comment.unwrap_or_default(),
+        mapping,
+        command_qualifier: request.command_qualifier,
+        select_before_operate: request.select_before_operate,
     };
 
-    let mut stations = srv.server.stations.write().await;
     let station = stations
         .get_mut(&request.common_address)
         .ok_or_else(|| format!("station CA={} not found", request.common_address))?;
 
     station.add_point(def)
         .map_err(|e| format!("failed to add point: {}", e))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UpdateDataPointDefinitionRequest {
+    pub server_id: String,
+    pub common_address: u16,
+    pub ioa: u32,
+    pub asdu_type: String,
+    pub name: Option<String>,
+    pub comment: Option<String>,
+    pub mapping: Option<ControlTargetRequest>,
+    pub command_qualifier: Option<u8>,
+    pub select_before_operate: Option<bool>,
+}
+
+/// Update point metadata and its optional explicit control mapping without
+/// changing the runtime value. Mapping validation is all-or-nothing.
+#[tauri::command]
+pub async fn update_data_point_definition(
+    state: State<'_, AppState>,
+    request: UpdateDataPointDefinitionRequest,
+) -> Result<(), String> {
+    let servers = state.servers.read().await;
+    let srv = servers
+        .get(&request.server_id)
+        .ok_or_else(|| format!("server {} not found", request.server_id))?;
+    let asdu_type = parse_asdu_type(&request.asdu_type)?;
+    validate_control_point_options(
+        asdu_type,
+        request.command_qualifier,
+        request.select_before_operate,
+    )?;
+    let mut stations = srv.server.stations.write().await;
+    let mapping = resolve_control_target(&stations, asdu_type, request.mapping.as_ref())?;
+    let station = stations
+        .get_mut(&request.common_address)
+        .ok_or_else(|| format!("station CA={} not found", request.common_address))?;
+    let def = station
+        .object_defs
+        .iter_mut()
+        .find(|d| d.ioa == request.ioa && d.asdu_type == asdu_type)
+        .ok_or_else(|| format!("point IOA={} {} not found", request.ioa, asdu_type.name()))?;
+    def.name = request.name.unwrap_or_default();
+    def.comment = request.comment.unwrap_or_default();
+    def.mapping = mapping;
+    def.command_qualifier = request.command_qualifier;
+    def.select_before_operate = request.select_before_operate;
+    Ok(())
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct ControlMappingTargetInfo {
+    pub common_address: u16,
+    pub ioa: u32,
+    pub asdu_type: String,
+    pub name: String,
+}
+
+/// Return only monitor points compatible with the selected control type.
+#[tauri::command]
+pub async fn list_control_mapping_targets(
+    state: State<'_, AppState>,
+    server_id: String,
+    source_asdu_type: String,
+) -> Result<Vec<ControlMappingTargetInfo>, String> {
+    let source_type = parse_asdu_type(&source_asdu_type)?;
+    if !source_type.is_control() {
+        return Ok(Vec::new());
+    }
+    let stations = {
+        let servers = state.servers.read().await;
+        let srv = servers
+            .get(&server_id)
+            .ok_or_else(|| format!("server {} not found", server_id))?;
+        srv.server.stations.clone()
+    };
+    let guard = stations.read().await;
+    let allowed = source_type.allowed_target_categories();
+    let mut result = Vec::new();
+    for (&ca, station) in guard.iter() {
+        let names: std::collections::HashMap<(u32, AsduTypeId), &str> = station
+            .object_defs
+            .iter()
+            .map(|d| ((d.ioa, d.asdu_type), d.name.as_str()))
+            .collect();
+        for point in station.data_points.all_sorted() {
+            if allowed.contains(&point.asdu_type.category()) {
+                result.push(ControlMappingTargetInfo {
+                    common_address: ca,
+                    ioa: point.ioa,
+                    asdu_type: point.asdu_type.name().to_string(),
+                    name: names
+                        .get(&(point.ioa, point.asdu_type))
+                        .copied()
+                        .unwrap_or_default()
+                        .to_string(),
+                });
+            }
+        }
+    }
+    result.sort_unstable_by(|a, b| {
+        (a.common_address, a.ioa, a.asdu_type.as_str())
+            .cmp(&(b.common_address, b.ioa, b.asdu_type.as_str()))
+    });
+    Ok(result)
 }
 
 #[derive(Debug, Deserialize)]
@@ -784,9 +1022,14 @@ fn data_point_to_info(
     DataPointInfo {
         ioa: p.ioa,
         asdu_type: p.asdu_type.name().to_string(),
-        category: p.asdu_type.category().name().to_string(),
+        category: p.asdu_type.category().key().to_string(),
         name: def.map(|d| d.name.clone()).unwrap_or_default(),
         comment: def.map(|d| d.comment.clone()).unwrap_or_default(),
+        mapping_common_address: def.and_then(|d| d.mapping.map(|m| m.common_address)),
+        mapping_ioa: def.and_then(|d| d.mapping.map(|m| m.ioa)),
+        mapping_asdu_type: def.and_then(|d| d.mapping.map(|m| m.asdu_type.name().to_string())),
+        command_qualifier: def.and_then(|d| d.command_qualifier),
+        select_before_operate: def.and_then(|d| d.select_before_operate),
         value: match &p.value {
             DataPointValue::Normalized { value } => normalized_raw_string(*value),
             _ => p.value.display(),
@@ -1441,6 +1684,16 @@ mod tests {
         let def_map: HashMap<(u32, AsduTypeId), &InformationObjectDef> = HashMap::new();
         let info = data_point_to_info(&p, &def_map);
         assert!(!info.quality_iv && !info.quality_nt && !info.quality_sb && !info.quality_bl && !info.quality_ov);
+    }
+
+    #[test]
+    fn control_point_options_validate_by_wire_type() {
+        assert!(validate_control_point_options(AsduTypeId::CScNa1, Some(31), Some(false)).is_ok());
+        assert!(validate_control_point_options(AsduTypeId::CSeNc1, Some(127), Some(true)).is_ok());
+        assert!(validate_control_point_options(AsduTypeId::CScNa1, Some(32), None).is_err());
+        assert!(validate_control_point_options(AsduTypeId::CSeNc1, Some(128), None).is_err());
+        assert!(validate_control_point_options(AsduTypeId::CBoNa1, Some(1), None).is_err());
+        assert!(validate_control_point_options(AsduTypeId::MSpNa1, None, Some(true)).is_err());
     }
 
     // ---- parse_value_for / 批量 helper(任务 2.3 / 3.3)----

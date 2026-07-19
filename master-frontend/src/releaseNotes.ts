@@ -4,6 +4,8 @@ export const RELEASES_URL = 'https://github.com/Karl-Dai/IEC60870-5-104-Simulato
 
 // Keep in sync with CHANGELOG.md — see `release` skill.
 export const RELEASE_NOTES: string[] = [
+  'v1.14.0 主站修复: 连接树分类计数徽标消失、数据变位分类闪烁失效已修复 (分类稳定键迁移遗漏查询侧); 通信日志 CSV 导出改用系统保存对话框 + Rust 后端写文件 (对齐子站 v1.13.1 机制, Windows WebView2 可靠落盘)',
+  '本版子站大特性: 遥控点位成为一等公民 —— Type 45-51 / 58-64 控制点可声明 / 编辑 / 跨 CA/IOA 映射到监视点, 逐点 QOC/QL 与 S/E 执行模式 (SBO); 旧版同 CA + IOA 自动写回默认保持开启, 升级不破坏既有遥控流程, 详见 CHANGELOG.md',
   'v1.13.1 功能修复集中在 Slave: 修复 Windows 默认监听 0.0.0.0 时停止卡死及其引发的运行参数保存冻结, 通信日志 CSV 改用原生文件保存, 并明确展示 Type 45-50 到监视点的同 CA + IOA 自动映射; Master 同步版本号以保持双端发布一致',
   '新增「停止激活」(COT=8)命令: 主站工具栏可对进行中的总召唤 / 计量召唤下发停止激活, 单 CA 直发、多 CA 弹菜单选具体 CA 或「全部 CA」并发, 「广播 ▾」下另有广播停止总召 / 广播停止计量召唤; 从站正确回「停止确认」(COT=9)而非误按激活处理',
   '英文界面本地化补全 (修复 #27): 报文解析对话框 (标题 / 提示 / 模板按钮 / APCI·ASDU·信息对象表 / 双点值 Intermediate·Indeterminate) 此前在英文构建里硬编码中文绕过 i18n, 现全部走翻译层; 少量后端生成串 (通信日志 Detail 列等) 仍部分中文, 后续版本本地化',

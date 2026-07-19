@@ -58,7 +58,8 @@ async fn tls_send_counter_read_returns_under_100ms_when_peer_is_silent() {
         asdu_type: AsduTypeId::MItNa1,
         category: DataCategory::IntegratedTotals,
         name: String::new(),
-        comment: String::new(),
+        comment: String::new(), mapping: None,
+        command_qualifier: None, select_before_operate: None
     });
     station.data_points.insert(DataPoint::with_value(
         100,

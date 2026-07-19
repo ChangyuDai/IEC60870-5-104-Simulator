@@ -163,6 +163,8 @@ const dict: DictShape = {
     refresh: 'Refresh',
     clear: 'Clear',
     export: 'Export',
+    exporting: 'Exporting…',
+    exportFailed: 'Failed to export CSV',
     singleCommand: 'Single Command IOA={ioa} val={val}',
     doubleCommand: 'Double Command IOA={ioa} val={val}',
     stepCommand: 'Step Command IOA={ioa} val={val}',

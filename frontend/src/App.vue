@@ -26,7 +26,7 @@ const selectedServerId = ref<string | null>(null)
 const selectedServerState = ref<string>('Stopped')
 const selectedCA = ref<number | null>(null)
 const selectedCategory = ref<string | null>(null)
-const selectedPoints = ref<{ ioa: number; asdu_type: string; value: string }[]>([])
+const selectedPoints = ref<{ ioa: number; asdu_type: string; category: string; value: string }[]>([])
 const logExpanded = ref(false)
 
 // Resizable layout — widths persisted to localStorage
@@ -125,7 +125,7 @@ function handleCategorySelect(serverId: string, ca: number, category: string) {
   dataPointTableRef.value?.loadData()
 }
 
-function handlePointSelect(points: { ioa: number; asdu_type: string; value: string }[]) {
+function handlePointSelect(points: { ioa: number; asdu_type: string; category: string; value: string }[]) {
   selectedPoints.value = points
 }
 
