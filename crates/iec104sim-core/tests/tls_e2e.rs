@@ -1,3 +1,7 @@
+// 本文件的验证依赖 tcpdump/tshark 抓包与 SIGTERM(libc::kill),均为 unix 工具链;
+// Windows 上没有等价物,整个测试二进制在 Windows 编译为空。
+#![cfg(unix)]
+
 use iec104sim_core::data_point::DataPointValue;
 use iec104sim_core::master::{MasterConfig, MasterConnection, TlsConfig};
 use iec104sim_core::slave::{
